@@ -64,9 +64,9 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 
 **⚠️ CRITICAL**: 未完成前任何里程碑任务不可开始
 
-- [ ] T005 Implement levels.js UMD dual-export scaffold + 1 个 schema 完整占位 Level in src/data/levels.js: UMD 头（浏览器挂 `STM.LEVELS`、Node `module.exports`，level-data.md 格式选型模板）；占位关 = 4×4 / 2 花色 / 6 滑块（%3==0）/ cfg 默认值（lives:3, damageOnBlock:false, items{1,1,1}, iceMode:'triple', chains:[]）/ metrics 手工估值 / solutionMoves 手工解——作为 schema 活样例
-- [ ] T006 [P] Implement RulesEngine UMD scaffold + 坐标/方向/棱镜常量 in src/core/RulesEngine.js: UMD 双导出（D-02）；坐标 (r,c) row 0=顶部；方向数字 0=U,1=R,2=D,3=L（**顺时针序**，「转 90°」≡ `(d+1)%4`，D-12）；棱镜反射全枚举映射表（`/`:U→R,R→U,D→L,L→D；`\`:U→L,L→U,D→R,R→D）；API 占位导出 init/canTap/applyTap/applyItem/stageTile/terminal/deadlockSuspect/enumerateTaps/validateLevel/renderProbe/snapshot/restore；**纯函数、零 DOM/音频/存储依赖**（Node 可 require 是硬约束）
-- [ ] T007 [P] Implement STM mount stubs in src/core/GameState.js（`STM.GameState.createSession` 占位）、src/render/BoardRenderer.js（`STM.createBoardRenderer` 占位）、src/audio/SoundManager.js（`STM.createSoundManager` 占位）、src/main.js（DOMContentLoaded 入口占位）——共享单全局命名空间 `window.STM`
+- [x] T005 Implement levels.js UMD dual-export scaffold + 1 个 schema 完整占位 Level in src/data/levels.js: UMD 头（浏览器挂 `STM.LEVELS`、Node `module.exports`，level-data.md 格式选型模板）；占位关 = 4×4 / 2 花色 / 6 滑块（%3==0）/ cfg 默认值（lives:3, damageOnBlock:false, items{1,1,1}, iceMode:'triple', chains:[]）/ metrics 手工估值 / solutionMoves 手工解——作为 schema 活样例
+- [x] T006 [P] Implement RulesEngine UMD scaffold + 坐标/方向/棱镜常量 in src/core/RulesEngine.js: UMD 双导出（D-02）；坐标 (r,c) row 0=顶部；方向数字 0=U,1=R,2=D,3=L（**顺时针序**，「转 90°」≡ `(d+1)%4`，D-12）；棱镜反射全枚举映射表（`/`:U→R,R→U,D→L,L→D；`\`:U→L,L→U,D→R,R→D）；API 占位导出 init/canTap/applyTap/applyItem/stageTile/terminal/deadlockSuspect/enumerateTaps/validateLevel/renderProbe/snapshot/restore；**纯函数、零 DOM/音频/存储依赖**（Node 可 require 是硬约束）
+- [x] T007 [P] Implement STM mount stubs in src/core/GameState.js（`STM.GameState.createSession` 占位）、src/render/BoardRenderer.js（`STM.createBoardRenderer` 占位）、src/audio/SoundManager.js（`STM.createSoundManager` 占位）、src/main.js（DOMContentLoaded 入口占位）——共享单全局命名空间 `window.STM`
 
 **Checkpoint**: 双击 index.html（file:// 协议）控制台零报错零跨域警告（D-01 验收核心）；`window.STM` 各挂载点就绪
 
