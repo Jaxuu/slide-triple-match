@@ -80,12 +80,12 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 
 ### RulesEngine 核心规则（无机制版）for US1
 
-- [ ] T008 [US1] Implement `init` / `canTap` / `enumerateTaps` in src/core/RulesEngine.js: init(level)→EngineState（N×N board、tiles 深拷贝+id=TileSpec 索引、dock/staging 空、cfg/lives 应用）；canTap 谓词=滑块在棋盘/暂存区 且机制状态可点（机制谓词留 M2 扩展点；**射线畅通性不属于 canTap**——受阻滑块仍可点击，点击后弹回）；enumerateTaps 枚举可行 tap 目标 id
-- [ ] T009 [US1] Implement applyTap 射线行走与 blocked/fly-out 分支 in src/core/RulesEngine.js: Step1 从 (r,c) 沿 d 逐格行走到棋盘边缘，首个被占格=阻挡点；Blocked 分支→前冲动画数据（path/blockedAt）+ damage=cfg.damageOnBlock?1:0（生命扣减由 GameState 记账）；无阻挡→Fly-out（滑块移出棋盘）；TapResult 结构 per rules-engine.md §5（type/tileId/path/events，事件顺序=发生顺序）
-- [ ] T010 [US1] Implement Dock 归拢插入与三消结算 in src/core/RulesEngine.js: 飞入滑块插入位置=已有同花色紧邻（无同花色→dock 末尾空位，FR-004）；插入后该花色计数==3→三消结算循环（可多组同时、循环至无）→ 腾出 3 槽位 + 'match'/'remove' 事件（FR-005）；**dock 满 7 时飞入先结算三消再判负**（Edge Case「三消优先于爆槽」，rules-engine.md §3.4）
-- [ ] T011 [US1] Implement terminal() 基础版 in src/core/RulesEngine.js: won=棋盘滑块==0 且 dock==0（M2 将扩展 staging，Δ3）；lost_burst=dock.length==7 且无任何花色计数==3（结算后态）；lost_lives=lives≤0；deadlockSuspect 占位返回 false（M2 实现保守谓词）
-- [ ] T012 [US1] Implement snapshot/restore 深拷贝对 in src/core/RulesEngine.js: structuredClone{board 滑块态, dock, staging, items, combo, score, lives}（**运行时 dock 保序**——D-07 规范化仅限 Solver 哈希）；棱镜与 TileSpec 静态部分不入快照（不可变）——Undo 与 Solver 回溯共用（rules-engine.md §8）
-- [ ] T013 [US1] Implement validateLevel 基础校验 + renderProbe in src/core/RulesEngine.js: `LEVELS[i].id===i+1` 连续、tiles.length%3===0 且 ≥6、无 (r,c) 重复、4≤n≤8、每花色计数%3===0、solutionMoves 引用合法 tile id；renderProbe 输出 Renderer 渲染快照（§8 轻量视图，仅浏览器构建含）
+- [x] T008 [US1] Implement `init` / `canTap` / `enumerateTaps` in src/core/RulesEngine.js: init(level)→EngineState（N×N board、tiles 深拷贝+id=TileSpec 索引、dock/staging 空、cfg/lives 应用）；canTap 谓词=滑块在棋盘/暂存区 且机制状态可点（机制谓词留 M2 扩展点；**射线畅通性不属于 canTap**——受阻滑块仍可点击，点击后弹回）；enumerateTaps 枚举可行 tap 目标 id
+- [x] T009 [US1] Implement applyTap 射线行走与 blocked/fly-out 分支 in src/core/RulesEngine.js: Step1 从 (r,c) 沿 d 逐格行走到棋盘边缘，首个被占格=阻挡点；Blocked 分支→前冲动画数据（path/blockedAt）+ damage=cfg.damageOnBlock?1:0（生命扣减由 GameState 记账）；无阻挡→Fly-out（滑块移出棋盘）；TapResult 结构 per rules-engine.md §5（type/tileId/path/events，事件顺序=发生顺序）
+- [x] T010 [US1] Implement Dock 归拢插入与三消结算 in src/core/RulesEngine.js: 飞入滑块插入位置=已有同花色紧邻（无同花色→dock 末尾空位，FR-004）；插入后该花色计数==3→三消结算循环（可多组同时、循环至无）→ 腾出 3 槽位 + 'match'/'remove' 事件（FR-005）；**dock 满 7 时飞入先结算三消再判负**（Edge Case「三消优先于爆槽」，rules-engine.md §3.4）
+- [x] T011 [US1] Implement terminal() 基础版 in src/core/RulesEngine.js: won=棋盘滑块==0 且 dock==0（M2 将扩展 staging，Δ3）；lost_burst=dock.length==7 且无任何花色计数==3（结算后态）；lost_lives=lives≤0；deadlockSuspect 占位返回 false（M2 实现保守谓词）
+- [x] T012 [US1] Implement snapshot/restore 深拷贝对 in src/core/RulesEngine.js: structuredClone{board 滑块态, dock, staging, items, combo, score, lives}（**运行时 dock 保序**——D-07 规范化仅限 Solver 哈希）；棱镜与 TileSpec 静态部分不入快照（不可变）——Undo 与 Solver 回溯共用（rules-engine.md §8）
+- [x] T013 [US1] Implement validateLevel 基础校验 + renderProbe in src/core/RulesEngine.js: `LEVELS[i].id===i+1` 连续、tiles.length%3===0 且 ≥6、无 (r,c) 重复、4≤n≤8、每花色计数%3===0、solutionMoves 引用合法 tile id；renderProbe 输出 Renderer 渲染快照（§8 轻量视图，仅浏览器构建含）
 
 ### GameState / Renderer / Audio / 数据 / 集成 for US1
 
