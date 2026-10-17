@@ -95,9 +95,9 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 - [x] T017 [US1] Implement 棋盘绘制与核心动效 in src/render/BoardRenderer.js: 格线/滑块/白色箭头（指 d 方向）；飞出=沿 path 位移+缩放淡出；受阻=前冲-回弹+棋盘 CSS shake；三消=3 chip 聚合爆闪+Canvas 粒子（花色色粒子 12~20 个/次、单帧 ≤200）；订阅 session 事件驱动重绘
 - [x] T018 [P] [US1] Implement SoundManager 核心音效 in src/audio/SoundManager.js: 首次 pointerdown 惰性创建 AudioContext+resume（autoplay 政策）；Web Audio 纯合成（振荡器正弦/方波/三角扫频+白噪声 buffer+DynamicsCompressor）；M1 音色: click(880Hz 短方波)/flyout(上行扫频)/blocked(120Hz 三角+噪声冲击)/match(三音上行琶音、连击数调制音高)/victory/defeat；setMuted(bool)
 - [x] T019 [P] [US1] Author 3~5 手工烟雾测试关 in src/data/levels.js: schema 与最终契约完全一致（level-data.md §2 全字段含 name/chapter/theme）；4×4 起步、覆盖不同花色数；每关内嵌手工求解的 solutionMoves（回放必胜）；含 1 关花色数 ≥4（可演示 7 格爆槽——每花色未成三最多滞留 2 个，≥4 花色才可能填满 7 格）+ 全部 damageOnBlock:false（第 1 章受阻不扣命）；完成后以 validateLevel 自检（依赖 T013）
-- [ ] T020 [US1] Implement boot 流程与 LEVELS.length 动态化 in src/main.js: DOMContentLoaded→读 STM.LEVELS / `?level=N` 深链（1≤N≤LEVELS.length 钳制）→ createSession(LEVELS[N-1]) → 挂 Renderer/Sound；**一切关卡总数引用动态取 LEVELS.length（Δ4 架构埋点，禁止硬编码 50）**
-- [ ] T021 [US1] Implement HUD/Dock DOM 视图与结算浮层 in src/main.js: HUD 数值绑定（关卡名/编号、生命 ♥×3 DOM、连击/分数）；Dock 7 格 chip 渲染（同花色归拢视觉，DOM+内联 SVG）；结算浮层: won→「下一关」（id+1>LEVELS.length→终局占位提示）/「重玩」、lost→「重玩」（lives 重置）；输入统一 pointerdown/pointerup（**禁 touchstart/mousedown——宪章 IV 红线**）
-- [ ] T022 [US1] **Checkpoint M1（验收门）**: 逐条执行 quickstart Q1.1~Q1.7（射线畅通飞出/受阻弹回/三消/胜利结算/爆槽判负/首点 30s 内有效飞出 SC-005 路径/8 花色灰度模式下仅凭图形可辨）；US1-AC1~AC5 全过；烟雾关完整通关；file:// 双击零控制台报错；受阻不扣命。**未全过不得进入 M2**
+- [x] T020 [US1] Implement boot 流程与 LEVELS.length 动态化 in src/main.js: DOMContentLoaded→读 STM.LEVELS / `?level=N` 深链（1≤N≤LEVELS.length 钳制）→ createSession(LEVELS[N-1]) → 挂 Renderer/Sound；**一切关卡总数引用动态取 LEVELS.length（Δ4 架构埋点，禁止硬编码 50）**
+- [x] T021 [US1] Implement HUD/Dock DOM 视图与结算浮层 in src/main.js: HUD 数值绑定（关卡名/编号、生命 ♥×3 DOM、连击/分数）；Dock 7 格 chip 渲染（同花色归拢视觉，DOM+内联 SVG）；结算浮层: won→「下一关」（id+1>LEVELS.length→终局占位提示）/「重玩」、lost→「重玩」（lives 重置）；输入统一 pointerdown/pointerup（**禁 touchstart/mousedown——宪章 IV 红线**）
+- [x] T022 [US1] **Checkpoint M1（验收门）**: 逐条执行 quickstart Q1.1~Q1.7（射线畅通飞出/受阻弹回/三消/胜利结算/爆槽判负/首点 30s 内有效飞出 SC-005 路径/8 花色灰度模式下仅凭图形可辨）；US1-AC1~AC5 全过；烟雾关完整通关；file:// 双击零控制台报错；受阻不扣命。**未全过不得进入 M2**
 
 ---
 

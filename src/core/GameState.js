@@ -44,10 +44,15 @@
     var animTimer = null;
 
     /* ---- 事件转发（Renderer/SoundManager 订阅） ---- */
-    function emit(e) { onEvent(e); }
+    var ready = false; /* 构造期静默标志：调用方尚未拿到 session 引用 */
+
+    function emit(e) {
+      if (!ready && e.e === 'phase') return; /* 构造期 phase 事件延后 */
+      onEvent(e);
+    }
 
     function emitPhase() {
-      emit({ e: 'phase', phase: phase, score: engine.score, combo: engine.combo, lives: engine.lives });
+      if (ready) onEvent({ e: 'phase', phase: phase, score: engine.score, combo: engine.combo, lives: engine.lives });
     }
 
     /* ---- 终局判定调度（SETTLING 末尾，顺序固定：won → burst → lives → deadlock） ---- */
@@ -202,8 +207,8 @@
     /* ---- 引擎态直访（Renderer 轮询用） ---- */
     function engineState() { return engine; }
 
-    emitPhase();
-    return {
+    ready = true; /* 构造完毕：此后事件可正常下发（首 phase 事件于返回后异步发） */
+    var api = {
       tap: tap,
       tapStaged: tapStaged,
       useItem: useItem,
@@ -213,6 +218,8 @@
       engineState: engineState,
       PHASE: PHASE
     };
+    setTimeout(function () { emitPhase(); }, 0); /* 首次 phase 通知（调用方此时已持有 session） */
+    return api;
   }
 
   STM.GameState = { createSession: createSession, PHASE: PHASE };
