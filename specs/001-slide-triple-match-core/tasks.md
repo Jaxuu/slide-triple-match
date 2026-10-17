@@ -51,10 +51,10 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 
 **Purpose**: 项目骨架 + 文档口径对齐
 
-- [ ] T001 Create project structure per implementation plan: 空文件占位 `index.html`, `css/style.css`, `src/main.js`, `src/core/GameState.js`, `src/core/RulesEngine.js`, `src/render/BoardRenderer.js`, `src/audio/SoundManager.js`, `src/data/levels.js`, `tools/level-config.js`, `tools/generator.js`, `tools/solver.js`（仓库不含 package.json/node_modules——宪章 II）
-- [ ] T002 Build index.html view skeleton per contracts/game-session.md §3: `#app`(9:16) 内 `#hud` / `#board-wrap > #board`(canvas) / `#staging`(3 格，Dock 上方) / `#dock`(7 格) / `#items`(3 键道具栏) / `#debug-panel` / `#result-overlay`；固定 classic `<script defer>` 加载序：`src/data/levels.js → src/core/RulesEngine.js → src/core/GameState.js → src/render/BoardRenderer.js → src/audio/SoundManager.js → src/main.js`；禁止 `type="module"`、动态 import()、fetch 加载代码/数据（D-01）
-- [ ] T003 [P] Implement 9:16 responsive shell in css/style.css (D-13): `#app` aspect-ratio 9/16；`<720px` 手机 100vw/100dvh（不支持 dvh 回退 100vh）；`≥1024px` 居中 + 右侧 320px 面板位；比例约 棋盘 62% / Dock+Staging+道具栏 28% / HUD 10%；`clamp()` 字号；HUD/Dock/Staging/道具栏/结算浮层/移动抽屉基础样式
-- [ ] T004 Sync spec.md wording to Δ increments in specs/001-slide-triple-match-core/spec.md: FR-014（转向垫载体取消，机制 A 仅齿轮滑块）、FR-024-3（暂存区取消自动回填，改点击自由牌）、FR-006（胜利条件扩展：棋盘+暂存区+收集槽全清空）、FR-026 保留——消除 spec/plan/契约间文档歧义（plan.md「建议」节）
+- [x] T001 Create project structure per implementation plan: 空文件占位 `index.html`, `css/style.css`, `src/main.js`, `src/core/GameState.js`, `src/core/RulesEngine.js`, `src/render/BoardRenderer.js`, `src/audio/SoundManager.js`, `src/data/levels.js`, `tools/level-config.js`, `tools/generator.js`, `tools/solver.js`（仓库不含 package.json/node_modules——宪章 II）
+- [x] T002 Build index.html view skeleton per contracts/game-session.md §3: `#app`(9:16) 内 `#hud` / `#board-wrap > #board`(canvas) / `#staging`(3 格，Dock 上方) / `#dock`(7 格) / `#items`(3 键道具栏) / `#debug-panel` / `#result-overlay`；固定 classic `<script defer>` 加载序：`src/data/levels.js → src/core/RulesEngine.js → src/core/GameState.js → src/render/BoardRenderer.js → src/audio/SoundManager.js → src/main.js`；禁止 `type="module"`、动态 import()、fetch 加载代码/数据（D-01）
+- [x] T003 [P] Implement 9:16 responsive shell in css/style.css (D-13): `#app` aspect-ratio 9/16；`<720px` 手机 100vw/100dvh（不支持 dvh 回退 100vh）；`≥1024px` 居中 + 右侧 320px 面板位；比例约 棋盘 62% / Dock+Staging+道具栏 28% / HUD 10%；`clamp()` 字号；HUD/Dock/Staging/道具栏/结算浮层/移动抽屉基础样式
+- [x] T004 Sync spec.md wording to Δ increments in specs/001-slide-triple-match-core/spec.md: FR-014（转向垫载体取消，机制 A 仅齿轮滑块）、FR-024-3（暂存区取消自动回填，改点击自由牌）、FR-006（胜利条件扩展：棋盘+暂存区+收集槽全清空）、FR-026 保留——消除 spec/plan/契约间文档歧义（plan.md「建议」节）
 
 ---
 

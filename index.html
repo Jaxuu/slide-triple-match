@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Slide &amp; Triple · 滑块三消</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <header id="hud">
+    <div class="hud-left">
+      <span id="hud-level-name">Level</span>
+      <span id="hud-level-no">1</span>
+    </div>
+    <div class="hud-center">
+      <span id="hud-lives" aria-label="生命"></span>
+    </div>
+    <div class="hud-right">
+      <span id="hud-combo" class="hud-combo"></span>
+      <span id="hud-score">0</span>
+    </div>
+  </header>
+
+  <div id="board-wrap">
+    <canvas id="board"></canvas>
+  </div>
+
+  <div id="staging" aria-label="暂存区"></div>
+
+  <div id="dock" aria-label="收集槽"></div>
+
+  <div id="items">
+    <button id="item-undo" type="button" aria-label="撤回上一步">
+      <span class="item-icon" aria-hidden="true">↺</span><span class="item-count">0</span>
+    </button>
+    <button id="item-wrench" type="button" aria-label="强制转向扳手">
+      <span class="item-icon" aria-hidden="true">🔧</span><span class="item-count">0</span>
+    </button>
+    <button id="item-stage" type="button" aria-label="移出槽位">
+      <span class="item-icon" aria-hidden="true">⇧</span><span class="item-count">0</span>
+    </button>
+  </div>
+
+  <div id="result-overlay" hidden>
+    <div class="result-card">
+      <h2 id="result-title"></h2>
+      <p id="result-detail"></p>
+      <div class="result-actions">
+        <button id="result-retry" type="button">重玩</button>
+        <button id="result-next" type="button">下一关</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="debug-panel" hidden>
+    <h3>调试面板</h3>
+    <label>跳关 <select id="debug-level"></select></label>
+    <button id="debug-reset" type="button">重置</button>
+    <button id="debug-hint" type="button">Hint</button>
+    <button id="debug-auto" type="button">Auto-Play</button>
+    <div id="debug-info"></div>
+    <label><input type="checkbox" id="debug-mute"> 音效</label>
+  </div>
+</div>
+
+<!-- 固定 classic script 加载序（D-01）：levels → RulesEngine → GameState → BoardRenderer → SoundManager → main -->
+<script defer src="src/data/levels.js"></script>
+<script defer src="src/core/RulesEngine.js"></script>
+<script defer src="src/core/GameState.js"></script>
+<script defer src="src/render/BoardRenderer.js"></script>
+<script defer src="src/audio/SoundManager.js"></script>
+<script defer src="src/main.js"></script>
+</body>
+</html>

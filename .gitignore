@@ -1,0 +1,14 @@
+# Universal
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.idea/
+.vscode/
+
+# Node.js (offline tools only — runtime has zero deps, no package.json committed)
+node_modules/
+*.log
+npm-debug.log*
+.env
+.env.*
