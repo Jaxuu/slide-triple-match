@@ -19,3 +19,11 @@
    - git commit -m "<type>(<scope>): <清晰描述本模块完成的任务编号与功能>"
    - git push
 3. **门禁约束**：只有当 git push 成功将当前功能推送到 GitHub 远程仓库（exit code 0）后，才允许继续编写下一个功能模块的代码！若 push 失败，必须立即暂停并向用户报告原因。
+
+## 双分支管理与里程碑合并规范 (Branching & Milestone Merge)
+- **日常开发分支**：所有子任务与功能逻辑组的日常 commit 与 push 均在特性分支 `001-slide-triple-match-core` 上进行。
+- **主干合并时机（Milestone Gate Merge）**：每当完成一个完整里程碑的 Checkpoint 验收门（即完成 T022、T039、T052、T063 时），在特性分支 push 成功后，必须依次执行以下命令将稳定成果同步合并至 `main` 主干分支，随后切回特性分支继续开发：
+  1. `git checkout main`
+  2. `git merge 001-slide-triple-match-core --no-ff -m "chore(release): merge milestone checkpoint into main"`
+  3. `git push origin main`
+  4. `git checkout 001-slide-triple-match-core`
