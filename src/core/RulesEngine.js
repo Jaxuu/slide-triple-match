@@ -543,6 +543,24 @@
       pSeen[pk] = true;
       if (p.t !== '/' && p.t !== '\\') errors.push('棱镜型非法 t=' + p.t);
     }
+    /* M1.6 根基规范 2: 底层 z=0 必须 100% 满铺（棱镜格除外——严禁空置黑洞格） */
+    var nVal = typeof level.n === 'number' ? level.n : 0;
+    var baseGrid = {};
+    for (var gi = 0; gi < (level.tiles || []).length; gi++) {
+      var gt = level.tiles[gi];
+      if ((gt.z || 0) === 0) baseGrid[gt.r + ':' + gt.c] = true;
+    }
+    for (var gr2 = 0; gr2 < nVal; gr2++) {
+      for (var gc2 = 0; gc2 < nVal; gc2++) {
+        var isPrismCell = false;
+        for (var gp = 0; gp < prisms.length; gp++) {
+          if (prisms[gp].r === gr2 && prisms[gp].c === gc2) { isPrismCell = true; break; }
+        }
+        if (!isPrismCell && !baseGrid[gr2 + ':' + gc2]) {
+          errors.push('底层 z=0 未满铺: 空洞格 (' + gr2 + ',' + gc2 + ')');
+        }
+      }
+    }
     var cfg = level.cfg || {};
     if (cfg.iceMode != null && cfg.iceMode !== 'triple' && cfg.iceMode !== 'adjacent') {
       errors.push('iceMode 非法: ' + cfg.iceMode);

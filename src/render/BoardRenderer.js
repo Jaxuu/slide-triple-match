@@ -326,6 +326,7 @@
     var particles = [];
     var highlight = -1;    /* Hint 高亮（M4） */
     var lastProbe = null;
+    var tileInfo = {};     /* M1.6: id → {s,d,z,stackDepth} 视觉缓存（滑块移除后动画仍可绘制） */
     var revealAt = {};     /* Δ7: tileId → 上浮起始时刻（含延迟） */
 
     function nowMs() {
@@ -369,6 +370,7 @@
           if (a.kind === 'match') spawnParticles(a, now);
           if (a.kind === 'reveal') delete revealAt[a.tileId];
           anims.splice(i, 1);
+          dirty = true; /* 动画结束时强制重绘（防“末帧静默”——M1.6 渲染缺陷修复） */
         } else active = true;
       }
       for (i = particles.length - 1; i >= 0; i--) {
@@ -424,10 +426,14 @@
       /* 棱镜（M1 关卡无——逻辑就绪，M2 T034 完整视觉） */
       drawPrisms(lastProbe.prisms);
 
-      /* 棋盘滑块：z 升序（底层先画，顶层覆盖）；跳过动画中滑块 */
-      var animSet = {};
+      /* 棋盘滑块：z 升序（底层先画，顶层覆盖）
+       * M1.6 缺陷修复：reveal 目标滑块不跳过——由 drawBoardTile 内按 revealAt 插值上浮
+       * （此前 animSet 跳过 + 动画层 continue → 下层滑块 560ms 隐形甚至永久隐形）
+       * 飞出/弹回/三消源滑块已 removed，renderProbe 不含 → 无需 animSet 过滤 */
+      /* 弹回动画滑块仍在棋盘（未 removed）——仅由动画层绘制，防静态层重影 */
+      var blockSet = {};
       var i;
-      for (i = 0; i < anims.length; i++) animSet[anims[i].tileId] = true;
+      for (i = 0; i < anims.length; i++) if (anims[i].kind === 'block') blockSet[anims[i].tileId] = true;
       var tiles = lastProbe.tiles;
       var boardTiles = [];
       for (i = 0; i < tiles.length; i++) {
@@ -439,12 +445,11 @@
         return p.c - q.c;
       });
       for (i = 0; i < boardTiles.length; i++) {
-        var t = boardTiles[i];
-        if (animSet[t.id]) continue;
-        drawBoardTile(t, now);
+        if (blockSet[boardTiles[i].id]) continue;
+        drawBoardTile(boardTiles[i], now);
       }
 
-      /* 动画层（飞出/弹回/爆闪） */
+      /* 动画层（飞出/弹回/爆闪；reveal 由 drawBoardTile 上浮插值处理——不再跳过绘制） */
       for (i = 0; i < anims.length; i++) {
         var a = anims[i];
         if (a.kind === 'reveal') continue;
@@ -506,10 +511,15 @@
       var layerOff = -cell * 0.07 * Math.max(0, stackN - 1 - (t.z || 0));
       var lift = 0;
       var rv = revealAt[t.id];
-      if (rv != null && now >= rv) {
-        var el = Math.min(1, (now - rv) / REVEAL_MS);
-        var ease = 1 - Math.pow(1 - el, 3);
-        lift = (1 - ease) * cell * 0.45;
+      if (rv != null) {
+        /* M1.6: 延迟期下沉待命（被飞出滑块遮盖——避免「静止→跳落→上浮」突跳） */
+        if (now < rv) {
+          lift = cell * 0.45;
+        } else {
+          var el = Math.min(1, (now - rv) / REVEAL_MS);
+          var ease = 1 - Math.pow(1 - el, 3);
+          lift = (1 - ease) * cell * 0.45;
+        }
       }
       drawTileBody(ctx, cell, px + layerOff, py + lift, t, 1, 1, layerOff);
     }
@@ -546,6 +556,8 @@
     }
 
     function tileById(id) {
+      /* M1.6: 已移除滑块查 tileInfo 缓存（飞出/三消动画在 removal 后仍可绘制） */
+      if (tileInfo[id]) return tileInfo[id];
       if (!lastProbe) return null;
       for (var i = 0; i < lastProbe.tiles.length; i++) {
         if (lastProbe.tiles[i].id === id) return lastProbe.tiles[i];
@@ -574,6 +586,13 @@
     /* ---------- 数据刷新（脏检查入口） ---------- */
     function refresh() {
       if (session) lastProbe = RE.renderProbe(session.engineState());
+      /* M1.6: 视觉缓存——未移除滑块的 s/d/z/stackDepth（removed 后 drawAnim 仍可用） */
+      if (lastProbe) {
+        for (var i = 0; i < lastProbe.tiles.length; i++) {
+          var t = lastProbe.tiles[i];
+          tileInfo[t.id] = { id: t.id, s: t.s, d: t.d, z: t.z || 0, stackDepth: t.stackDepth || 1 };
+        }
+      }
       resize();
       markDirty();
     }
