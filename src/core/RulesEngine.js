@@ -12,8 +12,14 @@
  *
  * M1.5 Δ7 多层堆叠棋盘（Multi-Layer Stack）:
  *   TileSpec 可选字段 z: 0|1|2（0 最底层，数字大者位于当前格最顶层）
- *   board[r][c] = 栈数组（底→顶）；栈非空即视为占格（阻挡射线——哪怕只剩底层）
- *   仅栈顶滑块可点击/受齿轮作用/触发飞出；顶层飞出后次顶层立即暴露（reveal 事件）
+ *   board[r][c] = 栈数组（底→顶）；仅栈顶滑块可点击/受齿轮作用/触发飞出；顶层飞出后次顶层立即暴露（reveal 事件）
+ *
+ * M1.7 Δ8 分层立体阻挡（Layer-Aware Raycasting）:
+ *   射线阻挡按层高 z 分层计算——高层滑块从低层滑块头顶凌空飞越！
+ *   飞行滑块层高 z_self，前方格 (nr,nc) 栈顶层高 z_target:
+ *     · z_target < z_self（含空格）→ 不阻挡，凌空飞越
+ *     · z_target >= z_self（同层/高层）→ 有效阻挡
+ *     · 棱镜 = 全层高柱体（任意层高射线均视为阻挡/折射）
  * ========================================================= */
 (function (global, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -145,9 +151,11 @@
   }
 
   /* T009: 射线行走——从 (r,c) 沿 d 逐格行走到边缘，返回首个被占格信息
+   * Δ8 分层立体阻挡: 飞行滑块层高 z，前方格栈顶滑块层高 < z → 凌空飞越不阻挡；
+   * 栈顶层高 >= z（同层/高层）或棱镜（全层高柱体）→ 阻挡
    * 返回 { free: true, exit: {r,c} }（exit=越界前的最后格）或
-   *      { free: false, blocker: {r,c}, cell }（cell = 占格内容：滑块或棱镜） */
-  function castRay(state, r, c, d) {
+   *      { free: false, blocker: {r,c}, cell }（cell = 占格内容：滑块栈或棱镜） */
+  function castRay(state, r, c, d, z) {
     var v = DIR_VEC[d];
     var rr = r, cc = c;
     var lastR = r, lastC = c;
@@ -157,13 +165,20 @@
         return { free: true, exit: { r: lastR, c: lastC } };
       }
       var cell = state.board[rr][cc];
-      if (cell) return { free: false, blocker: { r: rr, c: cc }, cell: cell };
+      if (cell) {
+        if (cell.prism) return { free: false, blocker: { r: rr, c: cc }, cell: cell };
+        /* Δ8: 栈顶滑块层高低于飞行层 → 凌空飞越（继续行进） */
+        var top = cell[cell.length - 1];
+        if ((top.z || 0) < z) { lastR = rr; lastC = cc; continue; }
+        return { free: false, blocker: { r: rr, c: cc }, cell: cell };
+      }
       lastR = rr; lastC = cc;
     }
   }
 
-  /* 构造飞行路径（渲染动画用）：从 (r,c) 沿 d 至出口（含越界一步起点） */
-  function buildPath(state, r, c, d) {
+  /* 构造飞行路径（渲染动画用）：从 (r,c) 沿 d 至出口（含越界一步起点）
+   * Δ8: 与 castRay 同步层高感知——低层格照常入 path（视觉凌空飞越低层牌顶） */
+  function buildPath(state, r, c, d, z) {
     var v = DIR_VEC[d];
     var path = [{ r: r, c: c }];
     var rr = r, cc = c;
@@ -171,7 +186,13 @@
       rr += v.dr; cc += v.dc;
       path.push({ r: rr, c: cc });
       if (rr < 0 || rr >= state.n || cc < 0 || cc >= state.n) return path;
-      if (state.board[rr][cc]) return path;
+      var cell = state.board[rr][cc];
+      if (cell) {
+        if (cell.prism) return path;
+        var top = cell[cell.length - 1];
+        if ((top.z || 0) < z) continue; /* 凌空飞越——不终止路径 */
+        return path;
+      }
     }
   }
 
@@ -239,15 +260,15 @@
 
     state.actions.push({ k: 0, t: tileId });
 
-    /* Step 1: 射线行走 */
-    var ray = castRay(state, t.r, t.c, t.d);
+    /* Step 1: 射线行走（Δ8 层高感知） */
+    var ray = castRay(state, t.r, t.c, t.d, t.z || 0);
 
     /* Step 2: Blocked 分支 */
     if (!ray.free && !(ray.cell && ray.cell.prism)) {
       var damage = state.cfg.damageOnBlock ? 1 : 0;
       if (damage) state.lives -= 1; /* 生命扣减写回 EngineState（rules-engine.md §7.3 契约） */
-      var path = buildPath(state, t.r, t.c, t.d);
-      path.pop(); /* 去掉越界步（被阻挡时不到达越界格）——保留到阻挡格前一格 */
+      var path = buildPath(state, t.r, t.c, t.d, t.z || 0);
+      path.pop(); /* 去掉越界步（被阻挡时不到达越界格）——保留到阻挡格前一格（含凌空飞越格） */
       return {
         type: 'blocked',
         tileId: tileId,
@@ -264,7 +285,7 @@
     }
 
     /* Step 4: Fly-out（无阻挡直达边缘） */
-    var flyPath = buildPath(state, t.r, t.c, t.d);
+    var flyPath = buildPath(state, t.r, t.c, t.d, t.z || 0);
     var revealed = removeFromBoard(state, t);
     if (revealed) events.push({ e: 'reveal', id: revealed.id, r: revealed.r, c: revealed.c, z: revealed.z });
     var slotIndex = dockInsert(state.dock, t);
@@ -281,8 +302,10 @@
     };
   }
 
-  /* T026 占位实现（M1 关卡无棱镜；结构就绪）——折射分支 */
+  /* T026 占位实现（M1 关卡无棱镜；结构就绪）——折射分支
+   * Δ8: 折射后续走与出口计算均层高感知（棱镜本身=全层高柱体恒阻挡） */
   function tapPrism(state, t, ray, events) {
+    var zSelf = t.z || 0;
     /* 新方向 = 反射表[prism.t][dir]；从棱镜格沿新方向续走 */
     var nd = REFLECT[ray.cell.t][t.d];
     var v = DIR_VEC[nd];
@@ -293,7 +316,14 @@
       rr += v.dr; cc += v.dc;
       if (rr < 0 || rr >= state.n || cc < 0 || cc >= state.n) break;
       var cell = state.board[rr][cc];
-      if (cell) { blocked = { r: rr, c: cc }; break; }
+      if (cell) {
+        if (!cell.prism) {
+          var top = cell[cell.length - 1];
+          if ((top.z || 0) < zSelf) { lastR = rr; lastC = cc; continue; } /* Δ8 凌空飞越 */
+        }
+        blocked = { r: rr, c: cc };
+        break;
+      }
       lastR = rr; lastC = cc;
     }
 
@@ -301,7 +331,7 @@
       /* 3b: 折射后受阻 → 弹回原位（单次折射上限，FR-022） */
       var damage = state.cfg.damageOnBlock ? 1 : 0;
       if (damage) state.lives -= 1;
-      var path = buildPath(state, t.r, t.c, t.d);
+      var path = buildPath(state, t.r, t.c, t.d, zSelf);
       path.push({ r: ray.blocker.r, c: ray.blocker.c }); /* 折射折点 */
       var v2 = DIR_VEC[nd];
       var backR = lastR, backC = lastC;
@@ -323,14 +353,20 @@
     }
 
     /* 3a: 新射线畅通 → prism-flyout（path 含折射折点） */
-    var flyPath = buildPath(state, t.r, t.c, t.d);
+    var flyPath = buildPath(state, t.r, t.c, t.d, zSelf);
     flyPath.push({ r: ray.blocker.r, c: ray.blocker.c }); /* 折点（棱镜格） */
-    /* 棱镜格起沿新方向到越界 */
+    /* 棱镜格起沿新方向到越界（Δ8 层高感知——低层格照常飞越入 path） */
     var fr = ray.blocker.r, fc = ray.blocker.c;
     for (;;) {
       fr += v.dr; fc += v.dc;
+      if (fr < 0 || fr >= state.n || fc < 0 || fc >= state.n) { flyPath.push({ r: fr, c: fc }); break; }
+      var fcell = state.board[fr][fc];
+      if (fcell && !fcell.prism) {
+        var ftop = fcell[fcell.length - 1];
+        if ((ftop.z || 0) < zSelf) { flyPath.push({ r: fr, c: fc }); continue; }
+      }
       flyPath.push({ r: fr, c: fc });
-      if (fr < 0 || fr >= state.n || fc < 0 || fc >= state.n) break;
+      if (fcell) break;
     }
     removeFromBoard(state, t);
     var slotIndex = dockInsert(state.dock, t);
@@ -546,9 +582,20 @@
     /* M1.6 根基规范 2: 底层 z=0 必须 100% 满铺（棱镜格除外——严禁空置黑洞格） */
     var nVal = typeof level.n === 'number' ? level.n : 0;
     var baseGrid = {};
+    var zSets = {}; /* M1.7 Δ8: 同格层号集合——塔式堆叠须连续 {0..maxZ}（无悬空层） */
     for (var gi = 0; gi < (level.tiles || []).length; gi++) {
       var gt = level.tiles[gi];
       if ((gt.z || 0) === 0) baseGrid[gt.r + ':' + gt.c] = true;
+      var gk = gt.r + ':' + gt.c;
+      if (!zSets[gk]) zSets[gk] = {};
+      zSets[gk][gt.z || 0] = true;
+    }
+    for (var zk in zSets) {
+      var maxZ = 0;
+      for (var zz in zSets[zk]) { var zNum = parseInt(zz, 10); if (zNum > maxZ) maxZ = zNum; }
+      for (var zc = 0; zc <= maxZ; zc++) {
+        if (!zSets[zk][zc]) errors.push('格子 ' + zk + ' 层号不连续（缺 z=' + zc + '——塔式堆叠禁悬空层）');
+      }
     }
     for (var gr2 = 0; gr2 < nVal; gr2++) {
       for (var gc2 = 0; gc2 < nVal; gc2++) {

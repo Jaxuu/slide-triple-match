@@ -530,14 +530,28 @@
       if (!t) return;
       if (a.kind === 'fly') {
         var seg = pathPos(a.path, prog);
-        drawTileBody(ctx, cell, (seg.c + 0.5) * cell, (seg.r + 0.5) * cell,
-          t, 1 - 0.35 * prog, 1 - 0.85 * prog, 0);
+        /* Δ8 凌空飞越感: z>=1 高层飞出保持层高——上移偏移 + 放大 + 底部投影 */
+        var fz = t.z || 0;
+        var lift = fz * cell * 0.22;          /* 高层牌浮在半空 */
+        var sc = 1 + fz * 0.12 * (1 - 0.3 * prog); /* 起飞时更大（近镜头感），滑向边缘渐收 */
+        var alpha = 1 - 0.85 * prog;
+        if (fz >= 1 && prog < 0.92) {
+          /* 投影: 高层飞行牌在地面投下椭圆暗影（随高度虚化） */
+          ctx.globalAlpha = 0.28 * (1 - prog) * alpha;
+          ctx.fillStyle = 'rgba(0,0,0,0.8)';
+          ctx.beginPath();
+          ctx.ellipse((seg.c + 0.5) * cell, (seg.r + 0.5) * cell + cell * 0.38, cell * 0.3 * sc, cell * 0.12, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        drawTileBody(ctx, cell, (seg.c + 0.5) * cell, (seg.r + 0.5) * cell - lift, t, sc, alpha, 0);
       } else if (a.kind === 'block') {
         var p = prog < 0.55 ? (prog / 0.55) : (1 - (prog - 0.55) / 0.45);
         var dir = RE.DIR_VEC[t.d];
+        var zB = t.z || 0;
         drawTileBody(ctx, cell,
           (t.c + dir.dc * 0.38 * p + 0.5) * cell,
-          (t.r + dir.dr * 0.38 * p + 0.5) * cell, t, 1, 1, 0);
+          (t.r + dir.dr * 0.38 * p + 0.5) * cell - zB * cell * 0.22, t, 1, 1, 0);
       } else if (a.kind === 'match') {
         drawTileBody(ctx, cell, a.x, a.y, t, 1 + 0.6 * prog, 1 - prog, 0);
       }
