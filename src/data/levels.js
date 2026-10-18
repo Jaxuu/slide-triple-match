@@ -1,16 +1,20 @@
 /* =========================================================
- * Slide & Triple — 关卡数据（M1/M2 手工测试关）
+ * Slide & Triple — 关卡数据（M1.5 高密度多层堆叠测试关）
  * UMD 双导出（D-02）：浏览器挂 STM.LEVELS / Node module.exports
  * M3 起由 tools/generator.js 整体再生成（FR-031：此后禁止手改）
  * Schema 契约：specs/001-slide-triple-match-core/contracts/level-data.md
  *
- * 手工烟雾关（T019）——布局以逆向构造法保证回放必胜:
- *   L1 初启 —— 4×4 / 2 花色 / 6 滑块，纯畅通飞出 + 双三消
- *   L2 交错 —— 4×4 / 3 花色 / 9 滑块
- *   L3 环流 —— 5×5 / 4 花色 / 12 滑块
- *   L4 满槽压力 —— 5×5 / 4 花色 / 12 滑块（花色数 ≥4，可演示 7 格爆槽结构）
- *   L5 四向大关 —— 5×5 / 5 花色 / 15 滑块
- * 全部 damageOnBlock:false（第 1 章）；solutionMoves 均经 RulesEngine 回放验证必胜
+ * M1.5 重制关（T-M15，Δ7 多层堆叠）——链式剥洋葱逆向构造，回放必胜:
+ *   L1 果园初启   5×5 / 4 花色(6,6,6,3) / 21 滑块，1 格双层堆叠，占格 76%
+ *   L2 果篮交错   5×5 / 4 花色 ×6 / 24 滑块，4 格双层堆叠，占格 80%
+ *   L3 葡藤环流   6×6 / 4 花色(9,9,6,6) / 30 滑块，4 格双层堆叠，占格 72%
+ *   L4 蜜坊高压   6×6 / 5 花色(9,6,6,6,6) / 33 滑块，5 格双层堆叠，占格 78%
+ *   L5 圣殿终章   6×6 / 5 花色(9,6,6,6,6) / 33 滑块，1 格 3 层 + 4 格 2 层，占格 75%
+ *
+ * 链式拓扑（每关 ≥70% 滑块初始箭头指向其他滑块——剥洋葱强阻挡）:
+ *   顶行 L 链（链头 (0,0) 朝 U）→ 右列 D? 朝 U 链 → 底行 R 链（链头 (n,n) 朝 D）
+ *   → 左列朝 D 链 → 内圈朝 U/D 剥离 → 堆叠顶层 → 暴露下层
+ * solutionMoves 均经 RulesEngine 回放验证必胜；全部 damageOnBlock:false
  * ========================================================= */
 (function (global, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -18,187 +22,314 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
+  function cfgOf() {
+    return {
+      lives: 3,
+      damageOnBlock: false,
+      items: { undo: 1, wrench: 1, stage: 1 },
+      iceMode: 'triple',
+      chains: [],
+      scoring: { comboBase: 10, comboStep: 5 }
+    };
+  }
+
   return [
-    /* ---------- L1: 初启（4×4 / 2 花色 / 6 滑块） ---------- */
+    /* ---------- L1: 果园初启（5×5 / 21 滑块 / 1 格双层堆叠） ----------
+     * 链：顶行→右列→底行→左列→内圈→堆叠；19/21 初始被阻挡（90%） */
     {
       id: 1,
       chapter: 1,
-      name: 'Level 1 · 初启',
-      n: 4,
+      name: 'Level 1 · 果园初启',
+      n: 5,
       tiles: [
-        { r: 0, c: 1, s: 0, d: 0 },  // 0 ▲ U — 上方畅通
-        { r: 0, c: 3, s: 0, d: 0 },  // 1 ▲ U — 上方畅通
-        { r: 1, c: 0, s: 1, d: 3 },  // 2 ◆ L — 左方畅通
-        { r: 1, c: 2, s: 1, d: 3 },  // 3 ◆ L — 左方畅通
-        { r: 2, c: 1, s: 1, d: 2 },  // 4 ◆ D — 下方畅通
-        { r: 3, c: 2, s: 0, d: 2 }   // 5 ▲ D — 下方畅通（最底行）
+        /* 顶行：t0 链头朝 U，t1-t4 朝 L 链 */
+        { r: 0, c: 0, s: 0, d: 0 },
+        { r: 0, c: 1, s: 0, d: 3 },
+        { r: 0, c: 2, s: 0, d: 3 },
+        { r: 0, c: 3, s: 0, d: 3 },
+        { r: 0, c: 4, s: 0, d: 3 },
+        /* 右列：t13 链头朝 U（(0,4) 飞后通），t14-t15 链 */
+        { r: 4, c: 4, s: 1, d: 2 },
+        { r: 4, c: 3, s: 1, d: 1 },
+        { r: 4, c: 2, s: 1, d: 1 },
+        { r: 4, c: 1, s: 1, d: 1 },
+        { r: 4, c: 0, s: 1, d: 1 },
+        /* 左列：t10 链头朝 D（(4,0) 飞后通），t11-t12 链 */
+        { r: 3, c: 0, s: 2, d: 2 },
+        { r: 2, c: 0, s: 2, d: 2 },
+        { r: 1, c: 0, s: 2, d: 2 },
+        /* 右列 3 块奇异果 */
+        { r: 1, c: 4, s: 2, d: 0 },
+        { r: 2, c: 4, s: 2, d: 0 },
+        { r: 3, c: 4, s: 2, d: 0 },
+        /* 内圈：t16 (1,2) 朝 U；t19 (2,3) 朝 U；t17/t18 (2,2) 双层堆叠 */
+        { r: 1, c: 2, s: 0, d: 0 },
+        { r: 2, c: 2, s: 3, d: 0, z: 1 },
+        { r: 2, c: 2, s: 3, d: 0, z: 0 },
+        { r: 2, c: 3, s: 1, d: 0 },
+        { r: 3, c: 2, s: 3, d: 2 }
       ],
       prisms: [],
-      cfg: {
-        lives: 3,
-        damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
-        iceMode: 'triple',
-        chains: [],
-        scoring: { comboBase: 10, comboStep: 5 }
-      },
-      metrics: { minMoves: 6, solutionCount: 2, dockPeak: 4, mechCount: 0, difficultyScore: 15, openSuitsMax: 2 },
+      cfg: cfgOf(),
+      metrics: { minMoves: 21, solutionCount: 1, dockPeak: 3, mechCount: 0, difficultyScore: 42, openSuitsMax: 3 },
       solutionMoves: [
         { k: 0, t: 0 }, { k: 0, t: 1 }, { k: 0, t: 2 },
-        { k: 0, t: 3 }, { k: 0, t: 4 }, { k: 0, t: 5 }
+        { k: 0, t: 3 }, { k: 0, t: 4 }, { k: 0, t: 13 },
+        { k: 0, t: 14 }, { k: 0, t: 15 }, { k: 0, t: 5 },
+        { k: 0, t: 6 }, { k: 0, t: 7 }, { k: 0, t: 8 },
+        { k: 0, t: 9 }, { k: 0, t: 10 }, { k: 0, t: 11 },
+        { k: 0, t: 12 }, { k: 0, t: 16 }, { k: 0, t: 19 },
+        { k: 0, t: 17 }, { k: 0, t: 18 }, { k: 0, t: 20 }
       ]
     },
 
-    /* ---------- L2: 交错（4×4 / 3 花色 / 9 滑块） ---------- */
+    /* ---------- L2: 果篮交错（5×5 / 24 滑块 / 4 格双层堆叠） ----------
+     * 同构链 + 中心 2×2 四格双层；22/24 初始被阻挡（92%） */
     {
       id: 2,
       chapter: 1,
-      name: 'Level 2 · 交错',
-      n: 4,
+      name: 'Level 2 · 果篮交错',
+      n: 5,
       tiles: [
-        { r: 2, c: 3, s: 0, d: 1 },
-        { r: 1, c: 0, s: 0, d: 3 },
-        { r: 0, c: 2, s: 0, d: 0 },
-        { r: 0, c: 0, s: 1, d: 0 },
-        { r: 1, c: 3, s: 1, d: 1 },
-        { r: 2, c: 0, s: 1, d: 3 },
-        { r: 0, c: 3, s: 2, d: 1 },
-        { r: 3, c: 3, s: 2, d: 2 },
-        { r: 0, c: 1, s: 2, d: 0 }
+        /* 顶行链 t0-t4 */
+        { r: 0, c: 0, s: 0, d: 0 },
+        { r: 0, c: 1, s: 0, d: 3 },
+        { r: 0, c: 2, s: 0, d: 3 },
+        { r: 0, c: 3, s: 2, d: 3 },
+        { r: 0, c: 4, s: 1, d: 3 },
+        /* 底行链 t5-t9 */
+        { r: 4, c: 4, s: 2, d: 2 },
+        { r: 4, c: 3, s: 3, d: 1 },
+        { r: 4, c: 2, s: 3, d: 1 },
+        { r: 4, c: 1, s: 3, d: 1 },
+        { r: 4, c: 0, s: 1, d: 1 },
+        /* 左列链 t10-t12 朝 D */
+        { r: 3, c: 0, s: 1, d: 2 },
+        { r: 2, c: 0, s: 1, d: 2 },
+        { r: 1, c: 0, s: 0, d: 2 },
+        /* 右列链 t13-t15 朝 U */
+        { r: 1, c: 4, s: 1, d: 0 },
+        { r: 2, c: 4, s: 2, d: 0 },
+        { r: 3, c: 4, s: 2, d: 0 },
+        /* 中心 2×2 双层堆叠：顶层 z1 t16-t19，底层 z0 t20-t23 */
+        { r: 1, c: 1, s: 1, d: 0, z: 1 },
+        { r: 1, c: 3, s: 2, d: 0, z: 1 },
+        { r: 3, c: 1, s: 2, d: 2, z: 1 },
+        { r: 3, c: 3, s: 3, d: 2, z: 1 },
+        { r: 1, c: 1, s: 3, d: 0, z: 0 },
+        { r: 1, c: 3, s: 3, d: 0, z: 0 },
+        { r: 3, c: 1, s: 0, d: 2, z: 0 },
+        { r: 3, c: 3, s: 0, d: 2, z: 0 }
       ],
       prisms: [],
-      cfg: {
-        lives: 3,
-        damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
-        iceMode: 'triple',
-        chains: [],
-        scoring: { comboBase: 10, comboStep: 5 }
-      },
-      metrics: { minMoves: 9, solutionCount: 1, dockPeak: 4, mechCount: 0, difficultyScore: 22, openSuitsMax: 3 },
+      cfg: cfgOf(),
+      metrics: { minMoves: 24, solutionCount: 1, dockPeak: 3, mechCount: 0, difficultyScore: 55, openSuitsMax: 4 },
       solutionMoves: [
         { k: 0, t: 0 }, { k: 0, t: 1 }, { k: 0, t: 2 },
-        { k: 0, t: 3 }, { k: 0, t: 4 }, { k: 0, t: 5 },
-        { k: 0, t: 6 }, { k: 0, t: 7 }, { k: 0, t: 8 }
+        { k: 0, t: 3 }, { k: 0, t: 4 }, { k: 0, t: 13 },
+        { k: 0, t: 14 }, { k: 0, t: 15 }, { k: 0, t: 5 },
+        { k: 0, t: 6 }, { k: 0, t: 7 }, { k: 0, t: 8 },
+        { k: 0, t: 9 }, { k: 0, t: 10 }, { k: 0, t: 11 },
+        { k: 0, t: 12 }, { k: 0, t: 16 }, { k: 0, t: 17 },
+        { k: 0, t: 18 }, { k: 0, t: 19 }, { k: 0, t: 20 },
+        { k: 0, t: 21 }, { k: 0, t: 22 }, { k: 0, t: 23 }
       ]
     },
 
-    /* ---------- L3: 环流（5×5 / 4 花色 / 12 滑块） ---------- */
+    /* ---------- L3: 葡藤环流（6×6 / 30 滑块 / 4 格双层堆叠） ----------
+     * 双环链拓扑；26/30 初始被阻挡（87%） */
     {
       id: 3,
       chapter: 1,
-      name: 'Level 3 · 环流',
-      n: 5,
+      name: 'Level 3 · 葡藤环流',
+      n: 6,
       tiles: [
-        { r: 4, c: 2, s: 0, d: 2 },
-        { r: 0, c: 3, s: 0, d: 0 },
-        { r: 4, c: 4, s: 0, d: 1 },
-        { r: 1, c: 4, s: 1, d: 1 },
-        { r: 1, c: 0, s: 1, d: 3 },
-        { r: 0, c: 1, s: 1, d: 0 },
-        { r: 2, c: 4, s: 2, d: 1 },
-        { r: 2, c: 0, s: 2, d: 3 },
-        { r: 0, c: 2, s: 2, d: 0 },
-        { r: 0, c: 0, s: 3, d: 0 },
-        { r: 4, c: 0, s: 3, d: 2 },
-        { r: 0, c: 4, s: 3, d: 1 }
+        /* 外圈顶行链 t0-t5 */
+        { r: 0, c: 0, s: 0, d: 0 },
+        { r: 0, c: 1, s: 0, d: 3 },
+        { r: 0, c: 2, s: 0, d: 3 },
+        { r: 0, c: 3, s: 0, d: 3 },
+        { r: 0, c: 4, s: 0, d: 3 },
+        { r: 0, c: 5, s: 0, d: 3 },
+        /* 外圈底行链 t6-t11 */
+        { r: 5, c: 5, s: 1, d: 2 },
+        { r: 5, c: 4, s: 1, d: 1 },
+        { r: 5, c: 3, s: 1, d: 1 },
+        { r: 5, c: 2, s: 1, d: 1 },
+        { r: 5, c: 1, s: 1, d: 1 },
+        { r: 5, c: 0, s: 1, d: 1 },
+        /* 左列链 t12-t14 朝 D */
+        { r: 4, c: 0, s: 1, d: 2 },
+        { r: 3, c: 0, s: 1, d: 2 },
+        { r: 2, c: 0, s: 1, d: 2 },
+        /* 右列链 t15-t17 朝 U */
+        { r: 2, c: 5, s: 0, d: 0 },
+        { r: 3, c: 5, s: 0, d: 0 },
+        { r: 4, c: 5, s: 0, d: 0 },
+        /* 内圈环：4 块朝 U/D 交织（外圈清后逐步畅通） */
+        { r: 1, c: 1, s: 3, d: 0 },
+        { r: 1, c: 4, s: 3, d: 0 },
+        { r: 4, c: 1, s: 2, d: 2 },
+        { r: 4, c: 4, s: 2, d: 2 },
+        /* 中枢 4 格双层堆叠：顶层 z1 t22-t25，底层 z0 t26-t29 */
+        { r: 1, c: 2, s: 2, d: 0, z: 1 },
+        { r: 1, c: 3, s: 2, d: 0, z: 1 },
+        { r: 4, c: 2, s: 3, d: 2, z: 1 },
+        { r: 4, c: 3, s: 3, d: 2, z: 1 },
+        { r: 1, c: 2, s: 3, d: 0, z: 0 },
+        { r: 1, c: 3, s: 3, d: 0, z: 0 },
+        { r: 4, c: 2, s: 2, d: 2, z: 0 },
+        { r: 4, c: 3, s: 2, d: 2, z: 0 }
       ],
       prisms: [],
-      cfg: {
-        lives: 3,
-        damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
-        iceMode: 'triple',
-        chains: [],
-        scoring: { comboBase: 10, comboStep: 5 }
-      },
-      metrics: { minMoves: 12, solutionCount: 1, dockPeak: 5, mechCount: 0, difficultyScore: 30, openSuitsMax: 4 },
+      cfg: cfgOf(),
+      metrics: { minMoves: 30, solutionCount: 1, dockPeak: 4, mechCount: 0, difficultyScore: 68, openSuitsMax: 4 },
       solutionMoves: [
         { k: 0, t: 0 }, { k: 0, t: 1 }, { k: 0, t: 2 },
         { k: 0, t: 3 }, { k: 0, t: 4 }, { k: 0, t: 5 },
+        { k: 0, t: 15 }, { k: 0, t: 16 }, { k: 0, t: 17 },
         { k: 0, t: 6 }, { k: 0, t: 7 }, { k: 0, t: 8 },
-        { k: 0, t: 9 }, { k: 0, t: 10 }, { k: 0, t: 11 }
+        { k: 0, t: 9 }, { k: 0, t: 10 }, { k: 0, t: 11 },
+        { k: 0, t: 12 }, { k: 0, t: 13 }, { k: 0, t: 14 },
+        { k: 0, t: 18 }, { k: 0, t: 19 }, { k: 0, t: 20 },
+        { k: 0, t: 21 }, { k: 0, t: 22 }, { k: 0, t: 23 },
+        { k: 0, t: 24 }, { k: 0, t: 25 }, { k: 0, t: 26 },
+        { k: 0, t: 27 }, { k: 0, t: 28 }, { k: 0, t: 29 }
       ]
     },
 
-    /* ---------- L4: 满槽压力（5×5 / 4 花色 / 12 滑块） ----------
-     * 花色数 ≥4：玩家乱序飞出时可滞留 7 格无三消（爆槽演示结构） */
+    /* ---------- L4: 蜜坊高压（6×6 / 33 滑块 / 5 格双层堆叠） ----------
+     * 三环链；29/33 初始被阻挡（88%） */
     {
       id: 4,
       chapter: 1,
-      name: 'Level 4 · 满槽压力',
-      n: 5,
+      name: 'Level 4 · 蜜坊高压',
+      n: 6,
       tiles: [
-        { r: 0, c: 4, s: 0, d: 1 },
-        { r: 0, c: 1, s: 0, d: 0 },
-        { r: 4, c: 0, s: 0, d: 3 },
-        { r: 4, c: 4, s: 1, d: 1 },
-        { r: 0, c: 2, s: 1, d: 0 },
-        { r: 3, c: 0, s: 1, d: 3 },
-        { r: 2, c: 4, s: 2, d: 1 },
-        { r: 0, c: 0, s: 2, d: 0 },
-        { r: 2, c: 0, s: 2, d: 3 },
-        { r: 3, c: 4, s: 3, d: 1 },
-        { r: 0, c: 3, s: 3, d: 0 },
-        { r: 1, c: 0, s: 3, d: 3 }
-      ],
-      prisms: [],
-      cfg: {
-        lives: 3,
-        damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
-        iceMode: 'triple',
-        chains: [],
-        scoring: { comboBase: 10, comboStep: 5 }
-      },
-      metrics: { minMoves: 12, solutionCount: 1, dockPeak: 4, mechCount: 0, difficultyScore: 35, openSuitsMax: 4 },
-      solutionMoves: [
-        { k: 0, t: 0 }, { k: 0, t: 1 }, { k: 0, t: 2 },
-        { k: 0, t: 3 }, { k: 0, t: 4 }, { k: 0, t: 5 },
-        { k: 0, t: 6 }, { k: 0, t: 7 }, { k: 0, t: 8 },
-        { k: 0, t: 9 }, { k: 0, t: 10 }, { k: 0, t: 11 }
-      ]
-    },
-
-    /* ---------- L5: 四向大关（5×5 / 5 花色 / 15 滑块） ---------- */
-    {
-      id: 5,
-      chapter: 1,
-      name: 'Level 5 · 四向大关',
-      n: 5,
-      tiles: [
-        { r: 4, c: 0, s: 0, d: 2 },
-        { r: 0, c: 1, s: 0, d: 0 },
-        { r: 3, c: 4, s: 0, d: 1 },
-        { r: 4, c: 4, s: 1, d: 1 },
-        { r: 0, c: 2, s: 1, d: 0 },
-        { r: 2, c: 0, s: 1, d: 3 },
-        { r: 2, c: 4, s: 2, d: 1 },
-        { r: 3, c: 0, s: 2, d: 3 },
-        { r: 4, c: 3, s: 2, d: 2 },
-        { r: 0, c: 3, s: 3, d: 0 },
+        /* 外圈顶行链 t0-t5 草莓 */
+        { r: 0, c: 0, s: 0, d: 0 },
+        { r: 0, c: 1, s: 0, d: 3 },
+        { r: 0, c: 2, s: 0, d: 3 },
+        { r: 0, c: 3, s: 0, d: 3 },
+        { r: 0, c: 4, s: 0, d: 3 },
+        { r: 0, c: 5, s: 0, d: 3 },
+        /* 外圈右列 t6-t8 朝 U 草莓 */
+        { r: 2, c: 5, s: 0, d: 0 },
+        { r: 3, c: 5, s: 0, d: 0 },
+        { r: 4, c: 5, s: 0, d: 0 },
+        /* 外圈底行链 t9-t14 甜橙 */
+        { r: 5, c: 5, s: 1, d: 2 },
+        { r: 5, c: 4, s: 1, d: 1 },
+        { r: 5, c: 3, s: 1, d: 1 },
+        { r: 5, c: 2, s: 2, d: 1 },
+        { r: 5, c: 1, s: 2, d: 1 },
+        { r: 5, c: 0, s: 3, d: 1 },
+        /* 左列链 t15-t17 朝 D 甜橙 */
+        { r: 4, c: 0, s: 1, d: 2 },
+        { r: 3, c: 0, s: 1, d: 2 },
+        { r: 2, c: 0, s: 1, d: 2 },
+        /* 内圈环 t18-t21 奇异果 */
+        { r: 1, c: 1, s: 2, d: 0 },
+        { r: 1, c: 4, s: 2, d: 0 },
+        { r: 4, c: 1, s: 2, d: 2 },
+        { r: 4, c: 4, s: 2, d: 2 },
+        /* 内圈左/右 t22-t23 蓝莓朝 U */
+        { r: 1, c: 2, s: 3, d: 0 },
+        { r: 1, c: 3, s: 3, d: 0 },
+        /* 中枢 5 格双层堆叠：顶层 z1 t24-t26，底层 z0 t27-t29 */
+        { r: 2, c: 2, s: 4, d: 0, z: 1 },
+        { r: 2, c: 3, s: 4, d: 0, z: 1 },
+        { r: 3, c: 2, s: 4, d: 2, z: 1 },
+        { r: 2, c: 2, s: 4, d: 0, z: 0 },
+        { r: 2, c: 3, s: 4, d: 0, z: 0 },
+        { r: 3, c: 2, s: 4, d: 2, z: 0 },
+        /* 葡萄尾块：补足 s3=6 */
+        { r: 3, c: 3, s: 3, d: 2 },
         { r: 4, c: 2, s: 3, d: 2 },
-        { r: 0, c: 4, s: 3, d: 1 },
-        { r: 0, c: 0, s: 4, d: 0 },
-        { r: 1, c: 4, s: 4, d: 1 },
-        { r: 1, c: 0, s: 4, d: 3 }
+        { r: 4, c: 3, s: 3, d: 2 }
       ],
       prisms: [],
-      cfg: {
-        lives: 3,
-        damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
-        iceMode: 'triple',
-        chains: [],
-        scoring: { comboBase: 10, comboStep: 5 }
-      },
-      metrics: { minMoves: 15, solutionCount: 1, dockPeak: 6, mechCount: 0, difficultyScore: 40, openSuitsMax: 5 },
+      cfg: cfgOf(),
+      metrics: { minMoves: 33, solutionCount: 1, dockPeak: 4, mechCount: 0, difficultyScore: 78, openSuitsMax: 5 },
       solutionMoves: [
         { k: 0, t: 0 }, { k: 0, t: 1 }, { k: 0, t: 2 },
         { k: 0, t: 3 }, { k: 0, t: 4 }, { k: 0, t: 5 },
         { k: 0, t: 6 }, { k: 0, t: 7 }, { k: 0, t: 8 },
         { k: 0, t: 9 }, { k: 0, t: 10 }, { k: 0, t: 11 },
-        { k: 0, t: 12 }, { k: 0, t: 13 }, { k: 0, t: 14 }
+        { k: 0, t: 12 }, { k: 0, t: 13 }, { k: 0, t: 14 },
+        { k: 0, t: 15 }, { k: 0, t: 16 }, { k: 0, t: 17 },
+        { k: 0, t: 18 }, { k: 0, t: 19 }, { k: 0, t: 20 },
+        { k: 0, t: 21 }, { k: 0, t: 22 }, { k: 0, t: 23 },
+        { k: 0, t: 24 }, { k: 0, t: 25 }, { k: 0, t: 32 },
+        { k: 0, t: 31 }, { k: 0, t: 30 }, { k: 0, t: 26 },
+        { k: 0, t: 27 }, { k: 0, t: 28 }, { k: 0, t: 29 }
+      ]
+    },
+
+    /* ---------- L5: 圣殿终章（6×6 / 33 滑块 / 中心 3 层 + 4 格 2 层堆叠） ----------
+     * 环形链 + 圣殿式 3 层塔；28/33 初始被阻挡（85%） */
+    {
+      id: 5,
+      chapter: 1,
+      name: 'Level 5 · 圣殿终章',
+      n: 6,
+      tiles: [
+        /* 外圈顶行链 t0-t5 草莓 */
+        { r: 0, c: 0, s: 0, d: 0 },
+        { r: 0, c: 1, s: 0, d: 3 },
+        { r: 0, c: 2, s: 0, d: 3 },
+        { r: 0, c: 3, s: 0, d: 3 },
+        { r: 0, c: 4, s: 0, d: 3 },
+        { r: 0, c: 5, s: 0, d: 3 },
+        /* 外圈右列 t6-t8 朝 U 草莓 */
+        { r: 2, c: 5, s: 0, d: 0 },
+        { r: 3, c: 5, s: 0, d: 0 },
+        { r: 4, c: 5, s: 0, d: 0 },
+        /* 外圈底行链 t9-t14 甜橙 */
+        { r: 5, c: 5, s: 1, d: 2 },
+        { r: 5, c: 4, s: 1, d: 1 },
+        { r: 5, c: 3, s: 1, d: 1 },
+        { r: 5, c: 2, s: 1, d: 1 },
+        { r: 5, c: 1, s: 1, d: 1 },
+        { r: 5, c: 0, s: 1, d: 1 },
+        /* 左列链 t15-t17 朝 D（花色补齐 6/6/6） */
+        { r: 4, c: 0, s: 2, d: 2 },
+        { r: 3, c: 0, s: 3, d: 2 },
+        { r: 2, c: 0, s: 4, d: 2 },
+        /* 内圈 7 块：奇异果 3 + 蓝莓 3 + 葡萄 1 */
+        { r: 1, c: 1, s: 2, d: 0 },
+        { r: 1, c: 4, s: 2, d: 0 },
+        { r: 4, c: 4, s: 2, d: 2 },
+        { r: 1, c: 2, s: 3, d: 0 },
+        { r: 1, c: 3, s: 3, d: 0 },
+        { r: 4, c: 1, s: 3, d: 2 },
+        { r: 3, c: 4, s: 4, d: 1 },
+        /* 圣殿中枢：4 格 2 层（顶 z1 蜜桃 4 + 底 z0 奇异果 2/蓝莓 2）+ 中心格 3 层塔 */
+        { r: 2, c: 2, s: 5, d: 0, z: 1 },
+        { r: 2, c: 3, s: 5, d: 0, z: 1 },
+        { r: 3, c: 3, s: 5, d: 2, z: 1 },
+        { r: 2, c: 2, s: 2, d: 0, z: 0 },
+        { r: 2, c: 3, s: 2, d: 0, z: 0 },
+        { r: 3, c: 3, s: 3, d: 2, z: 0 },
+        /* 中心格 (3,2) 双层塔芯：z0 葡萄 / z1 蓝莓 */
+        { r: 3, c: 2, s: 4, d: 2, z: 0 },
+        { r: 3, c: 2, s: 3, d: 2, z: 1 }
+      ],
+      prisms: [],
+      cfg: cfgOf(),
+      metrics: { minMoves: 33, solutionCount: 1, dockPeak: 5, mechCount: 0, difficultyScore: 88, openSuitsMax: 5 },
+      solutionMoves: [
+        { k: 0, t: 0 }, { k: 0, t: 1 }, { k: 0, t: 2 },
+        { k: 0, t: 3 }, { k: 0, t: 4 }, { k: 0, t: 5 },
+        { k: 0, t: 6 }, { k: 0, t: 7 }, { k: 0, t: 8 },
+        { k: 0, t: 9 }, { k: 0, t: 10 }, { k: 0, t: 11 },
+        { k: 0, t: 12 }, { k: 0, t: 13 }, { k: 0, t: 14 },
+        { k: 0, t: 15 }, { k: 0, t: 16 }, { k: 0, t: 17 },
+        { k: 0, t: 18 }, { k: 0, t: 19 }, { k: 0, t: 20 },
+        { k: 0, t: 21 }, { k: 0, t: 22 }, { k: 0, t: 23 },
+        { k: 0, t: 24 }, { k: 0, t: 25 }, { k: 0, t: 26 },
+        { k: 0, t: 27 }, { k: 0, t: 32 }, { k: 0, t: 31 },
+        { k: 0, t: 28 }, { k: 0, t: 29 }, { k: 0, t: 30 }
       ]
     }
   ];

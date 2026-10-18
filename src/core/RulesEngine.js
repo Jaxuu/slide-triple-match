@@ -9,6 +9,11 @@
  * 棱镜反射全枚举映射（8 条，rules-engine.md §0）:
  *   '/': U→R, R→U, D→L, L→D
  *   '\': U→L, L→U, D→R, R→D
+ *
+ * M1.5 Δ7 多层堆叠棋盘（Multi-Layer Stack）:
+ *   TileSpec 可选字段 z: 0|1|2（0 最底层，数字大者位于当前格最顶层）
+ *   board[r][c] = 栈数组（底→顶）；栈非空即视为占格（阻挡射线——哪怕只剩底层）
+ *   仅栈顶滑块可点击/受齿轮作用/触发飞出；顶层飞出后次顶层立即暴露（reveal 事件）
  * ========================================================= */
 (function (global, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -74,15 +79,26 @@
       board[p.r][p.c] = { prism: true, t: p.t };
     }
 
-    /* tiles 深拷贝 + id = TileSpec 索引 */
+    /* tiles 深拷贝 + id = TileSpec 索引（id 序保持 TileSpec 序——D-08 确定性）
+     * M1.5 Δ7 多层堆叠: 同格滑块按 z 升序入栈，board[r][c] = 栈数组（底→顶） */
     var tiles = [];
+    var stacks = {};
     for (var j = 0; j < level.tiles.length; j++) {
       var t = deepClone(level.tiles[j]);
       t.id = j;
+      t.z = t.z || 0;
       if (t.m === MECH.ICE) t.ice = (t.x != null ? t.x : 1);
       if (t.m === MECH.CHAIN) t.locked = true;
-      board[t.r][t.c] = t;
       tiles.push(t);
+      var key = t.r + ':' + t.c;
+      if (!stacks[key]) stacks[key] = [];
+      stacks[key].push(t);
+    }
+    for (var sk in stacks) {
+      var cell = stacks[sk];
+      if (cell.length > 1) cell.sort(function (a, b) { return a.z - b.z; });
+      var pos = sk.split(':');
+      board[parseInt(pos[0], 10)][parseInt(pos[1], 10)] = cell;
     }
 
     return {
@@ -100,14 +116,23 @@
     };
   }
 
-  /* T008: canTap 谓词——射线畅通性不属于 canTap（受阻滑块仍可点击，点击后弹回） */
+  /* T008: canTap 谓词——射线畅通性不属于 canTap（受阻滑块仍可点击，点击后弹回）
+   * M1.5 Δ7: 仅当前格栈顶滑块可点击（下层滑块被顶层压住，不可交互） */
   function canTap(state, tileId) {
     var t = state.tiles[tileId];
     if (!t || t.removed) return false;
     if (t.inStaging) return true;             /* 暂存滑块恒可 tap（Δ3 自由牌） */
     if (t.ice > 0) return false;              /* 冰封不可点（FR-015，M1 关卡无此标记） */
     if (t.locked) return false;               /* 锁链不可点（FR-018，M1 关卡无此标记） */
+    if (!isTopOfStack(state, t)) return false;
     return true;
+  }
+
+  /* M1.5 Δ7: 栈顶判定——board[r][c] 栈数组末位即当前顶层滑块 */
+  function isTopOfStack(state, t) {
+    var cell = state.board[t.r][t.c];
+    if (!cell || !cell.length) return false;
+    return cell[cell.length - 1] === t;
   }
 
   /* T008: enumerateTaps 枚举可行 tap 目标 id（id 序 = 行优先列优先——D-08 确定性） */
@@ -240,7 +265,8 @@
 
     /* Step 4: Fly-out（无阻挡直达边缘） */
     var flyPath = buildPath(state, t.r, t.c, t.d);
-    removeFromBoard(state, t);
+    var revealed = removeFromBoard(state, t);
+    if (revealed) events.push({ e: 'reveal', id: revealed.id, r: revealed.r, c: revealed.c, z: revealed.z });
     var slotIndex = dockInsert(state.dock, t);
     events.push({ e: 'dock', id: tileId, slotIndex: slotIndex });
 
@@ -318,9 +344,20 @@
     };
   }
 
+  /* M1.5 Δ7: 弹栈移除——飞出后暴露次顶层（返回新顶层滑块或 null）
+   * 栈弹空 → 格置 null（后续射线不再被该格阻挡） */
   function removeFromBoard(state, t) {
-    state.board[t.r][t.c] = null;
+    var cell = state.board[t.r][t.c];
+    if (cell && cell.length) {
+      for (var i = 0; i < cell.length; i++) {
+        if (cell[i] === t) { cell.splice(i, 1); break; }
+      }
+      if (cell.length === 0) state.board[t.r][t.c] = null;
+      t.removed = true;
+      return cell.length > 0 ? cell[cell.length - 1] : null;
+    }
     t.removed = true;
+    return null;
   }
 
   /* Δ3 暂存回填（M2 T030 完整实现；结构就绪） */
@@ -395,7 +432,7 @@
     for (var i = 0; i < state.tiles.length; i++) {
       var t = state.tiles[i];
       out.push({
-        id: t.id, r: t.r, c: t.c, d: t.d,
+        id: t.id, r: t.r, c: t.c, d: t.d, z: t.z || 0,
         m: t.m || null,
         ice: t.ice != null ? t.ice : null,
         locked: t.locked === true,
@@ -410,7 +447,7 @@
     for (var i = 0; i < snap.boardTiles.length; i++) {
       var s = snap.boardTiles[i];
       var t = state.tiles[s.id];
-      t.r = s.r; t.c = s.c; t.d = s.d;
+      t.r = s.r; t.c = s.c; t.d = s.d; t.z = s.z || 0;
       t.ice = s.ice; t.locked = s.locked;
       t.removed = s.removed; t.inStaging = s.inStaging;
     }
@@ -434,14 +471,25 @@
         state.board[r][c] = null;
       }
     }
+    /* M1.5 Δ7: 同格未移除滑块按 z 升序重建栈数组 */
+    var stacks = {};
     for (var i = 0; i < state.tiles.length; i++) {
       var t = state.tiles[i];
       if (t.removed || t.inStaging) continue;
-      state.board[t.r][t.c] = t;
+      var key = t.r + ':' + t.c;
+      if (!stacks[key]) stacks[key] = [];
+      stacks[key].push(t);
+    }
+    for (var sk in stacks) {
+      var cellArr = stacks[sk];
+      if (cellArr.length > 1) cellArr.sort(function (a, b) { return (a.z || 0) - (b.z || 0); });
+      var pos = sk.split(':');
+      state.board[parseInt(pos[0], 10)][parseInt(pos[1], 10)] = cellArr;
     }
   }
 
-  /* T013: validateLevel 基础校验（+ 每关 id===i+1 连续性由消费方遍历保证） */
+  /* T013: validateLevel 基础校验（+ 每关 id===i+1 连续性由消费方遍历保证）
+   * M1.5 Δ7: tiles 同格堆叠合法（z 0..2 唯一）；「无 (r,c) 重复」改为「同格 z 不重复」 */
   function validateLevel(level) {
     var errors = [];
     if (!level || typeof level !== 'object') { errors.push('level 非对象'); return { ok: false, errors: errors }; }
@@ -453,16 +501,25 @@
     var seen = {};
     for (var i = 0; i < (level.tiles || []).length; i++) {
       var t = level.tiles[i];
-      var key = t.r + ':' + t.c;
-      if (seen[key]) errors.push('tiles 位置重复 (' + t.r + ',' + t.c + ')');
+      var key = t.r + ':' + t.c + ':' + (t.z || 0);
+      if (seen[key]) errors.push('tiles 同格同层重复 (' + t.r + ',' + t.c + ',z' + (t.z || 0) + ')');
       seen[key] = true;
       if (t.r < 0 || t.r >= level.n || t.c < 0 || t.c >= level.n) errors.push('tile 越界 (' + t.r + ',' + t.c + ')');
       if (t.d < 0 || t.d > 3) errors.push('tile 方向非法 d=' + t.d);
+      if (t.z != null && (t.z < 0 || t.z > 2 || !isFinite(t.z) || Math.floor(t.z) !== t.z)) errors.push('tile 层号非法 z=' + t.z);
       if (t.m != null && t.m !== 'g' && t.m !== 'i' && t.m !== 'c' && t.m !== 'k') {
         errors.push('tile 机制标记非法 m=' + t.m);
       }
       if (t.m === 'i' && !(t.x >= 1)) errors.push('冰封滑块 x 须 ≥1');
     }
+    /* 同格堆叠深度 ≤3 */
+    var depth = {};
+    for (var di = 0; di < (level.tiles || []).length; di++) {
+      var dt = level.tiles[di];
+      var dk = dt.r + ':' + dt.c;
+      depth[dk] = (depth[dk] || 0) + 1;
+    }
+    for (var dkk in depth) if (depth[dkk] > 3) errors.push('格子 ' + dkk + ' 堆叠深度 >3');
     var suits = {};
     for (var j = 0; j < (level.tiles || []).length; j++) {
       var s = level.tiles[j].s;
@@ -473,10 +530,15 @@
     }
     var prisms = level.prisms || [];
     var pSeen = {};
+    var occupied = {};
+    for (var oi = 0; oi < (level.tiles || []).length; oi++) {
+      var ot = level.tiles[oi];
+      occupied[ot.r + ':' + ot.c] = true;
+    }
     for (var k = 0; k < prisms.length; k++) {
       var p = prisms[k];
       var pk = p.r + ':' + p.c;
-      if (seen[pk]) errors.push('棱镜与滑块重叠 (' + p.r + ',' + p.c + ')');
+      if (occupied[pk]) errors.push('棱镜与滑块重叠 (' + p.r + ',' + p.c + ')');
       if (pSeen[pk]) errors.push('棱镜位置重复 (' + p.r + ',' + p.c + ')');
       pSeen[pk] = true;
       if (p.t !== '/' && p.t !== '\\') errors.push('棱镜型非法 t=' + p.t);
@@ -509,17 +571,32 @@
     return { ok: errors.length === 0, errors: errors };
   }
 
-  /* T013: renderProbe（§8 轻量视图，仅浏览器构建含；Node 侧为纯数据） */
+  /* T013: renderProbe（§8 轻量视图，仅浏览器构建含；Node 侧为纯数据）
+   * M1.5 Δ7: tiles 含 z 与 stackDepth（渲染堆叠底座/下层角标）；board 滑块 id 序 = tiles 序 */
   function renderProbe(state) {
     var tiles = [];
     for (var i = 0; i < state.tiles.length; i++) {
       var t = state.tiles[i];
       if (t.removed) continue;
       tiles.push({
-        id: t.id, r: t.r, c: t.c, s: t.s, d: t.d,
+        id: t.id, r: t.r, c: t.c, s: t.s, d: t.d, z: t.z || 0,
         m: t.m || null, ice: t.ice != null ? t.ice : null,
         locked: t.locked === true, inStaging: t.inStaging === true
       });
+    }
+    /* 堆叠深度表（格 → 未移除滑块数） */
+    var depthMap = {};
+    var j, tt;
+    for (j = 0; j < tiles.length; j++) {
+      tt = tiles[j];
+      if (tt.inStaging) continue;
+      var dk = tt.r + ':' + tt.c;
+      depthMap[dk] = (depthMap[dk] || 0) + 1;
+    }
+    for (j = 0; j < tiles.length; j++) {
+      tt = tiles[j];
+      if (tt.inStaging) { tt.stackDepth = 1; continue; }
+      tt.stackDepth = depthMap[tt.r + ':' + tt.c] || 1;
     }
     return {
       n: state.n,
