@@ -237,7 +237,17 @@
       state.score += gain * ids.length / 1; /* 每组三消按连击加成计分（GameState 记账口径） */
       events.push({ e: 'match', suit: matched, ids: ids.slice(), combo: state.combo, gain: gain });
       events.push({ e: 'remove', ids: ids.slice() });
-      /* M1 无破冰联动（M2 T024 按 cfg.iceMode 扩展） */
+      /* T024 'triple' 破冰口径（主口径）: 每次三消全场所有 ice>0 各减 1、归 0 清冰封标记 */
+      if (state.cfg.iceMode !== 'adjacent') {
+        for (var ii = 0; ii < state.tiles.length; ii++) {
+          var iced = state.tiles[ii];
+          if (iced.removed || iced.inStaging || !(iced.ice > 0)) continue;
+          var ffrom = iced.ice;
+          iced.ice -= 1;
+          if (iced.ice <= 0) { iced.ice = 0; iced.m = null; }
+          events.push({ e: 'ice', id: iced.id, from: ffrom, to: iced.ice });
+        }
+      }
     }
     return events;
   }
@@ -288,6 +298,8 @@
     var flyPath = buildPath(state, t.r, t.c, t.d, t.z || 0);
     var revealed = removeFromBoard(state, t);
     if (revealed) events.push({ e: 'reveal', id: revealed.id, r: revealed.r, c: revealed.c, z: revealed.z });
+    /* T027 级联管线（顺序固定）: 4a 齿轮 → 4b 钥匙解锁 → adjacent 破冰 → 4c 入槽 → 4d 三消 */
+    cascadeOnFlyout(state, t, events);
     var slotIndex = dockInsert(state.dock, t);
     events.push({ e: 'dock', id: tileId, slotIndex: slotIndex });
 
@@ -300,6 +312,59 @@
       path: flyPath,
       events: events
     };
+  }
+
+  /* =========================================================
+   * T023~T027 级联管线（单一事实源，顺序固定——Edge Case 原子级联）
+   * 4a 齿轮: 十字相邻滑块 t 成功飞出 → 每个齿轮滑块 g（与 t 十字相邻）d=(d+1)%4
+   *          Δ8 层高对齐: 触发对象恒为相邻格**当前栈顶**齿轮滑块
+   * 4b 钥匙: t 为钥匙 → chains 或语义解锁（任一配对钥集全飞出 → 该锁解锁）
+   * 4c adjacent 破冰（变体口径在入槽前结算: 仅与 t 十字相邻的冰封滑块 ice--）
+   * （'triple' 主口径破冰在 settleMatches 内按三消结算触发）
+   * ========================================================= */
+  function cascadeOnFlyout(state, t, events) {
+    /* 4a 齿轮联动（Δ8: 相邻格当前栈顶齿轮滑块） */
+    for (var i = 0; i < state.tiles.length; i++) {
+      var g = state.tiles[i];
+      if (g.removed || g.inStaging || g.m !== MECH.GEAR) continue;
+      if (g.r < t.r - 1 || g.r > t.r + 1 || g.c < t.c - 1 || g.c > t.c + 1) continue;
+      if (Math.abs(g.r - t.r) + Math.abs(g.c - t.c) !== 1) continue; /* 十字相邻（对角不触发） */
+      var from = g.d;
+      g.d = (g.d + 1) % 4;
+      events.push({ e: 'gear', id: g.id, from: from, to: g.d });
+    }
+
+    /* 4b 钥匙解锁（chains: [[keyId,[lockId,...]],...] 或语义——一锁配多钥、一钥多锁） */
+    if (t.m === MECH.KEY && Array.isArray(state.cfg.chains) && state.cfg.chains.length) {
+      for (var ci = 0; ci < state.cfg.chains.length; ci++) {
+        var pair = state.cfg.chains[ci];
+        if (!Array.isArray(pair) || pair.length !== 2) continue;
+        if (pair[0] !== t.id || !Array.isArray(pair[1])) continue;
+        /* pair[1] = [lockId,...]——本钥即该锁唯一钥 → 直接解锁 */
+        for (var li = 0; li < pair[1].length; li++) {
+          var lockId = pair[1][li];
+          var lock = state.tiles[lockId];
+          if (!lock || lock.removed || !lock.locked) continue;
+          lock.locked = false;
+          events.push({ e: 'unlock', id: lockId, by: t.id });
+        }
+        state.cfg.chains.splice(ci, 1); /* 已消费配对（防止重复解锁） */
+        ci--;
+      }
+    }
+
+    /* 4c adjacent 破冰（变体口径: 与 t 十字相邻的冰封滑块 ice--） */
+    if (state.cfg.iceMode === 'adjacent') {
+      for (var ai = 0; ai < state.tiles.length; ai++) {
+        var it = state.tiles[ai];
+        if (it.removed || it.inStaging || !(it.ice > 0)) continue;
+        if (Math.abs(it.r - t.r) + Math.abs(it.c - t.c) !== 1) continue;
+        var ifrom = it.ice;
+        it.ice -= 1;
+        if (it.ice <= 0) { it.ice = 0; it.m = null; }
+        events.push({ e: 'ice', id: it.id, from: ifrom, to: it.ice });
+      }
+    }
   }
 
   /* T026 占位实现（M1 关卡无棱镜；结构就绪）——折射分支
@@ -369,6 +434,8 @@
       if (fcell) break;
     }
     removeFromBoard(state, t);
+    /* T027: prism-flyout 同走级联管线（齿轮/钥匙/adjacent 破冰） */
+    cascadeOnFlyout(state, t, events);
     var slotIndex = dockInsert(state.dock, t);
     events.push({ e: 'dock', id: t.id, slotIndex: slotIndex });
     settleMatches(state, events);
@@ -396,7 +463,7 @@
     return null;
   }
 
-  /* Δ3 暂存回填（M2 T030 完整实现；结构就绪） */
+  /* Δ3 暂存回填（M2 T030 完整实现）: staging 滑块 → dock 尾（无射线判定，自由牌） */
   function applyStageReturn(state, tileId, events) {
     var t = state.tiles[tileId];
     var idx = -1;
@@ -412,6 +479,42 @@
     events.push({ e: 'dock', id: tileId, slotIndex: state.dock.length - 1 });
     settleMatches(state, events);
     return { type: 'staged-return', tileId: tileId, path: [], events: events };
+  }
+
+  /* T030 道具引擎语义（Δ3/FR-024/026）:
+   * wrench: 目标滑块 (d+1)%4——仅普通与齿轮滑块可用（冰封/锁链 invalid，FR-024-2）
+   * stage:  dock 前 k 个滑块（k=min(3, staging 余量)）移入 staging（FR-026 满即 invalid、无自动回填） */
+  function applyItem(state, item, tileId) {
+    if (item === 'wrench') {
+      var t = state.tiles[tileId];
+      if (!t || t.removed || t.inStaging) return { type: 'invalid', item: item, events: [] };
+      if (t.ice > 0 || t.locked) return { type: 'invalid', item: item, events: [] }; /* FR-024-2 */
+      var from = t.d;
+      t.d = (t.d + 1) % 4;
+      state.actions.push({ k: 2, t: tileId });
+      return { type: 'wrench', tileId: tileId, from: from, to: t.d, events: [{ e: 'gear', id: tileId, from: from, to: t.d }] };
+    }
+    if (item === 'stage') {
+      if (state.staging.length >= STAGING_CAP) return { type: 'invalid', item: item, events: [] }; /* FR-026 */
+      var k = Math.min(3, STAGING_CAP - state.staging.length);
+      var moved = [];
+      for (var i = 0; i < k && state.dock.length > 0; i++) {
+        var d0 = state.dock.shift();
+        d0.inStaging = true;
+        d0.removed = false;
+        state.staging.push(d0);
+        moved.push(d0.id);
+      }
+      if (!moved.length) return { type: 'invalid', item: item, events: [] };
+      state.actions.push({ k: 2, t: -1 });
+      return { type: 'stage', movedIds: moved, events: [{ e: 'staged', ids: moved }] };
+    }
+    return { type: 'invalid', item: item, events: [] };
+  }
+
+  /* T030 stageTile: staging 滑块点击飞入 dock 尾（k=1 动作） */
+  function stageTile(state, tileId) {
+    return applyStageReturn(state, tileId, []);
   }
 
   /* T011: terminal 终局判定（M1 基础版；M2 扩展 staging 与死锁复证） */
@@ -443,9 +546,39 @@
     return 'playing';
   }
 
-  /* T011: deadlockSuspect 占位返回 false（M2 T028 实现保守谓词） */
+  /* ---------- T028 死锁保守谓词（D-09/FR-006；复证由调用方执行） ---------- */
   function deadlockSuspect(state) {
-    return false;
+    /* ① 存在飞出型 tap → 非疑（快照试算——纯谓词、无副作用） */
+    var taps = enumerateTaps(state);
+    for (var i = 0; i < taps.length; i++) {
+      var snap = snapshot(state);
+      var r = applyTap(state, taps[i]);
+      var isFly = r.type === 'flyout' || r.type === 'prism-flyout';
+      restore(state, snap);
+      if (isFly) return false;
+    }
+    /* ② 有道具可用（wrench/stage）→ 非疑（可救） */
+    if (state.items && ((state.items.wrench > 0 && taps.length > 0) || (state.items.stage > 0 && state.staging.length < 3 && state.dock.length > 0))) return false;
+    /* ③ ice>0 且 dock 内某花色计数 ≥2 → 三消可解冻 → 非疑 */
+    var hasIce = false;
+    for (var j = 0; j < state.tiles.length; j++) {
+      if (!state.tiles[j].removed && !state.tiles[j].inStaging && state.tiles[j].ice > 0) { hasIce = true; break; }
+    }
+    if (hasIce) {
+      var dc = {};
+      for (var k = 0; k < state.dock.length; k++) dc[state.dock[k].s] = (dc[state.dock[k].s] || 0) + 1;
+      for (var s in dc) if (dc[s] >= 2) return false;
+    }
+    /* ④ 存在 locked 且场上存在钥匙 → 可解锁 → 非疑 */
+    var hasLock = false, hasKey = false;
+    for (var m = 0; m < state.tiles.length; m++) {
+      var tt = state.tiles[m];
+      if (tt.removed || tt.inStaging) continue;
+      if (tt.locked) hasLock = true;
+      if (tt.m === MECH.KEY) hasKey = true;
+    }
+    if (hasLock && hasKey) return false;
+    return true; /* 全部可救路径不存在 → 疑死锁（复证由调用方） */
   }
 
   /* T012: snapshot/restore 深拷贝对（Undo 与 Solver 回溯共用；运行时 dock 保序——D-07 规范化仅限 Solver 哈希） */
@@ -534,6 +667,7 @@
     if (!Array.isArray(level.tiles) || level.tiles.length < 6 || level.tiles.length % 3 !== 0) {
       errors.push('tiles 数量须 ≥6 且 %3==0');
     }
+    if (Array.isArray(level.tiles) && level.tiles.length > 128) errors.push('tiles 数量超上限 128（M3 5 层塔容量放宽）');
     var seen = {};
     for (var i = 0; i < (level.tiles || []).length; i++) {
       var t = level.tiles[i];
@@ -542,20 +676,20 @@
       seen[key] = true;
       if (t.r < 0 || t.r >= level.n || t.c < 0 || t.c >= level.n) errors.push('tile 越界 (' + t.r + ',' + t.c + ')');
       if (t.d < 0 || t.d > 3) errors.push('tile 方向非法 d=' + t.d);
-      if (t.z != null && (t.z < 0 || t.z > 2 || !isFinite(t.z) || Math.floor(t.z) !== t.z)) errors.push('tile 层号非法 z=' + t.z);
+      if (t.z != null && (t.z < 0 || t.z > 4 || !isFinite(t.z) || Math.floor(t.z) !== t.z)) errors.push('tile 层号非法 z=' + t.z);
       if (t.m != null && t.m !== 'g' && t.m !== 'i' && t.m !== 'c' && t.m !== 'k') {
         errors.push('tile 机制标记非法 m=' + t.m);
       }
       if (t.m === 'i' && !(t.x >= 1)) errors.push('冰封滑块 x 须 ≥1');
     }
-    /* 同格堆叠深度 ≤3 */
+    /* 同格堆叠深度 ≤5（M3 最高 5 层立体塔） */
     var depth = {};
     for (var di = 0; di < (level.tiles || []).length; di++) {
       var dt = level.tiles[di];
       var dk = dt.r + ':' + dt.c;
       depth[dk] = (depth[dk] || 0) + 1;
     }
-    for (var dkk in depth) if (depth[dkk] > 3) errors.push('格子 ' + dkk + ' 堆叠深度 >3');
+    for (var dkk in depth) if (depth[dkk] > 5) errors.push('格子 ' + dkk + ' 堆叠深度 >5');
     var suits = {};
     for (var j = 0; j < (level.tiles || []).length; j++) {
       var s = level.tiles[j].s;
@@ -620,6 +754,13 @@
           continue;
         }
         if (pair[0] === pair[1][0]) errors.push('chains[' + ci + '] 自环');
+        /* T029: 键指向 m=='k' 滑块、锁指向 m=='c' 滑块 */
+        var keyTile = (level.tiles || [])[pair[0]];
+        if (!keyTile || keyTile.m !== 'k') errors.push('chains[' + ci + '] 键 ' + pair[0] + ' 非 m==k 钥匙滑块');
+        for (var lk = 0; lk < pair[1].length; lk++) {
+          var lockTile = (level.tiles || [])[pair[1][lk]];
+          if (!lockTile || lockTile.m !== 'c') errors.push('chains[' + ci + '] 锁 ' + pair[1][lk] + ' 非 m==c 锁链滑块');
+        }
       }
     }
     if (Array.isArray(level.solutionMoves)) {
@@ -684,14 +825,7 @@
     return out;
   }
 
-  /* ---------- 道具占位（T030 M2 实现） ---------- */
-  function applyItem(state, item, tileId) {
-    return { type: 'invalid', events: [] };
-  }
-
-  function stageTile(state, tileId) {
-    return { type: 'invalid', tileId: tileId, path: [], events: [] };
-  }
+  /* ---------- 道具（T030 实现于 applyItem/stageTile） ---------- */
 
   /* ---------- 导出 ---------- */
   return {
