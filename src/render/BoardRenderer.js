@@ -268,7 +268,7 @@
     drawArrowBadge(ctx, t.d, x + w / 2, fz + w / 2, cell, suit, scale);
     /* 6. T034 机制角标: 齿轮(右上)/冰封(全牌覆层+厚度)/锁链(四角)/钥匙(左上) */
     if (t.m === 'g') drawGearBadge(ctx, x, fz, w, cell);
-    else if (t.m === 'i') drawIceOverlay(ctx, x, fz, w, cell, t.x || 1);
+    else if (t.m === 'i') drawIceOverlay(ctx, x, fz, w, cell, t.ice != null ? t.ice : (t.x || 1)); /* Δ12: 运行态字段 ice（t.x 仅 TileSpec 原始字段） */
     else if (t.m === 'k') drawKeyBadge(ctx, x, fz, w, cell);
     else if (t.m === 'c') drawChainCorners(ctx, x, fz, w, cell);
     /* 7. Δ7 多层堆叠左上角层角标（下层可见性预告） */
@@ -493,8 +493,15 @@
       running = false;
       var needMore = tick(now);
       if (needMore || dirty) {
-        draw();
-        dirty = false;
+        /* Δ12: 单帧绘制异常不杀 rAF 主循环（重排程置 finally——
+         * 崩溃帧仅丢一帧画面，下一帧照常调度） */
+        try {
+          draw();
+        } catch (err) {
+          if (global.console && console.error) console.error('[STM render]', err);
+        } finally {
+          dirty = false;
+        }
       }
       if (needMore) start();
     }
@@ -815,11 +822,17 @@
     /* ---------- 数据刷新（脏检查入口） ---------- */
     function refresh() {
       if (session) lastProbe = RE.renderProbe(session.engineState());
-      /* M1.6: 视觉缓存——未移除滑块的 s/d/z/stackDepth（removed 后 drawAnim 仍可用） */
+      /* M1.6: 视觉缓存——未移除滑块全量绘制字段（removed 后 drawAnim 仍可用）
+       * Δ12: 补 r/c/m/ice —— tileById 缓存优先命中时 block/gear/unlock/ice 动画
+       * 读 t.c/t.r 曾为 undefined → NaN → createLinearGradient 抛错杀死 rAF 循环
+       * （受阻滑块贴图永久消失根因）；m/ice 补全已移除滑块飞出动画的机制角标 */
       if (lastProbe) {
         for (var i = 0; i < lastProbe.tiles.length; i++) {
           var t = lastProbe.tiles[i];
-          tileInfo[t.id] = { id: t.id, s: t.s, d: t.d, z: t.z || 0, stackDepth: t.stackDepth || 1 };
+          tileInfo[t.id] = {
+            id: t.id, r: t.r, c: t.c, s: t.s, d: t.d, z: t.z || 0, stackDepth: t.stackDepth || 1,
+            m: t.m || null, ice: t.ice != null ? t.ice : null
+          };
         }
       }
       resize();

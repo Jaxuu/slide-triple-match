@@ -15,14 +15,14 @@
 
 ## 1. 顶层导出
 
-`STM.LEVELS`: `Level[]`，按 `id` 升序（`LEVELS[i].id === i+1`）。**`LEVELS.length` 是关卡总数唯一真源**（Δ4：前端跳关下拉、进度钳制、自动进关、终局判定均动态读取；默认交付 50，配置扩容至 100+ 零前端改动）。
+`STM.LEVELS`: `Level[]`，按 `id` 升序（`LEVELS[i].id === i+1`）。**`LEVELS.length` 是关卡总数唯一真源**（Δ4：前端跳关下拉、进度钳制、自动进关、终局判定均动态读取；交付 60 关（Δ13 增量扩容），配置扩容至 100+ 零前端改动）。
 
 ## 2. Level schema
 
 ```js
 {
   id: 7,                      // int ≥1 连续
-  chapter: 1,                 // int（展示/统计）
+  chapter: 1,                 // int 1~3（展示/统计; Δ13 3×20 大阶段: ch1 L1-20/ch2 L21-40/ch3 L41-60）
   name: "Level 7 · 齿轮初鸣",  // string 展示名
   n: 5,                       // int 4..8 网格边长
   tiles: [                    // TileSpec[]（见 data-model.md §2.1；M1.5 Δ7 支持 z 堆叠）
@@ -75,10 +75,10 @@
 
 ## 4. 规模预算
 
-- 文件总大小 ≤ 300 KB（Δ11 大棋盘 50 关实测 ≈262 KB——8×8×105 块扩容; 静态本地 `<script defer>` 加载 <50 ms，SC-003 不受影响）。
+- 文件总大小 ≤ 330 KB（Δ13 扩容 60 关实测 ≈315 KB——48 平移关 + 10 新增大棋盘关; 静态本地 `<script defer>` 加载 <50 ms，SC-003 不受影响。Δ11 时预算 300 KB/50 关 ≈262 KB，Δ13 按 +10 关后期大关折算放宽至 330 KB）。
 - 每关 tiles ≤ 150、prisms ≤ 6、solutionMoves 长度 = `metrics.minMoves` ≤ 150（Δ11 大棋盘: 8×8×5 层 105 块上限 + 验证余量）。
 
 ## 5. 变更与门禁（FR-031）
 
-- 本文件任何内容变更 MUST 由 `node tools/generator.js` 重新导出（**禁止手改生成物**——M1/M2 手工测试关例外，M3 起被流水线整体替换）或经 `node tools/solver.js` 全量重验证通过。
+- 本文件任何内容变更 MUST 由 `node tools/generator.js` 重新导出（**禁止手改生成物**——M1/M2 手工测试关例外，M3 起被流水线整体替换）、经 `node tools/expand-60.js` 增量迁移（Δ13：旧关 100% 保留 + 新关经同一 Generator 三重验证）或经 `node tools/solver.js` 全量重验证通过。
 - 交付仓库内含与 `levels.js` 同批次生成的 `tools/solver-report.json`（双 metrics 交叉一致是验收检查项）。

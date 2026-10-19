@@ -7,14 +7,14 @@
 ## 实体总览
 
 ```text
-Level (静态配置, 50×) ──加载──→ Session (运行时会话, 1..1)
+Level (静态配置, 60×·Δ13 扩容) ──加载──→ Session (运行时会话, 1..1)
   ├─ TileSpec[] (初始布局)          ├─ BoardCell[N×N] (含 Tile 运行态)
   ├─ PrismSpec[] (棱镜格)           ├─ DockSlot[7]
   ├─ LevelConfig (关卡参数)         ├─ StagingSlot[3]
   ├─ LevelMetrics (量化指标)        ├─ ItemCharges (道具次数)
   └─ solutionMoves (最优解)         ├─ HistoryStack (Undo 快照)
                                     └─ Outcome (胜负/死局)
-SolverReport (流水线工件, 1)  ←验证── 50×Level
+SolverReport (流水线工件, 1)  ←验证── 60×Level
 ```
 
 ## 1. Level（关卡静态配置）

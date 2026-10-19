@@ -2,7 +2,7 @@
 description: "Task list for feature implementation（四里程碑门禁式）"
 ---
 
-# Tasks: Slide & Triple（滑块三消）— 完整 H5 游戏与 50 关递进关卡系统
+# Tasks: Slide & Triple（滑块三消）— 完整 H5 游戏与 60 关递进关卡系统（Δ13 扩容后）
 
 **Input**: Design documents from `/specs/001-slide-triple-match-core/`
 
@@ -10,7 +10,7 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 
 **Tests**: 本项目采用零测试框架三层验证（D-14，勿引入 jest/vitest 等任何 npm 依赖）：① `node tools/solver.js` 全量可解性门禁（exit code 机判）② `node tools/solver.js --engine-selftest` 规则不变量断言 ③ quickstart.md 人工验收场景。此类验证任务**非可选**——它们是 FR-030/031/SC-001 的交付物，已按里程碑融入任务清单。
 
-**Organization**: 任务按 **plan.md 四阶段里程碑**（M1→M2→M3→M4）组织；用户故事标签映射进各里程碑：**M1=US1（核心循环）、M2=US3+US4 道具（机制/道具+规则冻结）、M3=US2（50 关量产）、M4=US4 面板（调试面板/Bot/扩容）**。里程碑间为**冻结门**关系：上一 Checkpoint 未全过，禁止开始下一阶段任务——尤其 M3 大批量量产严禁在 M1/M2 未验证前提前执行。
+**Organization**: 任务按 **plan.md 四阶段里程碑**（M1→M2→M3→M4）组织；用户故事标签映射进各里程碑：**M1=US1（核心循环）、M2=US3+US4 道具（机制/道具+规则冻结）、M3=US2（60 关量产——Δ13 扩容后，原 50 关基准批次）、M4=US4 面板（调试面板/Bot/扩容）**。里程碑间为**冻结门**关系：上一 Checkpoint 未全过，禁止开始下一阶段任务——尤其 M3 大批量量产严禁在 M1/M2 未验证前提前执行。
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -42,7 +42,7 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 |---|---|---|---|
 | M1 验收门 | T022 | US1-AC1~AC5 + quickstart Q1.1~Q1.7 + file:// 零控制台报错 | 开始 M2 |
 | **M2 冻结门（FREEZE）** | T039 | US3-AC1~7、US4-AC1~3 + Edge Cases 复现 + `--engine-selftest` 全绿 | **开始 M3 量产（严禁提前生成大批量关卡）** |
-| M3 量产门 | T052 | SC-001 50/50 + SC-004 曲线门 + US2-AC1~AC5 | 开始 M4 |
+| M3 量产门 | T052 | SC-001 60/60（Δ13 扩容后）+ SC-004 曲线门 + US2-AC1~AC5 | 开始 M4 |
 | M4 交付门 | T058 + T062/T063 | SC-002/003/006 + 宪章红线零违规 | 交付 |
 
 ---
@@ -179,9 +179,13 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 > **Δ10 无锁连点**: 试玩发现「别急，动画中…」输入锁打断 Rapid Tap 爽感。改造：① GameState 删除 ANIMATING/SETTLING 相位与 lockForAnimation（MAX_ANIM_MS 1.2s 上限锁、animTimer）——tap() 在 READY 态 0ms 瞬时结算 applyTap，级联原子结算完毕立即 judgeTerminal；② main.js 删除 input-locked Toast「别急，动画中…」与 tick 提示音、删除 onBoardDown 400ms 兜底 setTimeout——仅终态拦截棋盘点击；③ Renderer 动画本就并发非阻塞（anims 数组多动画并存）+ hitTest 恒测逻辑态栈顶。顺手修复：引擎破冰事件名 'ice' 从未被 main.js/renderer 监听（监听 'iceBreak' 恒不匹配）→ 双侧对齐（main.js/BoardRenderer 处理 e.e==='ice'，音效映射 iceBreak 键）。验证：L1/L25/L38/L50 快速连点回放 phase=WON 零 input-locked、undo/扳手道具在无锁模式下正常。
 > **Δ11 大棋盘波浪架构**: 5×5 小棋盘可玩性不足。重构 level-config CHAPTERS（5 章→3 阶段章）+ waveGrid/waveTiles/waveZMax 铁律函数：L1=5×5（30 块）、L2=6×6（45 块）、L3~50 严格 3 关一循环「2 简 1 难」（L5/L8/…/L50=8×8 挑战 16 个、其余 7×7 32 个）；tiles 前期 54~78 / 中期 63~90 / 后期 72~105（恒 %3）；zMax 前期 2~3 / 中期 3~4 / 后期 4~5（z∈[0,4] 深度≤5）；花色 3~8（8×8 挑战 +1 / 7×7 简单 -1）；机制 gear L6/ice L11/chain L21/prism L31（prism 从 L31 起真实首现——ch2 mechanisms.prism 修正开启）；受阻扣命中期起。validateLevel tiles 上限 128→150。generator: 降档不再缩 n（网格铁律优先）; 棱镜对射预检改真实同行/列/斜线拒绝; ice/chain/钥匙机制滑块结构约束「组内第 2/3 位」（修复大棋盘 openSuitsMax>5 跨组交错滞留根因）。solver: expandActions 启发式优先级排序（Dock 计数 2 三消 > 钥匙 > 高层 > 凑对 > id 序）; openSuitsMax 口径修正为「最优解路径上」（首解回放统计——原搜索全程口径在大棋盘 8 花色中途试探态必然超标，与契约「最优路径开放花色≤5」不符）; curveGates 门-2 改全章斜率、门-3 改 7/7/8 波浪锯齿（8×8 位显著 > 均值×1.05、7×7 位 < ×0.95——容差校准注记：实际简/难档分离 ≈10 分 >20% 相对差，单侧 8% 带与总体递进叠加时过紧）。BoardRenderer: 8×8 及 5 层适配（底座厚度/错层偏移按格宽分级收紧、层角标深度>4 改数字角标）。验证闭环：seed 2026 重生成 50 关零降档、solver 全量门禁 50/50 exit 0（chMonotonic/slope13.5/waveZigzag 全绿、metrics 双写一致）、engine-selftest 11/11、种子逐位复现（md5 一致）、FR-031 篡改捕获（改花色→exit 1、还原→exit 0）、Q3.3 抽查 5 关参数全符、L50 e2e（105 飞出/35 三消/38 reveal/20 齿轮/5 解锁/21 破冰 → WON）。levels.js 262KB（预算 ≤300KB）。文档同步：spec.md（US2/FR-008/FR-012/SC-004/机制档位 L11/L21/L31）、quickstart（Q1.8/Q3.3/Q3.4）、contracts 四件（rules-engine z 枚举 5 层+tiles 150、level-pipeline 波浪铁律+门禁表+启发式、game-session Δ10 输入锁+ice 事件名、level-data z 枚举+规模预算）、data-model（chapter 1~3/状态机 Δ10）。
 
+> **Δ12 变更记录（Bug 修复——blocked-slider-vanish 渲染崩溃，2026-10-19）**: 试玩发现「点击受阻滑块触发 blocked 动画后贴图永久消失、逻辑状态正常」。根因（BoardRenderer 纯渲染层确定性崩溃链）：① tileById() 的 tileInfo 视觉缓存（m16 引入，本供已移除滑块飞出动画续绘）**缺 r/c 字段**——受阻滑块未移除必命中缓存 → ② drawAnim 的 block 分支读 t.c/t.r=undefined → NaN → ③ drawTileBody 内 roundRect/createLinearGradient(NaN) 抛 TypeError → ④ draw() 在 clearRect 已清屏且静态层已按 blockSet 跳过受阻滑块后崩溃 → ⑤ frame() 末尾 rAF 重排程不可达 → **渲染主循环永久死亡**（Δ10 删 400ms 兜底重绘后无复活路径；用户再点消失滑块→再 blocked→再崩→自我续命）。同根潜伏缺陷一并修复：gear/unlock 动画同路径同崩溃（齿轮/钥匙联动时全部动画冻结）、ice 碎裂动画坐标 NaN 静默不可见（破冰特效自 T034 引入从未生效）、冰封覆层厚度读取字段名错位（t.x → 运行态 t.ice，FR-017 厚度角标恢复显示）。修复：refresh() 缓存条目补全 r/c/m/ice 全量绘制字段（一处写入收口四条路径）；drawTileBody 冰层读取改 t.ice 优先；frame() draw() 包 try/catch+finally 重排程（纵深防御——单帧异常仅丢一帧、rAF 不死，异常 console.error 留痕）。回归史：m16(63cd701) 引入缓存+blockSet（当时有 400ms 兜底，表现为闪灭）→ Δ10(490c870) 删兜底后恶化为永久消失。验证：新增 tools/render-selftest.js（零依赖 Node 冒烟——浏览器契约级 canvas 桩含渐变/路径坐标有限性校验（Chrome 同款抛错）+ 手动 rAF 泵 + 事件流复刻 main.js handleSessionEvent 语义，覆盖受阻滑块全动画窗口/连点/gear+unlock+ice+fly 并发/棱镜折射/冰层角标/逻辑态无扰，21/21 全绿）红绿双向验证（git stash 旧代码复现 4 项崩溃+红、修复后全绿）；engine-selftest 11/11 回归通过；node --check 语法通过。评估/修复报告存档 .specify/bugs/blocked-slider-vanish/（assessment.md + fix.md）。FR-031 不触发（纯渲染层，levels.js/level-config/RulesEngine 引擎语义零变更）。
+
+> **Δ13 变更记录（关卡增量扩容 50→60 关——3×20 大阶段 + 20 个「简-简-难」循环，2026-10-19）**: 用户指令扩容并附**最高优先级铁律（严禁全量重生成）**——原 50 关 tiles/prisms/cfg/solutionMoves 100% 原封不动保留。实施：新增 **tools/expand-60.js 增量拼接工具**（新 L1/L2 = 原样复用；新 L3 = 单独新生成 7×7 新手循环 1 困难关（57 块、z0 满铺+局部 2 层、无机关、不扣命）；原 L3~L50（48 关）平移为新 L4~L51 **仅改 id(+1)/chapter(3×20 重排)/name 编号**——JSON 深比较逐位一致验证；新 L52~L60 尾部新生成 9 关（循环 18~20: 7×7/7×7/8×8，全机制 + 105 块 8×8 终极挑战），10 新关均走 Generator 三重验证（逆向构造→正向自检→Solver 门禁）+ 内嵌 Solver 最优解）。level-config Δ13: 章区间 ch1[1,20]/ch2[21,40]/ch3[41,60] + waveGrid/wavePos/waveTiles/waveZMax 锚点 (id-4)%3==2（挑战位 L6/L9/…/L51/L54/L57/L60 共 19 个 8×8——与平移数据及新增循环 18~20 精确对齐）+ mechFrom +1 平移（gear7/ice12/chain22/prism32）+ 阶段带边界 L16→17/L35→36 重排。solver: 曲线门-3 波浪锚点同步 (id-4)%3==2 + 波浪统计域 L4+（L1~L3 新手循环不计入）+ dScore 归一域注记 60 关。验证闭环：拼接后 **60/60 solvable exit 0**（chMonotonic=true 24.70/57.05/70.05 三章均值单调 + slope14=12.60 + waveZigzag=true spike 60.42/valley 48.92）+ metrics 双写一致（门 ⑦ 60 关全过）+ 平移关 48/48 JSON 深比较 bit-exact + engine-selftest 11/11 + render-selftest 21/21 + FR-031 红绿双向（篡改新 L3 花色→exit 1→还原→exit 0）+ seed 2026 逐位复现（expand-60.js 确定性）。levels.js 314.8KB（Δ13 预算放宽 ≤330KB 契约已同步）。L55 个位 5 触发 relax 蝶翼主题（FR-012 解压爽关 = 简关变体，语义符合「简」）。文档同步：spec.md（US2/FR-008/FR-027/FR-031/实体/SC-001/002/004 + Δ13 拼接铁律条款）、level-data.md（LEVELS.length=60 + 规模预算 330KB + 章节注释）、level-pipeline.md（Δ13 章表/波浪铁律/门禁表/拼接流程注记）、data-model.md（60×/chapter/damageOnBlock 注记）、quickstart.md（Q3.1/Q3.3/Q3.5/Q4.6/Q8 + 命令速查）。前端零改动（Δ4 动态 LEVELS.length 实证——HUD/进度钳制/终局判定全自适应）。
+
 ---
 
-## Phase 5: Milestone 3 — 离线 Generator/Solver 与 50 关量产（User Story 2，Priority: P1）
+## Phase 5: Milestone 3 — 离线 Generator/Solver 与 50→60 关量产（User Story 2，Priority: P1）
 
 ⚠️ **冻结门**: 仅当 T039（M2 规则冻结）通过后方可开始——Generator/Solver 与前端共用同一 RulesEngine 口径（FR-032/D-02），规则未冻结即量产 = 口径漂移 → 全量返工重验。**严禁在 M1/M2 未验证前提前生成大批量关卡。**
 
@@ -227,8 +231,8 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 - [ ] T055 [US4] Implement Hint in src/main.js: on-rail（session.onRail()）→ 高亮 solutionMoves[stepIndex].t 滑块（脉冲描边动画）；off-rail → 有界 DFS（预算 100k 节点/~300ms 时限，复用 T033 搜索器，动作集与 Solver 同构）首步高亮；搜索失败→启发式建议（能飞出且降低槽压力的 tap）+「非保证」标记
 - [ ] T056 [US4] Implement Auto-Play Bot in src/main.js: on-rail 逐 tap 回放（600 ms/步、botTick 音效）；**玩家 pointerdown 立即打断**；off-rail 有界续解→失败则兜底 reset 重放整条 solutionMoves（保证「直至该关胜利」）；终态自动停
 - [ ] T057 [US4] Implement 关卡信息展示 in src/main.js: metrics 全字段（minMoves/solutionCount/dockPeak/mechCount/difficultyScore/openSuitsMax）+ 机制标签动态计算（齿轮/冰封/锁链/棱镜+破冰口径，按 tiles/prisms/cfg 实际出现）+ 音效开关（SoundManager.setMuted）
-- [ ] T058 [US4] **Checkpoint M4（功能门）**: quickstart Q4.1~Q4.7 逐条通过（跳关/Hint 在轨与偏离两态/Bot 演示+玩家打断/指标与机制标签/移动端抽屉收展/SC-002 计时/SC-003 首屏）；US4-AC4~AC7 全过；**SC-002: 跳关+自动演示 10 分钟内遍历 50 关 + ≥10 关机制深度人工验证**
-- [ ] T059 [US4] Execute Q8 无缝扩容钻探（**钻探配置不进入交付物**）: 临时向 tools/level-config.js CHAPTERS 追加第 6 章条目（levels:[51,60], grid:[8,8] 等）→ `node tools/generator.js --chapters 6 --seed 2026` 生成 60 关 → `node tools/solver.js` 60/60 门禁通过 → 浏览器验证: 下拉框出现 51~60 选项、通关 L50 自动进 L51、L60 通关触发全通关终局、进度对象零迁移自适应（**全部零前端代码修改——Δ4+Δ5 实证**）→ 回滚配置 → 重跑生成恢复 50 关交付物 → solver 全量重验
+- [ ] T058 [US4] **Checkpoint M4（功能门）**: quickstart Q4.1~Q4.7 逐条通过（跳关/Hint 在轨与偏离两态/Bot 演示+玩家打断/指标与机制标签/移动端抽屉收展/SC-002 计时/SC-003 首屏）；US4-AC4~AC7 全过；**SC-002: 跳关+自动演示 10 分钟内遍历 60 关（Δ13 扩容后）+ ≥10 关机制深度人工验证**
+- [ ] T059 [US4] Execute Q8 无缝扩容钻探（**钻探配置不进入交付物**; Δ13 注记: 50→60 扩容已由 expand-60.js 增量拼接实证一次，后续钻探目标改为 60→80+）: 临时向 tools/level-config.js CHAPTERS 追加新章条目（levels:[61,80], grid:[8,8] 等）→ `node tools/generator.js --chapters N --seed 2026` 生成 80 关（或增量拼接）→ `node tools/solver.js` 全量门禁通过 → 浏览器验证: 下拉框出现 61~80 选项、通关 L60 自动进 L61、L80 通关触发全通关终局、进度对象零迁移自适应（**全部零前端代码修改——Δ4+Δ5 实证**）→ 回滚配置 → 重跑生成恢复 60 关交付物 → solver 全量重验
 
 ---
 
@@ -258,14 +262,14 @@ Phase 1 → Phase 2 → **M1（T022 验收门）** → **M2（T039 冻结门 FRE
 - **Foundational（Phase 2）**: 依赖 Phase 1；**阻塞全部里程碑**
 - **M1（Phase 3）**: 依赖 Phase 2 完成
 - **M2（Phase 4）**: 依赖 T022（M1 验收门）
-- **M3（Phase 5）**: 依赖 T039（M2 冻结门）；性能预算=Solver 单关 2M 节点、全量 50 关 <5 分钟
+- **M3（Phase 5）**: 依赖 T039（M2 冻结门）；性能预算=Solver 单关 2M 节点、全量 60 关 <5 分钟
 - **M4（Phase 6）**: 依赖 T052（M3 量产门——Hint/Bot 依赖 levels.js 内嵌 solutionMoves，Δ6）
 - **Polish（Phase 7）**: 依赖 T058/T059 完成
 
 ### User Story Mapping
 
 - **US1（P1 核心循环）** → M1: T008~T022
-- **US2（P1 50 关系统）** → M3: T040~T052
+- **US2（P1 60 关系统）** → M3: T040~T052
 - **US3（P2 四大机制）** → M2: T023~T029, T033, T034, T036~T038（+T039 共享）
 - **US4（P3 道具+调试面板）** → M2 道具: T030~T032, T035（+T039 共享）；M4 面板: T053~T059
 - 故事并行性受里程碑门约束（US2 依赖 US3 规则冻结——**玩法机制先于量产**，Core-First Levels-Later）

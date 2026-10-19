@@ -49,11 +49,11 @@ B. （可选）任意静态服务: npx serve . 或 python -m http.server
 
 | # | 场景 | 操作 | 预期 |
 |---|---|---|---|
-| Q3.1 | 流水线量产 | `node tools/generator.js --seed 2026` | 生成 50 关 `src/data/levels.js` + `solver-report.json`；同 seed 逐位复现（D-08） |
+| Q3.1 | 流水线量产 | `node tools/generator.js --seed 2026`（50 关基准批次） / `node tools/expand-60.js`（Δ13 增量扩容至 60 关） | 60 关 `src/data/levels.js` + `solver-report.json`；同 seed 逐位复现（D-08）；原 50 关数据 100% 保留复用（Δ13 拼接铁律） |
 | Q3.2 | 全量验证门禁 | `node tools/solver.js` | exit 0；报告 50/50 solvable（SC-001）；指标齐全 |
-| Q3.3 | 参数矩阵核对 | 抽查 L1/L15/L25/L35/L45 配置 | 网格/花色/滑块数/堆叠层数/机制档位符合 Δ11 波浪矩阵（AC1）: L1=5×5、L2=6×6、L3~50 按 7/7/8 循环 |
+| Q3.3 | 参数矩阵核对 | 抽查 L1/L15/L25/L35/L45/L55 配置 | 网格/花色/滑块数/堆叠层数/机制档位符合 Δ13 波浪矩阵（AC1）: L1=5×5、L2=6×6、L3=7×7 新手难关、L4~60 按 7/7/8 循环（挑战位 (id-4)%3==2） |
 | Q3.4 | 难度曲线 | 读报告 curveGate | 章均值单调不减、全章 minMoves 斜率 ≥0、7/7/8 波浪锯齿（8×8 挑战关显著难于 7×7 简单关）（AC/SC-004） |
-| Q3.5 | 进关与终局 | 连续通关 | 自动进 N+1；L50（=LEVELS.length）通关进入全通关庆祝（AC3） |
+| Q3.5 | 进关与终局 | 连续通关 | 自动进 N+1；L60（=LEVELS.length）通关进入全通关庆祝（AC3；Δ13 扩容后终局关 = L60） |
 | Q3.6 | 进度延续 | 通关几关后刷新页面 | 自动进入 unlocked 关；进度持久（localStorage 不可用时降级内存仍可玩） |
 | Q3.7 | 变更重验 | 手改任一关卡数据 → 重跑 solver | 门禁捕获不一致（exit 1），报告更新（FR-031） |
 
@@ -66,18 +66,20 @@ B. （可选）任意静态服务: npx serve . 或 python -m http.server
 | Q4.3 | Auto-Play | 点击自动演示 | Bot 沿最优解逐步点击直至胜利；玩家点击即打断（AC5） |
 | Q4.4 | 指标与标签 | 查看关卡信息 | 难度评估分 + 全部量化指标 + 机制标签动态正确（AC6） |
 | Q4.5 | 移动端面板 | 窄屏收起/唤出 | 抽屉隐藏/唤出，游玩布局不受影响（AC7） |
-| Q4.6 | SC-002 计时 | 跳关+自动演示遍历 50 关 | 10 分钟内完成 + ≥10 关人工机制深验 |
-| Q4.7 | 首屏性能 | 冷启动（清缓存） | 可交互 < 3 s（SC-003）；levels.js ≤ 200 KB |
+| Q4.6 | SC-002 计时 | 跳关+自动演示遍历 60 关 | 10 分钟内完成 + ≥10 关人工机制深验 |
+| Q4.7 | 首屏性能 | 冷启动（清缓存） | 可交互 < 3 s（SC-003）；levels.js ≤ 330 KB（Δ13 扩容后实测 ≈315 KB，本地 <script defer> 加载 <50 ms） |
 
 ### Q8 — 无缝扩容钻探（M4，Δ4+Δ5 验证；**钻探配置不进入交付物**）
 
+> Δ13 注记（2026-10-19）: 交付物已增量扩容至 60 关（tools/expand-60.js 拼接——原 50 关 100% 保留 + 10 新关）。下述钻探场景的原始语义（配置追加 → 重跑 → 零前端改动自适应）已被 Δ13 实证一次（50→60, 全量门禁 60/60 + 曲线门全绿 + 前端零改动）；后续向 100+ 关扩容仍按此模式执行。
+
 ```text
-1. 临时向 tools/level-config.js 的 CHAPTERS 追加第 6 章条目（如 levels:[51,60], grid:[8,8] …）
-2. node tools/generator.js --chapters 6 --seed 2026 → 生成 60 关 levels.js
-3. node tools/solver.js → 60/60 门禁通过
-4. 浏览器验证：下拉框出现 51~60 选项、通关 L50 自动进 L51、L60 通关触发全通关终局、
+1. 临时向 tools/level-config.js 的 CHAPTERS 追加章条目（如 levels:[61,80], grid:[8,8] …）
+2. node tools/generator.js --chapters N --seed 2026 → 生成对应新章 levels.js（或增量拼接）
+3. node tools/solver.js → 全量门禁通过
+4. 浏览器验证：下拉框出现新关选项、通关末关自动进下一新关、新末关通关触发全通关终局、
    进度对象无需迁移即自适应（全部零前端代码修改）
-5. 回滚：git checkout 配置 → 重跑生成恢复 50 关交付物 → solver 全量重验
+5. 回滚：git checkout 配置 → 重跑生成恢复 60 关交付物 → solver 全量重验
 ```
 
 预期：步骤 4 全部成立——**扩容 = 配置数组加条目 + 重跑两条命令**。
@@ -98,7 +100,7 @@ B. （可选）任意静态服务: npx serve . 或 python -m http.server
 ```text
 游玩:        双击 index.html
 引擎自测:    node tools/solver.js --engine-selftest
-量产 50 关:  node tools/generator.js --seed 2026
+量产 60 关:   node tools/generator.js --seed 2026（50 关基准） + node tools/expand-60.js（Δ13 增量扩容）
 全量验证:    node tools/solver.js        （exit 0 = 50/50 可解 + 全门禁通过）
 单关调试:    node tools/solver.js --level 7
 ```
