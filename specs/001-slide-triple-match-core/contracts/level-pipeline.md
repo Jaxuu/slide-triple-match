@@ -4,30 +4,33 @@
 
 **流水线**: `level-config.js`（参数）→ `generator.js`（逆向构造）→ `solver.js`（验证门禁）→ 导出 `src/data/levels.js` + `tools/solver-report.json`。**规则口径**：Solver 直接 `require('../src/core/RulesEngine.js')`（D-02 双导出）——与前端游玩 100% 同源（FR-032）。
 
-## 1. level-config.js（章节参数表，Δ5 可扩展）
+## 1. level-config.js（章节参数表，Δ5 可扩展；Δ11 大棋盘波浪架构）
 
-导出 `CHAPTERS: ChapterConfig[]` —— **追加条目即新增章节**（默认 5 章；扩至第 6、7 章 = 数组加 2 个对象，generator/solver/前端零代码改动，Δ4+Δ5）：
+导出 `CHAPTERS: ChapterConfig[]` —— **追加条目即新增章节**（默认 3 章；扩容 = 数组加对象，generator/solver/前端零代码改动，Δ4+Δ5）：
 
 ```js
 {
-  id: 1,                          // 章号（展示与统计）
-  levels: [1, 10],                // 关号区间（含端点；与前章无空洞无重叠——加载时校验）
-  grid: [4, 5],                   // 网格边长区间（关内线性插值）
-  suits: [2, 4],                  // 花色数区间
-  tiles: [6, 18],                 // 滑块总数区间（实际落值 %3==0）
-  mechanisms: {                    // 引入档位（FR-008）：本章是否引入
-    gear: false, ice: false, chain: false, prism: false
+  id: 1,                          // 章号（展示与统计; Δ11: 阶段章 = 前期[1,15]/中期[16,35]/后期[36,50]）
+  levels: [1, 15],                // 关号区间（含端点; 与前章无空洞无重叠——加载时校验）
+  grid: [5, 6],                   // 兼容字段; 实际网格由 waveGrid() 铁律决定（见下）
+  suits: [3, 5],                  // 花色数区间（波浪调制: 8×8 挑战 +1 / 7×7 简单 -1）
+  tiles: [27, 63],                // 兼容字段; 实际由 waveTiles() 按棋盘+阶段算（恒 %3==0）
+  zMax: [2, 3],                   // 堆叠层数区间（waveZMax: 前期 2~3 / 中期 3~4 / 后期 4~5）
+  mechanisms: {                    // 引入档位（FR-008）: gear L6+ / ice L11+ / chain L21+ / prism L31+
+    gear: true, ice: true, chain: false, prism: false
   },
   mechDensity: { ... },           // 各机制滑块/格占比区间（引入后逐关爬升）
-  damageOnBlock: false,           // 受阻扣命（第 3 章起 true，FR-003）
+  damageOnBlock: false,           // 受阻扣命（中期 L16 起章 true，FR-003）
   lives: 3, items: {undo:1, wrench:1},
   iceMode: 'triple',              // 'triple' | 'adjacent'（FR-016 变体档）
-  rhythm: null,                   // 第 5 章专用节奏模板（见下）
+  rhythm: null,                   // 后期章专用节奏模板（见下）
   budget: { nodes: 2_000_000, ms: 60_000 }  // Solver 单关预算（可按章覆盖）
 }
 ```
 
-**第 5 章节奏模板**（`rhythm`，FR-012）：个位 `4/9` → 挑战关（参数取区间上界 + 机制密度高 + 冰厚上探）；个位 `5/0` → 解压爽关（对称图案 `theme` 模板库：`ring/butterfly/diamond/heart` 之一 + tiles 取下界 + dockPeak 目标 ≤3）；其余位常规插值。
+**Δ11 网格排布铁律（`waveGrid(levelId)`）**: L1 = 5×5（27/30 块）；L2 = 6×6（42/45 块）；L3~50 = 3 关一循环「2 简 1 难」——`(levelId-3)%3 === 2` → 8×8 困难挑战关，否则 7×7 简单关（L5/L8/…/L50 共 16 个 8×8 + 32 个 7×7）。**tiles/zMax 由 `waveTiles`/`waveZMax` 按阶段双轨计算**: 前期 L3~15（7×7 54~63 / 8×8 69~78 / z 2~3）、中期 L16~35（63~75 / 78~90 / z 3~4）、后期 L36~50（72~84 / 87~105 / z 4~5）；挑战关取区间高位、简单关低位（波浪锯齿的参数分离）。
+
+**后期章节奏模板**（`rhythm`，FR-012）: 挑战节奏仅在 8×8 挑战位叠加（个位 4/9 且 wavePos=2）；个位 5/0 且 7×7 位 → 解压爽关（对称图案 `theme` 模板库：`ring/butterfly/diamond/heart` 之一 + tiles 取阶段下界）；其余位常规插值。
 
 **难度评分权重**（difficultyScore，FR-011/SC-004）：
 
@@ -64,22 +67,22 @@ node tools/solver.js --level 7          # 单关验证（调试用，仍写报�
 node tools/solver.js --engine-selftest  # RulesEngine 规则不变量断言（exit 1 失败）
 ```
 
-**搜索**（D-07）：迭代加深 DFS（初始深度 = 启发下界，如「tiles/3 + 冰封组数」）+ 状态哈希去重（**dock 顺序规范化**——哈希键用花色计数向量；Δ9: staging 已移除）+ 节点预算（章级 budget，默认 2M/60s）。
+**搜索**（D-07; Δ11 启发式加速）: 迭代加深 DFS（初始深度 = 启发下界，如「tiles/3 + 冰封组数」）+ 状态哈希去重（**dock 顺序规范化**——哈希键用花色计数向量；Δ9: staging 已移除）+ 节点预算（章级 budget，默认 2M/60s）。Δ11 大棋盘（7×7/8×8，50~105 块）动作展开按启发式优先级排序: ① Dock 已有花色计数 2 的 tap（立即三消腾槽）→ ② 钥匙滑块（解锁扩大动作集）→ ③ 高层 z≥2 滑块（塔顶通常无阻挡）→ ④ Dock 计数 1（凑对）→ ⑤ 其余 id 序（D-08 确定性兜底）。注意结构性事实: 无道具必胜路径步数 `minMoves` 恒等于 `tiles.length`（每次成功 tap 恰移除 1 滑块）。
 
 **动作集**（与前端 Hint/Bot 一致，[game-session.md](game-session.md) §7）: `enumerateTaps` ∪ 道具动作（wrench 转向任意可转滑块；Δ9: stage/tapStaged 已移除）——**仅当最优解需要道具时才计入 metrics.minMoves**（正常关卡 Solver 会证明无道具解更短）。
 
-**输出指标**（FR-030，双写 levels.js 与报告）: `minMoves`（首解即最优）、`solutionCount`（预算内不重复终局路径数，封顶 10k 记 `">=10000"`）、`dockPeak`（搜索全程 Dock 占用最大值）、`mechCount`、`openSuitsMax`、`difficultyScore`（权重 §1）。
+**输出指标**（FR-030，双写 levels.js 与报告）: `minMoves`（首解即最优; 结构性 = tiles.length）、`solutionCount`（预算内不重复终局路径数，封顶 10k 记 `">=10000"`）、`dockPeak`（搜索全程 Dock 占用最大值）、`mechCount`、`openSuitsMax`（**最优解路径上**最大开放花色数——首解回放统计，Δ11 口径修正）、`difficultyScore`（权重 §1）。
 
 **质量门禁**（exit code 非零即失败，FR-031/SC-001/SC-004）:
 
 | 门 | 判据 |
 |---|---|
 | 可解性 | 50/50（实际 = `LEVELS.length`/`LEVELS.length`）关 `solvable == true` |
-| 数据契约 | 每关 `RulesEngine.validateLevel().ok == true` |
-| 结构约束 | 每花色计数 %3==0；`openSuitsMax ≤ 5`；无对射棱镜 |
-| 曲线门-1 | 各章 `difficultyScore` 均值随章号单调不减 |
-| 曲线门-2 | 1~4 章 `minMoves` 线性回归斜率 ≥ 0（章内允许局部波动） |
-| 曲线门-3 | 第 5 章：个位 4/9 关难度分显著 > 章均值、个位 5/0 关显著 <（锯齿形态，FR-012） |
+| 数据契约 | 每关 `RulesEngine.validateLevel().ok == true`（Δ11: tiles ≤150、z ∈ [0,4]、堆叠深度 ≤5） |
+| 结构约束 | 每花色计数 %3==0；`openSuitsMax ≤ 5`（**最优解路径上**口径——首解回放统计）；无对射棱镜 |
+| 曲线门-1 | 各章（3 阶段章）`difficultyScore` 均值随章号单调不减 |
+| 曲线门-2 | 全章 `minMoves` 线性回归斜率 ≥ 0（章内允许局部波动） |
+| 曲线门-3 | Δ11 波浪锯齿: L3+ 中 8×8 挑战位（(id-3)%3==2）均值显著 > 全程均值 ×1.05、7×7 简单位 < ×0.95 |
 | 报告一致 | 报告 metrics 与 levels.js 内嵌 metrics 逐字段一致 |
 
 **solver-report.json schema**（数据模型详见 [data-model.md](../data-model.md) §9）: `{schemaVersion, generatedAt, seed, nodeBudget, levels:[{id, solvable, minMoves, solutionCount, dockPeak, mechCount, openSuitsMax, elapsedMs, degraded?}], summary:{total, solvable, failedIds, curveGate:{chMonotonic, slope14, ch5Zigzag}}}`。

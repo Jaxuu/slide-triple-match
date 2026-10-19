@@ -290,20 +290,23 @@
     }
   }
 
-  /* ---------- session 事件 → 渲染/音效 ---------- */
+  /* ---------- session 事件 → 渲染/音效（Δ10 无锁连点：事件即时转发，动画并发） ---------- */
   function handleSessionEvent(e) {
     if (e.e === 'phase') { renderHud(); return; }
     if (e.e === 'reset') {
       renderer.refresh(); renderHud(); renderDock(); renderItems();
       return;
     }
-    if (e.e === 'input-locked') { toast('别急，动画中…'); sound.play('tick'); return; }
+    /* Δ10: 「别急，动画中…」Toast 与 input-locked 提示音已删除——
+     * 动画期间不再拦截点击；仅终态时 GameState 才发 input-locked（静默忽略） */
+    if (e.e === 'input-locked') return;
     if (e.e === 'click') { sound.play('click'); return; }
     if (e.e === 'flyout') { sound.play('flyout'); renderer.handleEvent(e); renderer.refresh(); renderDock(); renderHud(); return; }
     if (e.e === 'blocked') {
       sound.play('blocked');
       renderer.handleEvent(e);
-      return; /* 弹回动画结束后统一 refresh */
+      renderer.refresh(); /* Δ10: 弹回动画滑块由动画层绘制（blockSet 防重影），逻辑态即时刷新 */
+      return;
     }
     if (e.e === 'dock' || e.e === 'match' || e.e === 'remove') {
       if (e.e === 'match') sound.play('match', e.combo);
@@ -313,10 +316,11 @@
       renderHud();
       return;
     }
-    /* 机制事件（M2 T034/T036: gear/unlock/iceBreak/prism 动效 + 音效映射） */
+    /* 机制事件（M2 T034/T036: gear/unlock/ice/prism 动效 + 音效映射）
+     * 引擎破冰事件名为 'ice'（含 from/to），映射音效 'iceBreak' */
     if (e.e === 'gear') { sound.play('gear'); renderer.handleEvent(e); renderer.refresh(); return; }
     if (e.e === 'unlock') { sound.play('unlock'); renderer.handleEvent(e); renderer.refresh(); return; }
-    if (e.e === 'iceBreak') { sound.play('iceBreak'); renderer.handleEvent(e); renderer.refresh(); return; }
+    if (e.e === 'ice') { sound.play('iceBreak'); renderer.handleEvent(e); renderer.refresh(); return; }
     if (e.e === 'prism') { sound.play('prism'); renderer.handleEvent(e); renderer.refresh(); return; }
     if (e.e === 'undo') { renderer.refresh(); renderDock(); renderHud(); renderItems(); return; }
     renderer.handleEvent(e);
@@ -385,6 +389,9 @@
 
   function onBoardDown(ev) {
     if (!session || !renderer) return;
+    /* Δ10: 终态拦截（won/lost_* 结算浮层期间棋盘不可点）；扳手选目标期间点选优先 */
+    var st = session.state();
+    if (st.phase !== 'READY' && st.phase !== 'LOADING') return;
     var id = renderer.hitTest(ev.clientX, ev.clientY);
     if (id < 0) return;
     /* T035 扳手目标选择模式: 点击即施加转向（不 tap） */
@@ -402,9 +409,8 @@
       }
       return;
     }
+    /* Δ10 无锁连点: 瞬时结算（0ms）——连续狂点直接命中最新逻辑态的栈顶滑块 */
     session.tap(id);
-    /* 弹回动画后由事件流 refresh；这里兜底刷新一次 */
-    setTimeout(function () { renderer.refresh(); }, 400);
   }
 
   function onRetryDown() {

@@ -223,6 +223,7 @@
   /* =========================================================
    * 立体奶油牌块（M1.5 核心：牌面 + 厚度底座 + 高光描边 + 箭头/层角标）
    * px,py 牌中心；layerOff = Δ7 堆叠错层偏移
+   * Δ11 大棋盘适配: 底座厚度按 n 分级收紧（8×8 小格防越界）
    * ========================================================= */
   function drawTileBody(ctx, cell, px, py, t, scale, alpha, layerOff) {
     var suit = SUITS[t.s] || SUITS[0];
@@ -233,7 +234,9 @@
     var w = cell * 0.84 * scale;
     var x = px - w / 2 + layerOff;
     var y = py - w / 2 + layerOff;
-    var thick = cell * (0.04 * depth + 0.035); /* 底座厚度随堆叠层数增加 */
+    /* Δ11: 厚度随层数 + 网格尺寸双维缩放（8×8×5 层不越界: ≤ cell*0.235） */
+    var thickK = cell < 58 ? 0.032 : 0.04; /* 小格收紧厚度系数 */
+    var thick = cell * (thickK * depth + 0.035);
     ctx.globalAlpha = alpha;
     /* 1. 厚度底座（深→浅两级暖棕——立体麻将质感） */
     roundRect(ctx, x, y + cell * 0.028, w, w, cell * 0.14);
@@ -413,11 +416,30 @@
     ctx.restore();
   }
 
-  /* Δ7 左上角堆叠角标：每层一点（白=顶层） */
+  /* Δ7/Δ11 左上角堆叠角标: 每层一点（白=顶层）
+   * 深度 >4 时改用数字角标（5 层 5 点在小格上越界——8×8×5 层适配） */
   function drawStackBadge(ctx, depth, x, y, cell, scale) {
+    var sc = scale || 1;
+    if (depth > 4) {
+      ctx.beginPath();
+      ctx.arc(x + cell * 0.12, y + cell * 0.12, cell * 0.095 * sc, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(35,45,60,0.85)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+      ctx.lineWidth = Math.max(1, dprSafe(0.8));
+      ctx.stroke();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold ' + Math.max(8, Math.floor(cell * 0.16)) + 'px system-ui,sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(depth), x + cell * 0.12, y + cell * 0.125);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      return;
+    }
     for (var i = 0; i < depth; i++) {
       ctx.beginPath();
-      ctx.arc(x + cell * 0.1, y + cell * 0.1 + i * cell * 0.11, cell * 0.042 * (scale || 1), 0, Math.PI * 2);
+      ctx.arc(x + cell * 0.1, y + cell * 0.1 + i * cell * 0.11, cell * 0.042 * sc, 0, Math.PI * 2);
       ctx.fillStyle = i === depth - 1 ? '#FFFFFF' : 'rgba(255,255,255,0.45)';
       ctx.strokeStyle = 'rgba(0,0,0,0.35)';
       ctx.lineWidth = Math.max(1, dprSafe(0.8));
@@ -620,12 +642,14 @@
       }
     }
 
-    /* 棋盘滑块：堆叠错层 + Δ7 reveal 上浮 */
+    /* 棋盘滑块：堆叠错层 + Δ7 reveal 上浮
+     * Δ11: 错层偏移按格宽分级收紧（8×8 大棋盘 5 层不越界） */
     function drawBoardTile(t, now) {
       var px = (t.c + 0.5) * cell;
       var py = (t.r + 0.5) * cell;
       var stackN = t.stackDepth || 1;
-      var layerOff = -cell * 0.07 * Math.max(0, stackN - 1 - (t.z || 0));
+      var offK = cell < 58 ? 0.05 : 0.07; /* 8×8 小格 5 层错层收紧 */
+      var layerOff = -cell * offK * Math.max(0, stackN - 1 - (t.z || 0));
       var lift = 0;
       var rv = revealAt[t.id];
       if (rv != null) {
@@ -767,11 +791,17 @@
       } else if (e.e === 'unlock') {
         /* T034 锁链断开闪烁 */
         anims.push({ kind: 'unlock', tileId: e.id || (e.ids && e.ids[0]), t0: now, dur: 400 });
-      } else if (e.e === 'iceBreak') {
-        /* T034 破冰碎裂粒子（白蓝碎片飞散） */
+      } else if (e.e === 'ice') {
+        /* T034 破冰碎裂粒子（白蓝碎片飞散）——引擎事件名 'ice'（含 from/to 厚度） */
         var ids = e.ids && e.ids.length ? e.ids : (e.id != null ? [e.id] : []);
         for (var bi = 0; bi < ids.length; bi++) {
           anims.push({ kind: 'ice', tileId: ids[bi], t0: now, dur: 480 });
+        }
+      } else if (e.e === 'iceBreak') {
+        /* 兼容别名（若调用方发 iceBreak 聚合事件） */
+        var ids2 = e.ids && e.ids.length ? e.ids : (e.id != null ? [e.id] : []);
+        for (var bi2 = 0; bi2 < ids2.length; bi2++) {
+          anims.push({ kind: 'ice', tileId: ids2[bi2], t0: now, dur: 480 });
         }
       } else if (e.e === 'prism') {
         /* T034 棱镜折线路径动画（入射→折射→出射折线光条） */

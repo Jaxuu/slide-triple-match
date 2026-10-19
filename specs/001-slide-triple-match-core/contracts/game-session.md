@@ -36,7 +36,7 @@ session.state();            // 只读视图 {phase, score, combo, lives, items, 
 session.onRail();           // bool: 自加载以来动作序列 == solutionMoves 前缀（D-06 Bot/Hint 基准）
 ```
 
-**输入锁**: ANIMATING/SETTLING 期间 tap 入队或忽略（不丢玩家意图的策略：忽略 + 短提示音）。级联动画时长上限 1.2 s（超时强制结算解锁，防卡死）。
+**输入锁（Δ10 无锁连点）**: 已彻底移除 ANIMATING/SETTLING 动画锁与「别急，动画中…」提示——`tap()` 在 READY 态 0ms 瞬时结算（applyTap 同步执行），飞出滑块所在格子立即腾空（下层滑块可被紧接的下一次点击命中）；动画为纯视觉异步并发（飞向 Dock / 回弹 / 三消粒子同时在场互不阻塞），`hitTest` 始终检测逻辑态当前栈顶滑块。仅终态（won/lost_*）拦截棋盘点击；扳手目标选择期间棋盘点击优先派发给道具。
 
 **计分**: match 事件 × (comboBase + combo × comboStep)；连击窗口 = 连续三消间隔 < 1.5 s。best 分写 Progress（D-03）。
 
@@ -75,7 +75,7 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 | 6 | 蜜桃心 | #FF7EAB | #C74B78 | 心形粉果+对缝线 |
 | 7 | 翡翠竹 | #00A878 | #00674B | 翡翠牌+三段白竹节 |
 
-**滑块视觉契约（M1.5 立体奶油麻将牌面）**：牌面 `#FFFDF9` 渐变 + 深色暖棕厚度底座（堆叠层数越多底座越厚）+ 花色描边与内侧高光；方向箭头 = 花色深色胶囊徽章 + 白色人字箭头，置于牌面中心偏 `d` 侧。**Δ7 堆叠渲染**：非顶层滑块向左上错层偏移；左上角层角标（每层一点，白点=顶层）预告下层；顶层飞出发 `reveal` 事件 → 次顶层上浮动画（REVEAL_MS ≈380ms）。**Δ8 凌空飞越渲染**：`z >= 1` 高层滑块飞出动画保持层高——上移偏移（每层 ≈0.22 cell）+ 起飞放大（近镜头感，渐收）+ 地面椭圆暗影投影（随高度虚化）；受阻弹回动画同带层高偏移。暗底 #1B2430 / 点阵格线 #26313E；每色明度差 ≥2:1 于底色、图形互异（色盲可辨）。
+**滑块视觉契约（M1.5 立体奶油麻将牌面）**：牌面 `#FFFDF9` 渐变 + 深色暖棕厚度底座（堆叠层数越多底座越厚；Δ11: 厚度系数按格宽分级收紧——8×8 小格 5 层不越界）+ 花色描边与内侧高光；方向箭头 = 花色深色胶囊徽章 + 白色人字箭头，置于牌面中心偏 `d` 侧。**Δ7 堆叠渲染**：非顶层滑块向左上错层偏移（Δ11: 偏移系数按格宽分级——小格收紧）；左上角层角标（每层一点，白点=顶层；**深度 >4 时改为数字角标**——5 层 5 点在小格越界）预告下层；顶层飞出发 `reveal` 事件 → 次顶层上浮动画（REVEAL_MS ≈380ms）。**Δ8 凌空飞越渲染**：`z >= 1` 高层滑块飞出动画保持层高——上移偏移（每层 ≈0.22 cell）+ 起飞放大（近镜头感，渐收）+ 地面椭圆暗影投影（随高度虚化）；受阻弹回动画同带层高偏移。暗底 #1B2430 / 点阵格线 #26313E；每色明度差 ≥2:1 于底色、图形互异（色盲可辨）。
 
 **机关绘制契约**: 齿轮角标 = 滑块右上角小齿轮图形 + 滑块底色描边；冰封 = 半透明冰蓝覆盖 + 厚度数字/裂纹层数（FR-017）；锁链 = 格四角链条 SVG 角标；钥匙 = 滑块左上钥匙角标 +（hover/选中时）链路提示线连向配对锁（FR-020）；棱镜 = 格内粗斜杠条（/ 或 \）+ 边框高亮，与滑块/障碍显著区分（FR-023）。
 
@@ -83,7 +83,7 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 
 ## 5. SoundManager（`STM.createSoundManager()`）
 
-Web Audio 事件驱动合成（D-04）。事件→音效映射（GameState onEvent 转发）：click / flyout / blocked / match(连击数调制音高) / gear / unlock / iceBreak / prism / undo / item / victory / defeat / botTick。`setMuted(bool)` 持久于 Progress。AudioContext 于首次 pointerdown 惰性创建（autoplay 政策）。
+Web Audio 事件驱动合成（D-04）。事件→音效映射（GameState onEvent 转发）: click / flyout / blocked / match(连击数调制音高) / gear / unlock / **ice（引擎破冰事件名——映射音效键 'iceBreak'）** / prism / undo / item / victory / defeat / botTick。`setMuted(bool)` 持久于 Progress。AudioContext 于首次 pointerdown 惰性创建（autoplay 政策）。
 
 ## 6. main.js（入口与编排）
 
