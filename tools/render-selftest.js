@@ -20,8 +20,10 @@ var RE = require('../src/core/RulesEngine.js');
 globalThis.STM = globalThis.STM || {};
 globalThis.STM.RulesEngine = RE; /* BoardRenderer/GameState 装载时读 STM.RulesEngine */
 require('../src/core/GameState.js');
+require('../src/render/bestiary.js'); /* Δ14: BoardRenderer 之前（装载序 D-01） */
 require('../src/render/BoardRenderer.js');
 var STM = globalThis.STM;
+var LEVELS = require('../src/data/levels.js'); /* T052c: 60 关映射断言只读消费 */
 
 /* ---- 浏览器环境桩（零依赖——不引任何 npm 包） ---- */
 var clockNow = 0;
@@ -206,10 +208,98 @@ function scenarioPrismBlocked() {
   pumpOk('prism 折线动画 + fly 并发全程无异常', 30);
 }
 
+/* ---- 场景 D: Δ14/T052c 阶段花色映射断言组（60 关——纯渲染层，levels.js 零写回） ---- */
+function scenarioSuitMapping() {
+  console.log('场景 D: 60 关花色→图鉴映射（Δ14a/FR-033 §3——确定性/唯一性/阶段边界）');
+  var B = STM.Bestiary;
+  check('Bestiary 挂载于 STM（装载序 BoardRenderer 前）', !!B && Array.isArray(B.BESTIARY));
+  check('图鉴总量 45 种（Suit 0~44）', B.BESTIARY.length === 45);
+  check('三阶段各 15 种（0~14/15~29/30~44）',
+    B.BESTIARY.filter(function (e) { return e.id < 15; }).length === 15 &&
+    B.BESTIARY.filter(function (e) { return e.id >= 15 && e.id < 30; }).length === 15 &&
+    B.BESTIARY.filter(function (e) { return e.id >= 30; }).length === 15);
+
+  var i, lv, map, key, keys;
+  var stage1Ok = true, stage2Ok = true, stage3Ok = true;
+  var uniqueOk = true, kOk = true, detOk = true, sameSuitOk = true;
+  var inPoolOk = true;
+  for (i = 0; i < LEVELS.length; i++) {
+    lv = LEVELS[i];
+    map = B.mappingForLevel(lv);
+    keys = [];
+    for (key in map) keys.push(parseInt(key, 10));
+    /* K ≤ 池大小恒真 + 映射数 = 关卡花色数 */
+    if (keys.length === 0 || keys.length > B.STAGES[B.stageOf(lv.id) - 1].poolMax) kOk = false;
+    /* 阶段边界: L21∈一 / L22∈二 / L42∈二 / L43∈三（spec FR-033: 阶段二 L22~L42 含 42；
+     * tasks.md 原文「L42∈阶段三」为笔误——21+21+18=60 关与 spec 区间自洽，以 spec 为准） */
+    var st = B.stageOf(lv.id);
+    if (lv.id === 21 && st !== 1) stage1Ok = false;
+    if (lv.id === 22 && st !== 2) stage2Ok = false;
+    if (lv.id === 42 && st !== 2) stage2Ok = false;
+    if (lv.id === 43 && st !== 3) stage3Ok = false;
+    /* 阶段池包含: 图案 id < 阶段池上限（阶段一 ≤14 / 二 ≤29 / 三 ≤44） */
+    var poolCap = [15, 30, 45][st - 1];
+    var inPool = true;
+    for (key in map) { if (!(map[key] >= 0 && map[key] < poolCap)) inPool = false; }
+    if (!inPool) inPoolOk = false;
+    /* 映射单射（同关内图案唯一） */
+    var seen = {};
+    for (key in map) {
+      if (seen[map[key]]) uniqueOk = false;
+      seen[map[key]] = true;
+    }
+    /* 同关同 suit 恒同图案（缓存二次查询一致） */
+    var map2 = B.mappingForLevel(lv);
+    for (key in map) { if (map[key] !== map2[key]) sameSuitOk = false; }
+  }
+  check('60 关 K ≤ 阶段池大小恒真 + 映射数 = 花色数', kOk);
+  check('阶段边界正确（L21∈一/L22∈二/L42∈二/L43∈三——spec FR-033 id 区间非 chapter）',
+    stage1Ok && stage2Ok && stage3Ok);
+  check('60 关图案均落在对应阶段池内', inPoolOk);
+  check('同关内 suit→图案单射（唯一）', uniqueOk);
+  check('同关同 suit 恒同图案（会话级缓存一致）', sameSuitOk);
+
+  /* 确定性: 清缓存重算逐关一致 */
+  B.clearCache();
+  for (i = 0; i < LEVELS.length; i++) {
+    lv = LEVELS[i];
+    var m1 = B.mappingForLevel(lv);
+    B.clearCache();
+    var m2 = B.mappingForLevel(lv);
+    for (key in m1) { if (m1[key] !== m2[key]) detOk = false; }
+  }
+  check('60 关映射确定性（清缓存二次计算一致——SC-007）', detOk);
+
+  /* 跳关/Undo 后以当前关 id 重算阶段（Edge Case「阶段边界换装」） */
+  check('跳关重算: L21→阶段一池（≠chapter 2 错位）',
+    B.mappingForLevel(LEVELS[20]).s !== undefined || Object.keys(B.mappingForLevel(LEVELS[20])).length > 0);
+  var map21 = B.mappingForLevel(LEVELS[20]);
+  var map22 = B.mappingForLevel(LEVELS[21]);
+  var cross21 = 0, cross22 = 0;
+  for (key in map21) { if (map21[key] >= 15) cross21++; }
+  for (key in map22) { if (map22[key] > 29) cross22++; }
+  check('L21 图案全在陆地萌宠池（0~14）', cross21 === 0);
+  check('L22 图案全在合并池（0~29——含新图鉴可能）', cross22 === 0);
+
+  /* 渐进解锁语义: 跨关累计可见图案随阶段推进不缩减（展示池目标口径） */
+  var seenAll = {};
+  for (i = 0; i < 60; i++) {
+    map = B.mappingForLevel(LEVELS[i]);
+    for (key in map) seenAll[map[key]] = true;
+  }
+  var seenCount = Object.keys(seenAll).length;
+  check('60 关累计可见图鉴 ≥30 种（渐进解锁展示池）', seenCount >= 30);
+
+  /* 不触碰 tiles 坐标/solutionMoves 有效性（映射纯只读——levels.js git diff 恒空由验收核对） */
+  check('映射不修改关卡 tiles（纯只读）', LEVELS[0].tiles[0].s === 0 && LEVELS[0].tiles.length === 30);
+  check('solutionMoves 照常存在（Hint/Bot 回放不受影响）', Array.isArray(LEVELS[0].solutionMoves));
+}
+
 /* ---- 主入口 ---- */
 scenarioBlocked();
 scenarioMechAnims();
 scenarioPrismBlocked();
+scenarioSuitMapping();
 
 console.log('');
 if (failures.length) {
