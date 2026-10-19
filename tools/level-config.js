@@ -26,7 +26,7 @@ var CHAPTERS = [
     mechDensity: { gear: [0.10, 0.18], ice: [0, 0], chain: [0, 0], prism: [0, 0] },
     damageOnBlock: false,
     lives: 3,
-    items: { undo: 1, wrench: 1, stage: 1 },
+    items: { undo: 1, wrench: 1 },
     iceMode: 'triple',
     rhythm: null,
     budget: { nodes: 2000000, ms: 60000 }
@@ -43,7 +43,7 @@ var CHAPTERS = [
     mechDensity: { gear: [0.08, 0.14], ice: [0.10, 0.20], chain: [0, 0], prism: [0, 0] },
     damageOnBlock: false,
     lives: 3,
-    items: { undo: 1, wrench: 1, stage: 1 },
+    items: { undo: 1, wrench: 1 },
     iceMode: 'triple',
     rhythm: null,
     budget: { nodes: 2000000, ms: 60000 }
@@ -60,7 +60,7 @@ var CHAPTERS = [
     mechDensity: { gear: [0.08, 0.12], ice: [0.08, 0.16], chain: [0.10, 0.20], prism: [0, 0] },
     damageOnBlock: true,      /* FR-003 第 3 章起受阻扣命 */
     lives: 3,
-    items: { undo: 1, wrench: 1, stage: 1 },
+    items: { undo: 1, wrench: 1 },
     iceMode: 'triple',
     rhythm: null,
     budget: { nodes: 2000000, ms: 60000 }
@@ -77,7 +77,7 @@ var CHAPTERS = [
     mechDensity: { gear: [0.08, 0.12], ice: [0.08, 0.14], chain: [0.08, 0.14], prism: [2, 4] },
     damageOnBlock: true,
     lives: 3,
-    items: { undo: 1, wrench: 1, stage: 1 },
+    items: { undo: 1, wrench: 1 },
     iceMode: 'triple',
     rhythm: null,
     budget: { nodes: 2000000, ms: 60000 }
@@ -94,7 +94,7 @@ var CHAPTERS = [
     mechDensity: { gear: [0.08, 0.12], ice: [0.08, 0.14], chain: [0.08, 0.14], prism: [1, 3] },
     damageOnBlock: true,
     lives: 3,
-    items: { undo: 1, wrench: 1, stage: 1 },
+    items: { undo: 1, wrench: 1 },
     iceMode: 'triple',
     /* FR-012 节奏模板: 个位 4/9 挑战关 / 5/0 解压爽关（对称图案） */
     rhythm: {
@@ -228,7 +228,7 @@ function levelParams(levelId) {
     cfg: {
       lives: ch.lives,
       damageOnBlock: ch.damageOnBlock,
-      items: { undo: 1, wrench: 1, stage: 1 },
+      items: { undo: 1, wrench: 1 },
       iceMode: ch.iceMode,
       chains: [],
       scoring: { comboBase: 10, comboStep: 5 }

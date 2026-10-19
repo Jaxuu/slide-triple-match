@@ -71,7 +71,7 @@ SolverReport (流水线工件, 1)  ←验证── 50×Level
 ```
 
 **点击可飞出（tap 可行）谓词**（RulesEngine `canTap`，全部机制的统一入口）:
-`tile 机制状态 ∉ {冰封(ice>0), 锁链(locked)}` 且（staging 内滑块恒可行——「无阻挡自由牌」，Δ3）且（棋盘滑块：射线判定见 [rules-engine.md](contracts/rules-engine.md) §3）。
+`tile 机制状态 ∉ {冰封(ice>0), 锁链(locked)}` 且（棋盘滑块：射线判定见 [rules-engine.md](contracts/rules-engine.md) §3；Δ9: 暂存区已移除——不再有 staging 滑块）。
 
 ## 3. PrismSpec（变向棱镜，机制 D）
 
@@ -88,7 +88,7 @@ SolverReport (流水线工件, 1)  ←验证── 50×Level
 |---|---|---|---|
 | `lives` | int | 3 | 生命值（FR-003）；≤0 判负 |
 | `damageOnBlock` | bool | 见章 | 受阻扣命开关：第 1、2 章 false，第 3 章起 true（FR-003/Edge Case） |
-| `items` | `{undo, wrench, stage}` : int | 1/1/1 | 道具次数（FR-025，可被关卡覆盖） |
+| `items` | `{undo, wrench}` : int | 1/1 | 道具次数（FR-025，可被关卡覆盖；Δ9: stage 已移除） |
 | `iceMode` | `'triple'` \| `'adjacent'` | `'triple'` | 破冰口径（FR-016 变体） |
 | `chains` | `[keyTileId, [lockedTileId,...]][]` | `[]` | 钥匙→锁链配对边表（FR-019，一钥多锁）；keyId 必须指向 `m==='k'` 滑块，lockedId 指向 `m==='c'` 滑块；锁链滑块可被多钥配对（任一配对钥全飞出即解锁该锁——**取或**语义，validate 校验无自环/无空配对） |
 | `scoring` | `{comboBase, comboStep}` | 10/5 | 计分参数（连击） |
@@ -108,7 +108,7 @@ SolverReport (流水线工件, 1)  ←验证── 50×Level
 
 | 字段 | 类型 | 约束 |
 |---|---|---|
-| `k` | int | 动作类型：`0` = tap 棋盘滑块，`1` = tap 暂存区滑块（Δ3 回填），`2` = 使用暂存道具（极端最优解可能需要道具——Solver 动作集含扳手/暂存，见 level-pipeline.md §动作集） |
+| `k` | int | 动作类型：`0` = tap 棋盘滑块，`2` = 使用扳手道具（`t` = 目标滑块 id；极端最优解可能需要道具——Solver 动作集含扳手，见 level-pipeline.md §动作集；Δ9: k=1 暂存回填已移除） |
 | `t` | int | 目标滑块 id（k=0/1）；k=2 时省略 |
 
 **不变量**: 回放 `solutionMoves` 于初始局面必达胜利（Solver 产出保证 + Generator 正向自检二次验证，D-10）；长度 = `metrics.minMoves`。
@@ -118,8 +118,7 @@ SolverReport (流水线工件, 1)  ←验证── 50×Level
 | 组成 | 说明 |
 |---|---|
 | `board: (Tile\|null\|PrismRef)[][]` | n×n 运行棋盘；棱镜格常驻（不可覆盖） |
-| `dock: Tile[]` | ≤7；**插入规则**：同花色相邻归拢（`[s s s]` 相邻排列，FR-004）；三消判定只依赖花色计数（D-07 规范化的运行时体现） |
-| `staging: Tile[]` | ≤3（Δ3 暂存区）；元素可被玩家 tap → 飞入 dock 尾部（「无阻挡自由牌」） |
+| `dock: Tile[]` | ≤7；**插入规则**：同花色相邻归拢（`[s s s]` 相邻排列，FR-004）；三消判定只依赖花色计数（D-07 规范化的运行时体现）；Δ9: staging 已移除——滑块只在「棋盘 → Dock → 三消」单向守恒 |
 | `items` | 道具余量（cfg.items 拷贝递减） |
 | `history: Snapshot[]` | 每原子回合前快照（Undo 弹栈恢复，FR-024-1/Edge Case 级联整体回滚） |
 | `combo, score` | 连击窗口（连续飞出三消间隔）与分数 |
@@ -135,12 +134,12 @@ WON/LOST ──结算交互──→ (下一关: id+1>LEVELS.length ⇒ ALL_CLEA
 ```
 
 - `ANIMATING*`: 飞出/弹回动效期间输入锁（Renderer 回调解锁）；Settling = 同一 tap 触发的级联链（三消→破冰→齿轮→解锁→再判定）**原子结算**完毕才回 READY（Edge Case「同一点击内连环触发」）。
-- 判定调度（SETTLING 末尾，顺序固定）: ① 棋盘+staging+dock 全空 → WON（Δ3 扩展胜利条件）；② dock 满且无三消 → LOST_BURST；③ lives ≤0 → LOST_LIVES；④ 疑死锁谓词 + 有界复证 → LOST_DEADLOCK（D-09）。
+- 判定调度（SETTLING 末尾，顺序固定）: ① 棋盘+dock 全空 → WON（Δ9: 暂存区已移除）；② dock 满且无三消 → LOST_BURST；③ lives ≤0 → LOST_LIVES；④ 疑死锁谓词 + 有界复证 → LOST_DEADLOCK（D-09）。
 - **三消优先于爆槽**（Edge Case）：第 7 格飞入同 tap 内先结算三消再判负。
 
 ### Snapshot（Undo 快照）
 
-`structuredClone`-深拷贝 `{board 滑块态, dock, staging, items, combo, score, lives}`（D-07 的 dock 计数规范化仅限 Solver 哈希；**运行时 dock 保序**以便 Undo/渲染精确还原）。棱镜与 TileSpec 静态部分不入快照（不可变）。
+`structuredClone`-深拷贝 `{board 滑块态, dock, items, combo, score, lives}`（D-07 的 dock 计数规范化仅限 Solver 哈希；**运行时 dock 保序**以便 Undo/渲染精确还原；Δ9: staging 已移除）。棱镜与 TileSpec 静态部分不入快照（不可变）。
 
 ## 8. Progress（玩家进度，localStorage）
 

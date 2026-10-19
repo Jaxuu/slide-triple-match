@@ -20,7 +20,7 @@
   },
   mechDensity: { ... },           // 各机制滑块/格占比区间（引入后逐关爬升）
   damageOnBlock: false,           // 受阻扣命（第 3 章起 true，FR-003）
-  lives: 3, items: {undo:1, wrench:1, stage:1},
+  lives: 3, items: {undo:1, wrench:1},
   iceMode: 'triple',              // 'triple' | 'adjacent'（FR-016 变体档）
   rhythm: null,                   // 第 5 章专用节奏模板（见下）
   budget: { nodes: 2_000_000, ms: 60_000 }  // Solver 单关预算（可按章覆盖）
@@ -64,9 +64,9 @@ node tools/solver.js --level 7          # 单关验证（调试用，仍写报�
 node tools/solver.js --engine-selftest  # RulesEngine 规则不变量断言（exit 1 失败）
 ```
 
-**搜索**（D-07）：迭代加深 DFS（初始深度 = 启发下界，如「tiles/3 + 冰封组数」）+ 状态哈希去重（**dock 顺序规范化**——哈希键用花色计数向量；staging 有序保留——Δ3 回填 tap 依赖身份）+ 节点预算（章级 budget，默认 2M/60s）。
+**搜索**（D-07）：迭代加深 DFS（初始深度 = 启发下界，如「tiles/3 + 冰封组数」）+ 状态哈希去重（**dock 顺序规范化**——哈希键用花色计数向量；Δ9: staging 已移除）+ 节点预算（章级 budget，默认 2M/60s）。
 
-**动作集**（与前端 Hint/Bot 一致，[game-session.md](game-session.md) §7）: `enumerateTaps` ∪ `tapStaged` ∪ 道具动作（wrench 转向任意可转滑块、stage 移出）——**仅当最优解需要道具时才计入 metrics.minMoves**（正常关卡 Solver 会证明无道具解更短）。
+**动作集**（与前端 Hint/Bot 一致，[game-session.md](game-session.md) §7）: `enumerateTaps` ∪ 道具动作（wrench 转向任意可转滑块；Δ9: stage/tapStaged 已移除）——**仅当最优解需要道具时才计入 metrics.minMoves**（正常关卡 Solver 会证明无道具解更短）。
 
 **输出指标**（FR-030，双写 levels.js 与报告）: `minMoves`（首解即最优）、`solutionCount`（预算内不重复终局路径数，封顶 10k 记 `">=10000"`）、`dockPeak`（搜索全程 Dock 占用最大值）、`mechCount`、`openSuitsMax`、`difficultyScore`（权重 §1）。
 

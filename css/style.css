@@ -167,14 +167,14 @@ html, body {
   80% { transform: translateX(2px); }
 }
 
-/* ---------- 暂存区（3 格，Dock 上方，Δ3） ---------- */
-#staging {
+/* ---------- Dock（7 格收集槽——暂存区已移除，垂直空间并入棋盘与 Dock） ---------- */
+#dock {
   flex: 0 0 auto;
   display: flex;
   gap: 6px;
   justify-content: center;
-  padding: 4px clamp(12px, 4%, 20px) 4px;
-  min-height: clamp(40px, 6.5%, 56px);
+  padding: 8px clamp(12px, 4%, 20px) 10px;
+  min-height: clamp(48px, 7.5%, 64px);
 }
 .slot {
   width: clamp(38px, 12cqw, 52px);
@@ -194,20 +194,8 @@ html, body {
   font-size: 11px;
   opacity: .6;
 }
-#staging .slot::after { content: ''; }
-#staging .slot.empty::after { content: ''; }
 
 /* ---------- Dock（7 格收集槽） ---------- */
-#dock {
-  flex: 0 0 auto;
-  display: flex;
-  gap: 6px;
-  justify-content: center;
-  padding: 4px clamp(12px, 4%, 20px) 8px;
-  min-height: clamp(44px, 7%, 60px);
-}
-
-/* 滑块 chip（Dock/Staging 通用，DOM+内联 SVG） */
 .tile-chip {
   width: clamp(36px, 11.5cqw, 50px);
   height: clamp(36px, 11.5cqw, 50px);

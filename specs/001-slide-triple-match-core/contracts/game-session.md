@@ -30,10 +30,9 @@ const session = STM.GameState.createSession(levelDef, {
 });
 
 session.tap(tileId);        // 公共动作 API（Bot/Hint 与玩家输入同一入口）
-session.tapStaged(tileId);  // 暂存区回填（Δ3）
-session.useItem(item, tileId?); // 'undo'|'wrench'|'stage'
+session.useItem(item, tileId?); // 'undo'|'wrench'（Δ9: 'stage' 已移除）
 session.reset();            // 重置当前关（调试面板/败局重玩）
-session.state();            // 只读视图 {phase, score, combo, lives, items, dock, staging, board}
+session.state();            // 只读视图 {phase, score, combo, lives, items, dock, board}
 session.onRail();           // bool: 自加载以来动作序列 == solutionMoves 前缀（D-06 Bot/Hint 基准）
 ```
 
@@ -41,7 +40,7 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 
 **计分**: match 事件 × (comboBase + combo × comboStep)；连击窗口 = 连续三消间隔 < 1.5 s。best 分写 Progress（D-03）。
 
-**Undo**: 每原子回合（applyTap/applyItem/stageTile 一次）前 `RulesEngine.snapshot` 入栈；`useItem('undo')` 弹栈 `restore` + 发全量重绘事件。栈深 = 引擎快照（级联整体回滚天然成立，FR-024-1）。
+**Undo**: 每原子回合（applyTap/applyItem 一次）前 `RulesEngine.snapshot` 入栈；`useItem('undo')` 弹栈 `restore` + 发全量重绘事件。栈深 = 引擎快照（级联整体回滚天然成立，FR-024-1）。
 
 ## 3. 视图结构（index.html / css/style.css）
 
@@ -49,9 +48,8 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 #app (9:16, aspect-ratio, D-13)
 ├── header #hud          关卡名/编号 · 生命(♥×3 DOM) · 连击/分数
 ├── #board-wrap           Canvas #board（BoardRenderer 全权）+ 层叠的动效层
-├── #staging              3 格暂存区（Dock 上方，Δ3；滑块可 tap → 飞入 Dock）
-├── #dock                 7 格收集槽（DOM 格子 + 滑块 chip SVG）
-├── #items                道具栏 3 键（次数角标；不可用时禁用态）
+├── #dock                 7 格收集槽（DOM 格子 + 滑块 chip SVG；Δ9: #staging 已移除，垂直空间并入棋盘与 Dock）
+├── #items                道具栏 2 键居中（Undo/Wrench，次数角标；不可用时禁用态；Δ9: item-stage 已移除）
 └── #debug-panel          评委调试面板（PC 侧栏 / 移动抽屉，§7）
     #result-overlay       胜/负结算浮层（DOM 弹层）
 ```

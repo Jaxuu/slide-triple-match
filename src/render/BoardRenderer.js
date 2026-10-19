@@ -554,7 +554,7 @@
       var tiles = lastProbe.tiles;
       var boardTiles = [];
       for (i = 0; i < tiles.length; i++) {
-        if (!tiles[i].inStaging) boardTiles.push(tiles[i]);
+        boardTiles.push(tiles[i]);
       }
       boardTiles.sort(function (p, q) {
         if (p.z !== q.z) return p.z - q.z;
@@ -806,7 +806,7 @@
       var best = -1, bestZ = -1;
       for (var i = 0; i < lastProbe.tiles.length; i++) {
         var t = lastProbe.tiles[i];
-        if (t.inStaging || t.r !== r || t.c !== c) continue;
+        if (t.r !== r || t.c !== c) continue;
         if ((t.z || 0) > bestZ) { bestZ = t.z || 0; best = t.id; }
       }
       return best;

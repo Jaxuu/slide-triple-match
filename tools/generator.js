@@ -556,7 +556,7 @@ function serializeLevel(L, isLast) {
   out.push('      cfg: {');
   out.push('        lives: ' + L.cfg.lives + ',');
   out.push('        damageOnBlock: ' + L.cfg.damageOnBlock + ',');
-  out.push('        items: { undo: ' + L.cfg.items.undo + ', wrench: ' + L.cfg.items.wrench + ', stage: ' + L.cfg.items.stage + ' },');
+  out.push('        items: { undo: ' + (L.cfg.items.undo != null ? L.cfg.items.undo : 1) + ', wrench: ' + (L.cfg.items.wrench != null ? L.cfg.items.wrench : 1) + ' },');
   out.push('        iceMode: ' + JSON.stringify(L.cfg.iceMode) + ',');
   out.push('        chains: ' + JSON.stringify(L.cfg.chains) + ',');
   out.push('        scoring: { comboBase: ' + L.cfg.scoring.comboBase + ', comboStep: ' + L.cfg.scoring.comboStep + ' }');

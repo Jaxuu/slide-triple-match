@@ -31,7 +31,7 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 |---|---|---|
 | Δ1 机制 A 仅齿轮滑块 | 十字相邻成功飞出触发原地顺时针 (d+1)%4；**地面转向垫载体取消** | T023, T034, T037, T046 |
 | Δ2 机制 D 棱镜定型 | `/`、`\` 反射表；单次飞出至多 1 次折射；折射后受阻弹回；Generator 拒绝对射 | T026, T034, T046, T047 |
-| Δ3 暂存区交互修正 | 道具移 Dock 前 k≤3 入暂存区；**取消自动回填**；暂存滑块=可点击「无阻挡自由牌」；胜利=棋盘+暂存+Dock 全清空 | T030, T032, T035, T038 |
+| Δ3 暂存区交互修正（**已被 Δ9 撤销**） | 原设计「道具移 Dock 前 k≤3 入暂存区+取消自动回填」——试玩发现点击暂存滑块触发复制分身 Bug 破坏花色守恒 + 视觉冗余 → **暂存区与「移出槽位」道具整体移除**（Δ9）；道具仅 Undo/Wrench；胜利=棋盘+Dock 全清空 | T030, T032, T035, T038 |
 | Δ4 LEVELS.length 动态化 | 深链/进度钳制/自动进关/跳关下拉/终局判定全部动态读取，扩容零前端改动 | T020, T050, T051, T054, T059 |
 | Δ5 参数表驱动生成 | `CHAPTERS` 可扩展数组，追加条目即新增章节 | T040, T059 |
 | Δ6 solutionMoves 预计算 | Solver 最优解内嵌 levels.js，Hint/Bot 零延迟回放 | T049, T055, T056 |
@@ -172,6 +172,8 @@ description: "Task list for feature implementation（四里程碑门禁式）"
   * ✅ 承接口径（M3 后）: levels.js 已被流水线整体替换（T049/FR-031 禁止手改），Edge Cases 逐条可复现职责由 T038 引擎自测断言集（--engine-selftest 11/11 全绿，内嵌 fixture 覆盖齿轮十字触发/破冰双口径/chains 或语义/三消优先爆槽/原子级联/快照 restore/Δ3 胜利条件/死锁不误杀）+ M3 流水线结构性保证（对射拒绝 T047/开放花色 ≤5 Solver 门/钥匙可达 T046 逆序结构性保证）等价承接；量产 50 关本身每机制 ≥1 关（gear@L6+/ice@L11+/chain+key@L21+/prism@L31+，mech-first-appear 已验证）
 - [x] T038 [US3] Implement 引擎自测模式 in tools/solver.js: `node tools/solver.js --engine-selftest`——require('../src/core/RulesEngine.js')（UMD 双导出在 Node 侧首次实证）；断言集 per rules-engine.md §9: 转向加法 (d+1)%4 全 4 向、棱镜 8 映射、齿轮十字邻接触发/对角不触发、破冰双口径、chains 或语义、三消优先于爆槽（7 满飞入第三同花色）、原子级联（飞出→齿轮→解锁→入槽→三消→破冰一次 applyTap 全结算）、快照/restore 等价、Δ3 胜利条件（staging 残留非胜）、死锁谓词不误杀（齿轮在场即疑、扳手可救即非疑）；场景 fixture 内嵌于自测代码；断言失败 exit 1
 - [x] T039 [US3+US4] **Checkpoint M2（⛔ 规则冻结 FREEZE）**: quickstart Q2.1~Q2.10 逐条通过（齿轮/冰封/钥匙/棱镜/原子级联/三消优先爆槽/Undo/扳手/暂存区/引擎自测）；US3-AC1~AC7、US4-AC1~AC3 全过；spec Edge Cases 在 T037 测试关逐条复现（原子级联与整体 Undo/死锁不误杀/棱镜单次折射/暂存满）；`node tools/solver.js --engine-selftest` 全绿 exit 0；**⛔ 冻结 RulesEngine.js 语义——此后任何规则改动须全量重跑 M3 流水线并重验全部关卡（FR-031）**
+
+> **Δ9 变更记录（试玩反馈驱动——暂存区整体移除）**: T031~T039 完成后试玩发现「点击暂存区滑块触发滑块复制分身（1→2）破坏花色守恒导致无法消除的死局 Bug」+ 双排空槽视觉冗余。决议：**彻底删除暂存区（Staging Area）与第 3 道具「移出槽位（stage）」**——T030/T032/T035 中的 staging 相关实现全部移除（tapStaged/applyStageReturn/stageTile/applyItem('stage')/STAGING_CAP/#staging DOM/item-stage 按钮/solver stage 动作与断言），道具仅剩 Undo/Wrench；胜利条件回到「棋盘+Dock 全清空」。滑块流转严格单向守恒「棋盘→Dock→三消」，或经 Undo 快照整体回滚。**FR-031 已履行**: 引擎语义变更 → 全量重跑 M3 流水线（seed 2026 重生成 + solver 全量门禁 50/50 exit 0）+ engine-selftest 11/11 全绿。
 
 ---
 
