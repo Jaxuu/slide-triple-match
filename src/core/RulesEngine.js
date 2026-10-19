@@ -46,9 +46,8 @@
   /* 机制标记（D-11 互斥） */
   var MECH = { GEAR: 'g', ICE: 'i', CHAIN: 'c', KEY: 'k' };
 
-  /* Dock 容量 / 暂存区容量 / 三消阈值 */
+  /* Dock 容量 / 三消阈值（暂存区已移除——道具 2 种: undo/wrench） */
   var DOCK_CAP = 7;
-  var STAGING_CAP = 3;
   var MATCH_N = 3;
 
   /* ---------- 内部工具 ---------- */
@@ -66,7 +65,7 @@
     /* cfg 默认值补全（level-data.md §2「默认值可省略——消费方补默认」） */
     if (cfg.lives == null) cfg.lives = 3;
     if (cfg.damageOnBlock == null) cfg.damageOnBlock = false;
-    if (!cfg.items) cfg.items = { undo: 1, wrench: 1, stage: 1 };
+    if (!cfg.items) cfg.items = { undo: 1, wrench: 1 };
     if (cfg.iceMode == null) cfg.iceMode = 'triple';
     if (!cfg.chains) cfg.chains = [];
     if (!cfg.scoring) cfg.scoring = { comboBase: 10, comboStep: 5 };
@@ -112,7 +111,6 @@
       board: board,
       tiles: tiles,          /* id → 运行态 Tile（含已飞出者；飞出时置 removed） */
       dock: [],
-      staging: [],
       cfg: cfg,
       lives: cfg.lives,
       score: 0,
@@ -128,7 +126,6 @@
   function canTap(state, tileId) {
     var t = state.tiles[tileId];
     if (!t || t.removed) return false;
-    if (t.inStaging) return true;             /* 暂存滑块恒可 tap（Δ3 自由牌） */
     if (t.ice > 0) return false;              /* 冰封不可点（FR-015，M1 关卡无此标记） */
     if (t.locked) return false;               /* 锁链不可点（FR-018，M1 关卡无此标记） */
     if (!isTopOfStack(state, t)) return false;
@@ -242,7 +239,7 @@
       if (state.cfg.iceMode !== 'adjacent') {
         for (var ii = 0; ii < state.tiles.length; ii++) {
           var iced = state.tiles[ii];
-          if (iced.removed || iced.inStaging || !(iced.ice > 0)) continue;
+          if (iced.removed || !(iced.ice > 0)) continue;
           var ffrom = iced.ice;
           iced.ice -= 1;
           if (iced.ice <= 0) { iced.ice = 0; iced.m = null; }
@@ -262,11 +259,6 @@
     /* Step 0: 前置 */
     if (!canTap(state, tileId)) {
       return { type: 'invalid', tileId: tileId, path: [], events: [] };
-    }
-
-    /* 暂存区滑块（Δ3 自由牌）：无射线判定，直接飞入 dock 尾 */
-    if (t.inStaging) {
-      return applyStageReturn(state, tileId, events);
     }
 
     state.actions.push({ k: 0, t: tileId });
@@ -327,7 +319,7 @@
     /* 4a 齿轮联动（Δ8: 相邻格当前栈顶齿轮滑块） */
     for (var i = 0; i < state.tiles.length; i++) {
       var g = state.tiles[i];
-      if (g.removed || g.inStaging || g.m !== MECH.GEAR) continue;
+      if (g.removed || g.m !== MECH.GEAR) continue;
       if (g.r < t.r - 1 || g.r > t.r + 1 || g.c < t.c - 1 || g.c > t.c + 1) continue;
       if (Math.abs(g.r - t.r) + Math.abs(g.c - t.c) !== 1) continue; /* 十字相邻（对角不触发） */
       var from = g.d;
@@ -361,7 +353,7 @@
     if (state.cfg.iceMode === 'adjacent') {
       for (var ai = 0; ai < state.tiles.length; ai++) {
         var it = state.tiles[ai];
-        if (it.removed || it.inStaging || !(it.ice > 0)) continue;
+        if (it.removed || !(it.ice > 0)) continue;
         if (Math.abs(it.r - t.r) + Math.abs(it.c - t.c) !== 1) continue;
         var ifrom = it.ice;
         it.ice -= 1;
@@ -468,69 +460,29 @@
     return null;
   }
 
-  /* Δ3 暂存回填（M2 T030 完整实现）: staging 滑块 → dock 尾（无射线判定，自由牌） */
-  function applyStageReturn(state, tileId, events) {
-    var t = state.tiles[tileId];
-    var idx = -1;
-    for (var i = 0; i < state.staging.length; i++) {
-      if (state.staging[i].id === tileId) { idx = i; break; }
-    }
-    if (idx < 0) return { type: 'invalid', tileId: tileId, path: [], events: [] };
-    state.staging.splice(idx, 1);
-    t.inStaging = false;
-    t.removed = false;
-    state.dock.push(t);
-    state.actions.push({ k: 1, t: tileId });
-    events.push({ e: 'dock', id: tileId, slotIndex: state.dock.length - 1 });
-    settleMatches(state, events);
-    return { type: 'staged-return', tileId: tileId, path: [], events: events };
-  }
-
-  /* T030 道具引擎语义（Δ3/FR-024/026）:
+  /* T030 道具引擎语义（FR-024）:
    * wrench: 目标滑块 (d+1)%4——仅普通与齿轮滑块可用（冰封/锁链 invalid，FR-024-2）
-   * stage:  dock 前 k 个滑块（k=min(3, staging 余量)）移入 staging（FR-026 满即 invalid、无自动回填） */
+   * （stage/暂存区功能已移除——道具仅 undo/wrench 两种） */
   function applyItem(state, item, tileId) {
     if (item === 'wrench') {
       var t = state.tiles[tileId];
-      if (!t || t.removed || t.inStaging) return { type: 'invalid', item: item, events: [] };
+      if (!t || t.removed) return { type: 'invalid', item: item, events: [] };
       if (t.ice > 0 || t.locked) return { type: 'invalid', item: item, events: [] }; /* FR-024-2 */
       var from = t.d;
       t.d = (t.d + 1) % 4;
       state.actions.push({ k: 2, t: tileId });
       return { type: 'wrench', tileId: tileId, from: from, to: t.d, events: [{ e: 'gear', id: tileId, from: from, to: t.d }] };
     }
-    if (item === 'stage') {
-      if (state.staging.length >= STAGING_CAP) return { type: 'invalid', item: item, events: [] }; /* FR-026 */
-      var k = Math.min(3, STAGING_CAP - state.staging.length);
-      var moved = [];
-      for (var i = 0; i < k && state.dock.length > 0; i++) {
-        var d0 = state.dock.shift();
-        d0.inStaging = true;
-        d0.removed = false;
-        state.staging.push(d0);
-        moved.push(d0.id);
-      }
-      if (!moved.length) return { type: 'invalid', item: item, events: [] };
-      state.actions.push({ k: 2, t: -1 });
-      return { type: 'stage', movedIds: moved, events: [{ e: 'staged', ids: moved }] };
-    }
     return { type: 'invalid', item: item, events: [] };
   }
 
-  /* T030 stageTile: staging 滑块点击飞入 dock 尾（k=1 动作） */
-  function stageTile(state, tileId) {
-    return applyStageReturn(state, tileId, []);
-  }
-
-  /* T011: terminal 终局判定（M1 基础版；M2 扩展 staging 与死锁复证） */
+  /* T011: terminal 终局判定（暂存区已移除: won = 棋盘滑块 == 0 且 dock == 0） */
   function terminal(state) {
-    /* won = 棋盘滑块 == 0 且 dock == 0（M1 口径；M2 扩展 staging.length==0，Δ3） */
     var boardTiles = 0;
     for (var i = 0; i < state.tiles.length; i++) {
       var t = state.tiles[i];
-      if (!t.removed && !t.inStaging) boardTiles++;
+      if (!t.removed) boardTiles++;
     }
-    if (boardTiles === 0 && state.dock.length === 0 && state.staging.length === 0) return 'won';
     if (boardTiles === 0 && state.dock.length === 0) return 'won';
 
     /* lost_burst = dock 满 7 且无任何花色计数 == 3（结算后态——三消优先已保证） */
@@ -562,12 +514,12 @@
       restore(state, snap);
       if (isFly) return false;
     }
-    /* ② 有道具可用（wrench/stage）→ 非疑（可救） */
-    if (state.items && ((state.items.wrench > 0 && taps.length > 0) || (state.items.stage > 0 && state.staging.length < 3 && state.dock.length > 0))) return false;
+    /* ② 有扳手可用 → 非疑（可救）（暂存区/stage 已移除——道具仅 undo/wrench） */
+    if (state.items && state.items.wrench > 0 && taps.length > 0) return false;
     /* ③ ice>0 且 dock 内某花色计数 ≥2 → 三消可解冻 → 非疑 */
     var hasIce = false;
     for (var j = 0; j < state.tiles.length; j++) {
-      if (!state.tiles[j].removed && !state.tiles[j].inStaging && state.tiles[j].ice > 0) { hasIce = true; break; }
+      if (!state.tiles[j].removed && state.tiles[j].ice > 0) { hasIce = true; break; }
     }
     if (hasIce) {
       var dc = {};
@@ -578,7 +530,7 @@
     var hasLock = false, hasKey = false;
     for (var m = 0; m < state.tiles.length; m++) {
       var tt = state.tiles[m];
-      if (tt.removed || tt.inStaging) continue;
+      if (tt.removed) continue;
       if (tt.locked) hasLock = true;
       if (tt.m === MECH.KEY) hasKey = true;
     }
@@ -592,7 +544,6 @@
     return deepClone({
       boardTiles: boardTileSnap(state),
       dock: state.dock,
-      staging: state.staging,
       items: state.items,
       combo: state.combo,
       score: state.score,
@@ -612,8 +563,7 @@
         m: t.m || null,
         ice: t.ice != null ? t.ice : null,
         locked: t.locked === true,
-        removed: t.removed === true,
-        inStaging: t.inStaging === true
+        removed: t.removed === true
       });
     }
     return out;
@@ -625,18 +575,14 @@
       var t = state.tiles[s.id];
       t.r = s.r; t.c = s.c; t.d = s.d; t.z = s.z || 0;
       t.ice = s.ice; t.locked = s.locked;
-      t.removed = s.removed; t.inStaging = s.inStaging;
+      t.removed = s.removed;
     }
     rebuildBoard(state);
-    /* dock/staging 恢复为 state.tiles 同一对象引用（对象身份统一——
+    /* dock 恢复为 state.tiles 同一对象引用（对象身份统一——
      * 深拷贝会分叉身份: settleMatches 置 removed 的对象 ≠ state.tiles[id] → 幽灵滑块回棋盘 → 状态爆炸） */
     state.dock = [];
     for (var di = 0; di < snap.dock.length; di++) {
       state.dock.push(state.tiles[snap.dock[di].id]);
-    }
-    state.staging = [];
-    for (var si = 0; si < snap.staging.length; si++) {
-      state.staging.push(state.tiles[snap.staging[si].id]);
     }
     state.items = deepClone(snap.items);
     state.combo = snap.combo;
@@ -669,7 +615,7 @@
     var stacks = {};
     for (var i = 0; i < state.tiles.length; i++) {
       var t = state.tiles[i];
-      if (t.removed || t.inStaging) continue;
+      if (t.removed) continue;
       var key = t.r + ':' + t.c;
       if (!stacks[key]) stacks[key] = [];
       stacks[key].push(t);
@@ -812,7 +758,7 @@
       tiles.push({
         id: t.id, r: t.r, c: t.c, s: t.s, d: t.d, z: t.z || 0,
         m: t.m || null, ice: t.ice != null ? t.ice : null,
-        locked: t.locked === true, inStaging: t.inStaging === true
+        locked: t.locked === true
       });
     }
     /* 堆叠深度表（格 → 未移除滑块数） */
@@ -820,13 +766,11 @@
     var j, tt;
     for (j = 0; j < tiles.length; j++) {
       tt = tiles[j];
-      if (tt.inStaging) continue;
       var dk = tt.r + ':' + tt.c;
       depthMap[dk] = (depthMap[dk] || 0) + 1;
     }
     for (j = 0; j < tiles.length; j++) {
       tt = tiles[j];
-      if (tt.inStaging) { tt.stackDepth = 1; continue; }
       tt.stackDepth = depthMap[tt.r + ':' + tt.c] || 1;
     }
     return {
@@ -834,7 +778,6 @@
       tiles: tiles,
       prisms: statePrisms(state),
       dock: state.dock.map(function (t) { return { id: t.id, s: t.s }; }),
-      staging: state.staging.map(function (t) { return { id: t.id, s: t.s }; }),
       score: state.score, combo: state.combo, lives: state.lives
     };
   }
@@ -850,7 +793,7 @@
     return out;
   }
 
-  /* ---------- 道具（T030 实现于 applyItem/stageTile） ---------- */
+  /* ---------- 道具（T030: applyItem——wrench; stage/stageTile 已随暂存区移除） ---------- */
 
   /* ---------- 导出 ---------- */
   return {
@@ -858,13 +801,11 @@
     REFLECT: REFLECT,
     MECH: MECH,
     DOCK_CAP: DOCK_CAP,
-    STAGING_CAP: STAGING_CAP,
     MATCH_N: MATCH_N,
     init: init,
     canTap: canTap,
     applyTap: applyTap,
     applyItem: applyItem,
-    stageTile: stageTile,
     terminal: terminal,
     deadlockSuspect: deadlockSuspect,
     enumerateTaps: enumerateTaps,

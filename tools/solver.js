@@ -32,7 +32,7 @@ function makeRng(seed) {
 
 /* =========================================================
  * T041: 状态哈希（D-07 dock 顺序规范化）
- * dock 顺序不参与哈希（tap 结局仅依赖花色计数）；staging 有序保留
+ * dock 顺序不参与哈希（tap 结局仅依赖花色计数）
  * ========================================================= */
 function stateKey(state) {
   var parts = [];
@@ -40,7 +40,6 @@ function stateKey(state) {
   var i, t;
   for (i = 0; i < tiles.length; i++) {
     t = tiles[i];
-    if (t.inStaging) { parts.push('S' + t.id + '.' + t.s); continue; }
     if (t.removed) continue;
     parts.push(t.r + '.' + t.c + '.' + (t.z || 0) + '.' + t.d + '.' + (t.m || '') + (t.ice > 0 ? ('i' + t.ice) : '') + (t.locked ? 'L' : ''));
   }
@@ -138,16 +137,6 @@ function undoTap(state, r) {
       }
       cell.splice(pos, 0, t);
     }
-  } else if (r.type === 'staged-return') {
-    var t2 = state.tiles[r.tileId];
-    var di2 = -1;
-    for (i = 0; i < state.dock.length; i++) {
-      if (state.dock[i] === t2) { di2 = i; break; }
-    }
-    if (di2 >= 0) state.dock.splice(di2, 1);
-    t2.inStaging = true;
-    t2.removed = false;
-    state.staging.push(t2);
   }
   /* applyTap 对 blocked 也 push 动作（Step 0 后立即入栈）→ 统一弹 1 */
   state.actions.length = Math.max(0, state.actions.length - 1);
@@ -488,16 +477,14 @@ function testTripleBeforeBurst() {
   assert(hasMatch, '三消事件应发生（花色1计数==3）');
 }
 
-/* ---------- 5. Δ3 胜利条件（staging 残留非胜） ---------- */
+/* ---------- 5. 胜利条件（棋盘+dock 全清; 暂存区已移除） ---------- */
 function testWinCondition() {
   var L = mkLevel(4, [
     { r: 0, c: 1, s: 1, d: 0 },
     { r: 2, c: 0, s: 0, d: 2 }, { r: 2, c: 1, s: 0, d: 2 }
   ]);
   var s = RE.init(L);
-  s.staging = [{ id: 99, s: 1 }];
-  assert(RE.terminal(s) === 'playing', 'staging 残留 + 棋盘非空 → playing');
-  s.staging = [];
+  assert(RE.terminal(s) === 'playing', '棋盘非空 → playing');
   s.tiles.forEach(function (t) { t.removed = true; });
   s.dock = [];
   assert(RE.terminal(s) === 'won', '全清 → won');
@@ -624,28 +611,10 @@ function testItems() {
   var s2 = RE.init(L2);
   var w2 = RE.applyItem(s2, 'wrench', 1);
   assert(w2.type === 'invalid', 'T030 扳手对冰封滑块应 invalid');
-  /* stage: dock 前 k 移入 staging; 满 3 invalid; stageTile 回填 */
-  var L3 = mkLevel(5, [
-    { r: 0, c: 1, s: 1, d: 0 }, { r: 0, c: 2, s: 1, d: 0 }, { r: 0, c: 3, s: 1, d: 0 },
-    { r: 2, c: 2, s: 0, d: 2 },
-    { r: 3, c: 0, s: 2, d: 2 }, { r: 3, c: 1, s: 2, d: 2 },
-    { r: 1, c: 0, s: 0, d: 0 }, { r: 1, c: 1, s: 0, d: 0 }, { r: 1, c: 2, s: 0, d: 0 }
-  ]);
-  var s3 = RE.init(L3);
-  RE.applyTap(s3, 0); RE.applyTap(s3, 1); RE.applyTap(s3, 2); /* 三消清空 dock */
-  RE.applyTap(s3, 7); /* id7 (1,0) 飞出? s=0 朝 U——(0,0) 空 → 畅通 → dock 1 块 */
-  RE.applyTap(s3, 4); /* id4 (3,0) s=2 朝 D 畅通 → dock 2 块 */
-  assert(s3.dock.length === 2, 'dock 预置 2 块, got ' + s3.dock.length);
-  var st = RE.applyItem(s3, 'stage');
-  assert(st.type === 'stage' && s3.staging.length === 2, 'T030 stage: dock 2 块移入 staging');
-  var sr = RE.stageTile(s3, s3.staging[0].id);
-  assert(sr.type === 'staged-return' && s3.dock.length === 1, 'T030 stageTile 回填 dock 尾');
-  /* staging 满 3 → invalid */
-  var s4 = RE.init(L3);
-  s4.staging = [{ id: 97, s: 0 }, { id: 98, s: 0 }, { id: 99, s: 0 }];
-  s4.dock = [{ id: 90, s: 1 }];
-  var st2 = RE.applyItem(s4, 'stage');
-  assert(st2.type === 'invalid', 'T030 暂存满 3 时 stage 应 invalid（FR-026）');
+  /* （stage/stageTile 断言已随暂存区功能移除——applyItem('stage') 恒 invalid） */
+  var s3 = RE.init(L2);
+  var stX = RE.applyItem(s3, 'stage');
+  assert(stX.type === 'invalid', 'stage 道具已移除: applyItem 恒 invalid');
 }
 
 /* ---------- 11. T028 死锁谓词不误杀 ---------- */
@@ -668,7 +637,7 @@ function testDeadlockPredicate() {
   ]);
   var s2 = RE.init(L2);
   RE.applyTap(s2, 2); RE.applyTap(s2, 3); /* 清空第 0 行自由滑块（同花色×2 入槽——无三消不判胜） */
-  s2.items = { undo: 0, wrench: 0, stage: 0 };
+  s2.items = { undo: 0, wrench: 0 };
   s2.dock = []; /* 无关变量清空（两滑块仍在 dock——count=2 无三消） */
   var tapsB = RE.enumerateTaps(s2);
   assert(tapsB.length === 2, '互挡对均可 tap（弹回型）, got ' + tapsB.length);
@@ -686,7 +655,7 @@ function engineSelftest() {
     ['T023 齿轮十字邻接触发/对角不触发', testGear],
     ['T024 破冰双口径（triple/adjacent）', testIce],
     ['T025 chains 解锁（或语义）', testChains],
-    ['T030 道具语义（wrench/stage/stageTile）', testItems],
+    ['T030 道具语义（wrench; stage 已移除）', testItems],
     ['T028 死锁谓词不误杀', testDeadlockPredicate]
   ];
   var passed = 0;

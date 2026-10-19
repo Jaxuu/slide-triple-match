@@ -57,7 +57,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -131,7 +131,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -208,7 +208,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -288,7 +288,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -368,7 +368,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -451,7 +451,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -537,7 +537,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -623,7 +623,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -712,7 +712,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -804,7 +804,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -890,7 +890,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -973,7 +973,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -1059,7 +1059,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -1148,7 +1148,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -1240,7 +1240,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -1335,7 +1335,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -1433,7 +1433,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -1534,7 +1534,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -1638,7 +1638,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -1745,7 +1745,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: false,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -1852,7 +1852,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[15,[21]],[29,[37]],[18,[22]],[7,[34]],[12,[28]],[8,[24]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -1956,7 +1956,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[6,[26]],[28,[33]],[9,[40]],[3,[22]],[4,[24]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -2063,7 +2063,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[28,[31]],[5,[35]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -2173,7 +2173,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[3,[40]],[21,[37]],[10,[26]],[17,[32]],[33,[36]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -2286,7 +2286,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[15,[30]],[22,[36]],[25,[32]],[8,[31]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -2402,7 +2402,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[16,[28]],[2,[31]],[20,[26]],[5,[29]],[0,[33]],[36,[39]],[35,[37]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -2521,7 +2521,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[18,[45]],[14,[30]],[23,[38]],[11,[26]],[9,[37]],[47,[48]],[43,[49]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -2643,7 +2643,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[1,[33]],[44,[45]],[29,[30]],[5,[46]],[16,[48]],[9,[36]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -2768,7 +2768,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[28,[39]],[8,[36]],[29,[47]],[4,[41]],[5,[42]],[46,[48]],[35,[51]],[7,[31]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -2896,7 +2896,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[5,[50]],[24,[51]],[27,[31]],[4,[29]],[7,[33]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -3015,7 +3015,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[8,[41]],[2,[32]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -3125,7 +3125,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[25,[33]],[18,[22]],[8,[34]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -3238,7 +3238,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[27,[37]],[33,[38]],[14,[25]],[1,[40]],[6,[36]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -3351,7 +3351,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[33,[37]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -3467,7 +3467,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[18,[38]],[8,[41]],[26,[30]],[3,[29]],[22,[39]],[14,[33]],[32,[42]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -3589,7 +3589,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[25,[31]],[6,[30]],[10,[29]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -3714,7 +3714,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[7,[35]],[24,[31]],[19,[34]],[21,[39]],[18,[30]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -3842,7 +3842,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[3,[35]],[22,[29]],[30,[36]],[28,[39]],[20,[45]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -3973,7 +3973,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[29,[40]],[35,[48]],[16,[46]],[20,[49]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -4107,7 +4107,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[16,[54]],[19,[30]],[17,[43]],[40,[41]],[7,[51]],[29,[37]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -4238,7 +4238,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[17,[43]],[33,[39]],[9,[44]],[12,[37]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -4369,7 +4369,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[27,[49]],[25,[29]],[8,[32]],[10,[52]],[26,[28]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -4506,7 +4506,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[41,[43]],[51,[54]],[34,[35]],[22,[48]],[5,[50]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -4667,7 +4667,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[51,[52]],[37,[74]],[13,[65]],[67,[73]],[53,[57]],[2,[55]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -4822,7 +4822,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[14,[46]],[25,[50]],[32,[40]],[11,[29]],[8,[34]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -4966,7 +4966,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[11,[59]],[4,[51]],[29,[62]],[38,[46]],[24,[65]],[52,[67]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -5127,7 +5127,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[24,[43]],[47,[59]],[34,[56]],[3,[49]],[48,[54]],[25,[66]],[19,[40]],[5,[57]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -5294,7 +5294,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[50,[51]],[42,[49]],[14,[66]],[1,[41]],[57,[64]],[65,[72]],[17,[40]],[48,[52]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -5470,7 +5470,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[24,[49]],[3,[77]],[42,[78]],[35,[64]],[25,[54]],[46,[59]],[16,[79]],[22,[56]],[14,[52]]],
         scoring: { comboBase: 10, comboStep: 5 }
@@ -5625,7 +5625,7 @@
       cfg: {
         lives: 3,
         damageOnBlock: true,
-        items: { undo: 1, wrench: 1, stage: 1 },
+        items: { undo: 1, wrench: 1 },
         iceMode: "triple",
         chains: [[11,[34]],[8,[48]],[3,[43]],[10,[50]]],
         scoring: { comboBase: 10, comboStep: 5 }

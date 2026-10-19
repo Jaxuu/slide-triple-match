@@ -39,7 +39,7 @@
   cfg: {                      // LevelConfig（默认值可省略——消费方补默认）
     lives: 3,
     damageOnBlock: false,
-    items: { undo:1, wrench:1, stage:1 },
+    items: { undo:1, wrench:1 },
     iceMode: 'triple',
     chains: [ [4, [3]] ],     // [keyTileId, [lockedTileId,...]] 边表
     scoring: { comboBase:10, comboStep:5 }
@@ -71,7 +71,7 @@
 | 机制标记 `m` | `'g'` \| `'i'` \| `'c'` \| `'k'` \| undefined | 齿轮/冰封/锁链/钥匙/无（互斥） |
 | 棱镜型 `t` | `'/'` \| `'\\'` | 斜面反射方向 |
 | 破冰口径 `cfg.iceMode` | `'triple'` \| `'adjacent'` | 三消全场 -1 / 十字相邻飞出 -1 |
-| 动作类型 `solutionMoves[].k` | 0/1/2 | tap 棋盘滑块 / tap 暂存区滑块 / 使用道具（`t` 字段此时为 `'{item}:{tileId?}'` 复合——极端解需要扳手/暂存时；正常解不出现 k=2） |
+| 动作类型 `solutionMoves[].k` | 0/2 | tap 棋盘滑块 / 使用道具（`t` 字段此时为 `tileId`——扳手目标；Δ9: k=1 暂存区回填已移除，正常解不出现 k=2） |
 
 ## 4. 规模预算
 

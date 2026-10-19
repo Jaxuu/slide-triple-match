@@ -56,7 +56,8 @@
     }
 
     /* ---- T033 死锁复证搜索器（D-09 防误杀——M2 保守预算 3k 节点/60ms; M4 校准） ----
-     * 动作集与 Solver 同构: enumerateTaps ∪ tapStaged ∪ 可用道具（wrench 目标遍历 + stage）
+     * 动作集与 Solver 同构: enumerateTaps ∪ 可用道具（wrench 目标遍历）
+     * （暂存区/stage 道具已移除——动作集仅 tap + wrench）
      * true = 复证通过（确死）; false = 找到出路（非死锁） */
     function verifyDeadlock() {
       var nodes = 0;
@@ -77,36 +78,17 @@
             var snapI = RE.snapshot(engine);
             var r = RE.applyTap(engine, taps[i]);
             nodes++;
-            if (r.type === 'flyout' || r.type === 'prism-flyout' || r.type === 'staged-return') {
+            if (r.type === 'flyout' || r.type === 'prism-flyout') {
               out = dfs(depth - 1);
             }
             RE.restore(engine, snapI);
           }
-          /* ② tapStaged 动作 */
-          for (var si = 0; si < engine.staging.length && !out; si++) {
-            var snapS = RE.snapshot(engine);
-            var rs = RE.stageTile(engine, engine.staging[si].id);
-            nodes++;
-            if (rs.type !== 'invalid') out = dfs(depth - 1);
-            RE.restore(engine, snapS);
-          }
-          /* ③ stage 道具（暂存腾槽） */
-          if (!out && engine.items && engine.items.stage > 0 && engine.staging.length < 3 && engine.dock.length > 0) {
-            var snapT = RE.snapshot(engine);
-            var st = RE.applyItem(engine, 'stage', null);
-            nodes++;
-            if (st.type === 'stage') {
-              out = dfs(depth - 1);
-              /* stage 后递归内可能已消费道具——道具计数回滚由 restore 统一处理 */
-            }
-            RE.restore(engine, snapT);
-          }
-          /* ④ wrench 道具（方向扰动——仅普通/齿轮滑块） */
+          /* ② wrench 道具（方向扰动——仅普通/齿轮滑块） */
           if (!out && engine.items && engine.items.wrench > 0) {
             var tapsW = RE.enumerateTaps(engine);
             for (var wi = 0; wi < tapsW.length && !out; wi++) {
               var tile = engine.tiles[tapsW[wi]];
-              if (!tile || tile.ice > 0 || tile.locked || tile.inStaging) continue;
+              if (!tile || tile.ice > 0 || tile.locked) continue;
               var snapW = RE.snapshot(engine);
               var rw = RE.applyItem(engine, 'wrench', tapsW[wi]);
               nodes++;
@@ -226,7 +208,7 @@
       emit({ e: 'click', tileId: tileId });
       var i;
       for (i = 0; i < result.events.length; i++) emit(result.events[i]);
-      if (result.type === 'flyout' || result.type === 'prism-flyout' || result.type === 'staged-return') emit({ e: 'flyout', tileId: tileId, path: result.path });
+      if (result.type === 'flyout' || result.type === 'prism-flyout') emit({ e: 'flyout', tileId: tileId, path: result.path });
       if (result.type === 'blocked') emit({ e: 'blocked', tileId: tileId, path: result.path, damage: result.damage });
       for (i = 0; i < result.events.length; i++) {
         if (result.events[i].e === 'match') windowCombo();
@@ -252,7 +234,6 @@
         lives: engine.lives,
         items: engine.items,
         dock: engine.dock.map(function (t) { return { id: t.id, s: t.s }; }),
-        staging: engine.staging.map(function (t) { return { id: t.id, s: t.s }; }),
         board: RE.renderProbe(engine).tiles,
         n: engine.n
       };
@@ -296,8 +277,6 @@
       }
       /* wrench: 需要目标（无目标时进入选择态由 UI 层处理——此层只执行） */
       if (item === 'wrench' && tileId == null) { emit({ e: 'item-needs-target', item: 'wrench' }); return null; }
-      /* stage: 满则 invalid（FR-026） */
-      if (item === 'stage' && engine.staging.length >= 3) { emit({ e: 'item-unavailable', item: 'stage' }); return null; }
 
       /* 执行前快照（与 tap 同——undo 可整体回滚道具动作） */
       history.push(RE.snapshot(engine));
@@ -311,7 +290,7 @@
       }
       /* 成功: 次数递减（cfg.items 拷贝上的运行时计数） */
       engine.items[item] = Math.max(0, (engine.items[item] || 0) - 1);
-      trackRail({ k: 2, t: item === 'stage' ? -1 : tileId });
+      trackRail({ k: 2, t: tileId });
       var i;
       for (i = 0; i < result.events.length; i++) emit(result.events[i]);
       for (i = 0; i < result.events.length; i++) {
@@ -322,31 +301,7 @@
       return result;
     }
 
-    /* ---- T032 暂存区点击: staging 滑块飞回 Dock 尾（Δ3 回填 tap; k=1） ---- */
-    function tapStaged(tileId) {
-      if (phase !== PHASE.READY) { emit({ e: 'input-locked' }); return null; }
-      var inStaging = false;
-      for (var j = 0; j < engine.staging.length; j++) {
-        if (engine.staging[j].id === tileId) { inStaging = true; break; }
-      }
-      if (!inStaging) { emit({ e: 'input-locked' }); return null; }
-
-      history.push(RE.snapshot(engine));
-      if (history.length > 200) history.shift();
-
-      var result = RE.stageTile(engine, tileId);
-      if (result.type === 'invalid') {
-        history.pop();
-        emit({ e: 'input-locked' });
-        return result;
-      }
-      trackRail({ k: 1, t: tileId });
-      var i;
-      for (i = 0; i < result.events.length; i++) emit(result.events[i]);
-      emit({ e: 'staged-return', tileId: tileId });
-      lockForAnimation(450, function () {});
-      return result;
-    }
+    /* （tapStaged 已随暂存区功能移除——滑块只在棋盘 ↔ Dock 单向守恒流转） */
 
     /* ---- 引擎态直访（Renderer 轮询用） ---- */
     function engineState() { return engine; }
@@ -354,7 +309,6 @@
     ready = true; /* 构造完毕：此后事件可正常下发（首 phase 事件于返回后异步发） */
     var api = {
       tap: tap,
-      tapStaged: tapStaged,
       useItem: useItem,
       reset: reset,
       state: state,

@@ -126,7 +126,6 @@
       hudScore: d.getElementById('hud-score'),
       board: d.getElementById('board'),
       boardWrap: d.getElementById('board-wrap'),
-      staging: d.getElementById('staging'),
       dock: d.getElementById('dock'),
       items: d.getElementById('items'),
       overlay: d.getElementById('result-overlay'),
@@ -222,26 +221,14 @@
       }
     }
     els.dock.innerHTML = html;
-    /* Staging 3 格 */
-    var sHtml = '';
-    for (var j = 0; j < 3; j++) {
-      if (j < s.staging.length) {
-        sHtml += '<div class="slot has-tile" data-staged="' + s.staging[j].id + '">' + STM.chipSVG(s.staging[j].s) + '</div>';
-      } else {
-        sHtml += '<div class="slot empty"></div>';
-      }
-    }
-    els.staging.innerHTML = sHtml;
   }
 
   function renderItems() {
     var s = session.state();
     var it = s.items || {};
     setItemBtn('item-undo', it.undo, false);
-    /* 扳手: 无余量禁用; 扳手选择态由 wrenchMode 控制 */
+    /* 扳手: 无余量禁用; 扳手选择态由 wrenchMode 控制（道具仅 2 种——暂存区已移除） */
     setItemBtn('item-wrench', it.wrench, wrenchMode);
-    /* 暂存道具: 暂存满 3 时禁用（FR-026） */
-    setItemBtn('item-stage', it.stage, false, s.staging && s.staging.length >= 3);
     if (wrenchMode) {
       var wb = global.document.getElementById('item-wrench');
       if (wb) wb.classList.add('selecting');
@@ -258,13 +245,12 @@
     if (!selecting) btn.classList.remove('selecting');
   }
 
-  /* ---------- T031/T035 道具交互编排 ---------- */
+  /* ---------- T031/T035 道具交互编排（道具 2 种: undo/wrench——暂存区已移除） ---------- */
   var wrenchMode = false; /* 扳手目标选择模式 */
 
   function bindItemInput() {
     var undo = global.document.getElementById('item-undo');
     var wrench = global.document.getElementById('item-wrench');
-    var stage = global.document.getElementById('item-stage');
     if (undo) {
       undo.removeEventListener('pointerdown', onUndoDown);
       undo.addEventListener('pointerdown', onUndoDown);
@@ -273,13 +259,6 @@
       wrench.removeEventListener('pointerdown', onWrenchDown);
       wrench.addEventListener('pointerdown', onWrenchDown);
     }
-    if (stage) {
-      stage.removeEventListener('pointerdown', onStageDown);
-      stage.addEventListener('pointerdown', onStageDown);
-    }
-    /* T032/T035: 暂存区滑块点击 → 飞回 Dock（无自动回填的交互补偿） */
-    els.staging.removeEventListener('pointerdown', onStagingDown);
-    els.staging.addEventListener('pointerdown', onStagingDown);
   }
 
   function onUndoDown() {
@@ -302,36 +281,6 @@
     wrenchMode = !wrenchMode;
     renderItems();
     if (wrenchMode) toast('点选要转向的滑块');
-  }
-
-  function onStageDown() {
-    if (!session) return;
-    var s = session.state();
-    if (!s.items || s.items.stage <= 0) return;
-    if (s.staging && s.staging.length >= 3) { toast('暂存区已满'); return; }
-    var r = session.useItem('stage');
-    if (r && r.type === 'stage') {
-      sound.play('item');
-      renderDock();
-      renderItems();
-      renderer.refresh();
-      toast('移出至暂存区');
-    }
-  }
-
-  function onStagingDown(ev) {
-    if (!session) return;
-    var slot = ev.target.closest ? ev.target.closest('.slot.has-tile') : null;
-    if (!slot) return;
-    var id = parseInt(slot.getAttribute('data-staged'), 10);
-    if (isNaN(id)) return;
-    var r = session.tapStaged(id);
-    if (r && r.type !== 'invalid') {
-      sound.play('click');
-      renderer.refresh();
-      renderDock();
-      renderItems();
-    }
   }
 
   function exitWrenchMode() {
@@ -364,15 +313,11 @@
       renderHud();
       return;
     }
-    /* 机制事件（M2 T034/T036: gear/unlock/iceBreak/prism/staged 动效 + 音效映射） */
+    /* 机制事件（M2 T034/T036: gear/unlock/iceBreak/prism 动效 + 音效映射） */
     if (e.e === 'gear') { sound.play('gear'); renderer.handleEvent(e); renderer.refresh(); return; }
     if (e.e === 'unlock') { sound.play('unlock'); renderer.handleEvent(e); renderer.refresh(); return; }
     if (e.e === 'iceBreak') { sound.play('iceBreak'); renderer.handleEvent(e); renderer.refresh(); return; }
     if (e.e === 'prism') { sound.play('prism'); renderer.handleEvent(e); renderer.refresh(); return; }
-    if (e.e === 'staged' || e.e === 'staged-return') {
-      sound.play(e.e === 'staged' ? 'item' : 'flyout');
-      renderer.handleEvent(e); renderer.refresh(); renderDock(); renderItems(); renderHud(); return;
-    }
     if (e.e === 'undo') { renderer.refresh(); renderDock(); renderHud(); renderItems(); return; }
     renderer.handleEvent(e);
     renderer.refresh();

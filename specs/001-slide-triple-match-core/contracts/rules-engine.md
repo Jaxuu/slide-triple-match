@@ -27,11 +27,10 @@
 
 | API | 签名 | 说明 |
 |---|---|---|
-| `init(level, opts?)` | `(Level) → EngineState` | 由静态 Level 构造可演化运行态（含 board/dock/staging/机制动态量）。**所有演化函数的第一个参数是 EngineState，全部返回新对象或原地演化并返回自身**——语义为「确定性状态机」，前端 GameState 与 Solver 各自持有独立实例。opts 仅 Node 侧注入（如 PRNG 种子），浏览器调用不传。 |
+| `init(level, opts?)` | `(Level) → EngineState` | 由静态 Level 构造可演化运行态（含 board/dock/机制动态量；Δ9: staging 已移除）。**所有演化函数的第一个参数是 EngineState，全部返回新对象或原地演化并返回自身**——语义为「确定性状态机」，前端 GameState 与 Solver 各自持有独立实例。opts 仅 Node 侧注入（如 PRNG 种子），浏览器调用不传。 |
 | `canTap(state, tileId)` | `(EngineState, int) → bool` | 点击可行性谓词（§2） |
 | `applyTap(state, tileId)` | `(EngineState, int) → TapResult` | **核心**: 原子回合结算（§3 管线），返回结果对象（§5） |
-| `applyItem(state, item, target?)` | `(EngineState, 'undo' 无法定义于此*, 'wrench'\|'stage', tileId?) → TapResult` | 道具语义（§6）；undo 由 GameState 快照栈承载（规则引擎无历史） |
-| `stageTile(state, tileId)` | `(EngineState, int) → TapResult` | 暂存区滑块回填 tap（Δ3，k=1 动作） |
+| `applyItem(state, item, target?)` | `(EngineState, 'undo' 无法定义于此*, 'wrench', tileId?) → TapResult` | 道具语义（§6）；undo 由 GameState 快照栈承载（规则引擎无历史）；Δ9: 'stage' 已移除（恒 invalid） |
 | `terminal(state)` | `(EngineState) → 'playing'\|'won'\|'lost_burst'\|'lost_lives'\|'lost_deadlock'` | 终局判定（§7）。**死锁的复证搜索不在此 API 内**——`deadlockSuspect(state)` 只给谓词，复证由调用方（前端 Hint/Bot 搜索器、离线 Solver）执行（D-09） |
 | `deadlockSuspect(state)` | `(EngineState) → bool` | 疑死锁保守谓词（§7.4） |
 | `enumerateTaps(state)` | `(EngineState) → int[]` | 可行 tap 目标 id 列表（Solver/Hint 动作枚举） |
@@ -42,7 +41,7 @@
 
 滑块可被点击飞出，当且仅当：
 
-1. 滑块在棋盘上（或**在暂存区内**——staging 滑块恒可 tap，Δ3「无阻挡自由牌」）；且
+1. 滑块在棋盘上（Δ9: 暂存区已移除——不再有 staging 滑块）；且
 2. `机制状态 ∉ {冰封(ice>0), 锁链(locked)}`（FR-015/FR-018）；且
 3. **Δ7**: 滑块位于其所在格的**栈顶**（下层滑块被顶层压住，不可交互）。
 
@@ -103,7 +102,7 @@ Step 5  返回 TapResult（§5）
 
 ```js
 {
-  type: 'invalid' | 'blocked' | 'flyout' | 'prism-flyout' | 'staged-return',
+  type: 'invalid' | 'blocked' | 'flyout' | 'prism-flyout',
   tileId,                       // 主体滑块
   path: [{r,c}, ...],           // 飞出/弹回路径（渲染动画用；含折射折点）
   blockedAt?: {r,c},            // blocked 时的阻挡格
@@ -120,16 +119,14 @@ Step 5  返回 TapResult（§5）
 }
 ```
 
-## 6. 道具语义（FR-024，Δ3 修正口径）
+## 6. 道具语义（FR-024；Δ9: 暂存区/「移出槽位」已移除）
 
 | 道具 | 引擎 API | 语义 |
 |---|---|---|
 | Undo | （GameState 层，非本引擎） | 弹快照栈整体恢复（含级联派生），一次一回合 |
 | 扳手 | `applyItem(state,'wrench',tileId)` | 目标滑块 `(d+1)%4`；**仅普通与齿轮滑块可用**（冰封/锁链返回 invalid，FR-024-2）；计入 Solver 动作集（k=2 的一种：`wrench`） |
-| 移出槽位 | `applyItem(state,'stage')` | 将 dock 内**前 k 个**滑块（k = min(3, staging 余量)）移入 staging；staging 满（3）时 invalid（FR-026）；**无自动回填**（Δ3）；移出的滑块保留 id/花色 |
-| 暂存回填 | `stageTile(state, tileId)` | staging 滑块点击 → 飞入 dock 尾（参与后续三消）；无射线判定（自由牌） |
 
-**胜利条件（Δ3 扩展）**: `terminal()` 的 won = 棋盘滑块数 == 0 **且** staging.length == 0 **且** dock.length == 0。
+**胜利条件（Δ9 修正）**: `terminal()` 的 won = 棋盘滑块数 == 0 **且** dock.length == 0。
 
 ## 7. 终局与死锁
 
