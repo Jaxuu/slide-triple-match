@@ -263,9 +263,126 @@
     drawFruit(ctx, suit.shape, x + w / 2, fz + w * 0.42, cell * 0.29 * scale);
     /* 5. 胶囊方向箭头徽章（牌面中心偏 d 侧） */
     drawArrowBadge(ctx, t.d, x + w / 2, fz + w / 2, cell, suit, scale);
-    /* 6. Δ7 多层堆叠左上角层角标（下层可见性预告） */
+    /* 6. T034 机制角标: 齿轮(右上)/冰封(全牌覆层+厚度)/锁链(四角)/钥匙(左上) */
+    if (t.m === 'g') drawGearBadge(ctx, x, fz, w, cell);
+    else if (t.m === 'i') drawIceOverlay(ctx, x, fz, w, cell, t.x || 1);
+    else if (t.m === 'k') drawKeyBadge(ctx, x, fz, w, cell);
+    else if (t.m === 'c') drawChainCorners(ctx, x, fz, w, cell);
+    /* 7. Δ7 多层堆叠左上角层角标（下层可见性预告） */
     if (depth > 1) drawStackBadge(ctx, depth, x, fz, cell, scale);
     ctx.globalAlpha = 1;
+  }
+
+  /* T034 齿轮角标: 右上小齿轮图形 + 深色描边底（FR-014 旋转机制可视化） */
+  function drawGearBadge(ctx, x, fz, w, cell) {
+    var cx = x + w - cell * 0.10;
+    var cy = fz + cell * 0.10;
+    var r = cell * 0.075;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.35, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(52,58,64,0.85)';
+    ctx.fill();
+    ctx.beginPath();
+    for (var i = 0; i < 8; i++) {
+      var a = i * Math.PI / 4;
+      var rr = i % 2 === 0 ? r : r * 0.62;
+      var px = cx + Math.cos(a) * rr;
+      var py = cy + Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#E8D9A0';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(52,58,64,0.9)';
+    ctx.lineWidth = Math.max(1, dprSafe(0.8));
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.24, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(52,58,64,0.9)';
+    ctx.fill();
+  }
+
+  /* T034 冰封覆层: 半透明冰蓝覆盖 + 冰层厚度数字 + 裂纹层数（FR-017） */
+  function drawIceOverlay(ctx, x, fz, w, cell, layers) {
+    ctx.beginPath();
+    roundRect(ctx, x + dprSafe(1), fz + dprSafe(1), w - dprSafe(2), w - dprSafe(2), cell * 0.12);
+    ctx.fillStyle = 'rgba(190,225,255,0.55)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(140,190,235,0.9)';
+    ctx.lineWidth = Math.max(1.2, dprSafe(1.4));
+    ctx.stroke();
+    /* 裂纹: 层数愈多愈密（封顶 3 层图样） */
+    var cracks = Math.max(1, Math.min(3, layers));
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = Math.max(0.8, dprSafe(0.9));
+    for (var ci = 0; ci < cracks; ci++) {
+      var oy = fz + w * (0.30 + ci * 0.16);
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.18, oy);
+      ctx.lineTo(x + w * 0.40, oy + w * 0.06);
+      ctx.lineTo(x + w * 0.62, oy - w * 0.03);
+      ctx.lineTo(x + w * 0.82, oy + w * 0.05);
+      ctx.stroke();
+    }
+    /* 厚度数字: 右下角 */
+    if (layers > 1) {
+      ctx.fillStyle = 'rgba(30,90,150,0.95)';
+      ctx.font = 'bold ' + Math.max(9, Math.floor(cell * 0.20)) + 'px system-ui,sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(String(layers), x + w - cell * 0.06, fz + w - cell * 0.04);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+    }
+  }
+
+  /* T034 锁链四角链条角标（配对钥匙飞出后全链解开——FR-019/020） */
+  function drawChainCorners(ctx, x, fz, w, cell) {
+    var r = Math.max(2, cell * 0.045);
+    var pts = [
+      [x + cell * 0.07, fz + cell * 0.07],
+      [x + w - cell * 0.07, fz + cell * 0.07],
+      [x + cell * 0.07, fz + w - cell * 0.07],
+      [x + w - cell * 0.07, fz + w - cell * 0.07]
+    ];
+    ctx.strokeStyle = 'rgba(70,80,92,0.95)';
+    ctx.lineWidth = Math.max(1.6, dprSafe(1.8));
+    for (var i = 0; i < pts.length; i++) {
+      var cx = pts[i][0], cy = pts[i][1];
+      ctx.beginPath();
+      ctx.arc(cx - r * 0.6, cy, r, Math.PI / 2, Math.PI * 1.5);
+      ctx.arc(cx + r * 0.6, cy, r, -Math.PI / 2, Math.PI / 2);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0] + r, pts[0][1]);
+    ctx.lineTo(pts[1][0] - r * 1.6, pts[1][1]);
+    ctx.moveTo(pts[2][0] + r, pts[2][1]);
+    ctx.lineTo(pts[3][0] - r * 1.6, pts[3][1]);
+    ctx.strokeStyle = 'rgba(70,80,92,0.6)';
+    ctx.stroke();
+  }
+
+  /* T034 钥匙角标: 左上钥匙图形（FR-020 辨识） */
+  function drawKeyBadge(ctx, x, fz, w, cell) {
+    var cx = x + cell * 0.11;
+    var cy = fz + cell * 0.11;
+    var s = cell * 0.055;
+    ctx.beginPath();
+    ctx.arc(cx - s * 0.5, cy, s * 0.9, 0, Math.PI * 2);
+    ctx.fillStyle = '#F5B301';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(120,80,0,0.9)';
+    ctx.lineWidth = Math.max(1, dprSafe(1));
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx + s * 0.4, cy);
+    ctx.lineTo(cx + s * 1.9, cy);
+    ctx.moveTo(cx + s * 1.1, cy);
+    ctx.lineTo(cx + s * 1.1, cy + s * 0.55);
+    ctx.moveTo(cx + s * 1.7, cy);
+    ctx.lineTo(cx + s * 1.7, cy + s * 0.55);
+    ctx.stroke();
   }
 
   /* 胶囊箭头徽章：花色深色胶囊底 + 白色人字箭头（指 d） */
@@ -554,6 +671,57 @@
           (t.r + dir.dr * 0.38 * p + 0.5) * cell - zB * cell * 0.22, t, 1, 1, 0);
       } else if (a.kind === 'match') {
         drawTileBody(ctx, cell, a.x, a.y, t, 1 + 0.6 * prog, 1 - prog, 0);
+      } else if (a.kind === 'gear') {
+        /* T034 齿轮旋转脉冲: 牌体原地放大回弹 + 角标区高亮圈 */
+        var gp = prog < 0.5 ? prog / 0.5 : (1 - (prog - 0.5) / 0.5);
+        drawTileBody(ctx, cell, (t.c + 0.5) * cell, (t.r + 0.5) * cell, t, 1 + 0.12 * gp, 1, 0);
+        ctx.beginPath();
+        ctx.arc((t.c + 0.5) * cell + cell * 0.34, (t.r + 0.5) * cell - cell * 0.34, cell * 0.14 * (1 + gp), 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(232,217,160,' + (1 - prog) + ')';
+        ctx.lineWidth = Math.max(1.5, dprSafe(2));
+        ctx.stroke();
+      } else if (a.kind === 'unlock') {
+        /* T034 锁链断开: 牌面亮闪 */
+        drawTileBody(ctx, cell, (t.c + 0.5) * cell, (t.r + 0.5) * cell, t, 1, 1, 0);
+        ctx.beginPath();
+        roundRect(ctx, t.c * cell + dprSafe(2), t.r * cell + dprSafe(2), cell - dprSafe(4), cell - dprSafe(4), cell * 0.12);
+        ctx.strokeStyle = 'rgba(255,200,80,' + (0.85 * (1 - prog)) + ')';
+        ctx.lineWidth = Math.max(2, dprSafe(2.5));
+        ctx.stroke();
+      } else if (a.kind === 'ice') {
+        /* T034 破冰碎裂: 白蓝碎片从牌心四散 */
+        var icx = (t.c + 0.5) * cell, icy = (t.r + 0.5) * cell;
+        ctx.globalAlpha = 1 - prog;
+        for (var fi = 0; fi < 6; fi++) {
+          var fa = fi * Math.PI / 3 + 0.4;
+          var fd = cell * 0.5 * (0.3 + 0.7 * prog);
+          var fx = icx + Math.cos(fa) * fd;
+          var fy = icy + Math.sin(fa) * fd - prog * cell * 0.25;
+          ctx.beginPath();
+          ctx.moveTo(fx, fy);
+          ctx.lineTo(fx + cell * 0.09, fy + cell * 0.05);
+          ctx.lineTo(fx - cell * 0.03, fy + cell * 0.1);
+          ctx.closePath();
+          ctx.fillStyle = fi % 2 ? 'rgba(190,225,255,0.95)' : 'rgba(255,255,255,0.95)';
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      } else if (a.kind === 'prism') {
+        /* T034 折射折线光条: 沿事件 path 高亮行进 */
+        if (a.path && a.path.length >= 2) {
+          ctx.globalAlpha = 0.9 * (1 - prog * 0.5);
+          ctx.strokeStyle = '#8FD3F4';
+          ctx.lineWidth = Math.max(2, dprSafe(3));
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          var upto = Math.max(1, Math.ceil(prog * (a.path.length - 1)));
+          ctx.moveTo((a.path[0].c + 0.5) * cell, (a.path[0].r + 0.5) * cell);
+          for (var pi = 1; pi <= upto && pi < a.path.length; pi++) {
+            ctx.lineTo((a.path[pi].c + 0.5) * cell, (a.path[pi].r + 0.5) * cell);
+          }
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
       }
     }
 
@@ -593,6 +761,23 @@
         /* Δ7: 次顶层暴露——延迟后上浮（revealAt 驱动 drawBoardTile 内插值） */
         revealAt[e.id] = now + REVEAL_DELAY;
         anims.push({ kind: 'reveal', tileId: e.id, t0: now, dur: REVEAL_DELAY + REVEAL_MS });
+      } else if (e.e === 'gear') {
+        /* T034 齿轮 90° 旋转过渡（UI 即时可见——牌面箭头已由引擎转好，这里叠加旋转脉冲） */
+        anims.push({ kind: 'gear', tileId: e.id, t0: now, dur: 320 });
+      } else if (e.e === 'unlock') {
+        /* T034 锁链断开闪烁 */
+        anims.push({ kind: 'unlock', tileId: e.id || (e.ids && e.ids[0]), t0: now, dur: 400 });
+      } else if (e.e === 'iceBreak') {
+        /* T034 破冰碎裂粒子（白蓝碎片飞散） */
+        var ids = e.ids && e.ids.length ? e.ids : (e.id != null ? [e.id] : []);
+        for (var bi = 0; bi < ids.length; bi++) {
+          anims.push({ kind: 'ice', tileId: ids[bi], t0: now, dur: 480 });
+        }
+      } else if (e.e === 'prism') {
+        /* T034 棱镜折线路径动画（入射→折射→出射折线光条） */
+        if (e.path && e.path.length >= 2) {
+          anims.push({ kind: 'prism', tileId: e.tileId, path: e.path, t0: now, dur: 360 });
+        }
       }
       refresh();
     }

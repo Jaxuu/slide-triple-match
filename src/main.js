@@ -183,6 +183,8 @@
     renderDock();
     renderItems();
     bindBoardInput();
+    bindItemInput(); /* T035: 道具栏 + 暂存区输入绑定 */
+    exitWrenchMode();
   }
 
   /* =========================================================
@@ -235,18 +237,108 @@
   function renderItems() {
     var s = session.state();
     var it = s.items || {};
-    setItemBtn('item-undo', it.undo);
-    setItemBtn('item-wrench', it.wrench);
-    setItemBtn('item-stage', it.stage);
+    setItemBtn('item-undo', it.undo, false);
+    /* 扳手: 无余量禁用; 扳手选择态由 wrenchMode 控制 */
+    setItemBtn('item-wrench', it.wrench, wrenchMode);
+    /* 暂存道具: 暂存满 3 时禁用（FR-026） */
+    setItemBtn('item-stage', it.stage, false, s.staging && s.staging.length >= 3);
+    if (wrenchMode) {
+      var wb = global.document.getElementById('item-wrench');
+      if (wb) wb.classList.add('selecting');
+    }
   }
 
-  function setItemBtn(btnId, count) {
+  function setItemBtn(btnId, count, selecting, disabledExtra) {
     var btn = global.document.getElementById(btnId);
     if (!btn) return;
     var cnt = count == null ? 0 : count;
     var countEl = btn.querySelector('.item-count');
     if (countEl) countEl.textContent = String(cnt);
-    btn.disabled = cnt <= 0; /* M1: 道具 M2 启用——禁用态可见 */
+    btn.disabled = cnt <= 0 || !!disabledExtra;
+    if (!selecting) btn.classList.remove('selecting');
+  }
+
+  /* ---------- T031/T035 道具交互编排 ---------- */
+  var wrenchMode = false; /* 扳手目标选择模式 */
+
+  function bindItemInput() {
+    var undo = global.document.getElementById('item-undo');
+    var wrench = global.document.getElementById('item-wrench');
+    var stage = global.document.getElementById('item-stage');
+    if (undo) {
+      undo.removeEventListener('pointerdown', onUndoDown);
+      undo.addEventListener('pointerdown', onUndoDown);
+    }
+    if (wrench) {
+      wrench.removeEventListener('pointerdown', onWrenchDown);
+      wrench.addEventListener('pointerdown', onWrenchDown);
+    }
+    if (stage) {
+      stage.removeEventListener('pointerdown', onStageDown);
+      stage.addEventListener('pointerdown', onStageDown);
+    }
+    /* T032/T035: 暂存区滑块点击 → 飞回 Dock（无自动回填的交互补偿） */
+    els.staging.removeEventListener('pointerdown', onStagingDown);
+    els.staging.addEventListener('pointerdown', onStagingDown);
+  }
+
+  function onUndoDown() {
+    if (!session) return;
+    var r = session.useItem('undo');
+    if (r) {
+      sound.play('undo');
+      renderer.refresh();
+      renderDock();
+      renderHud();
+      renderItems();
+      toast('已撤回一步');
+    }
+  }
+
+  function onWrenchDown() {
+    if (!session) return;
+    var s = session.state();
+    if (!s.items || s.items.wrench <= 0) return;
+    wrenchMode = !wrenchMode;
+    renderItems();
+    if (wrenchMode) toast('点选要转向的滑块');
+  }
+
+  function onStageDown() {
+    if (!session) return;
+    var s = session.state();
+    if (!s.items || s.items.stage <= 0) return;
+    if (s.staging && s.staging.length >= 3) { toast('暂存区已满'); return; }
+    var r = session.useItem('stage');
+    if (r && r.type === 'stage') {
+      sound.play('item');
+      renderDock();
+      renderItems();
+      renderer.refresh();
+      toast('移出至暂存区');
+    }
+  }
+
+  function onStagingDown(ev) {
+    if (!session) return;
+    var slot = ev.target.closest ? ev.target.closest('.slot.has-tile') : null;
+    if (!slot) return;
+    var id = parseInt(slot.getAttribute('data-staged'), 10);
+    if (isNaN(id)) return;
+    var r = session.tapStaged(id);
+    if (r && r.type !== 'invalid') {
+      sound.play('click');
+      renderer.refresh();
+      renderDock();
+      renderItems();
+    }
+  }
+
+  function exitWrenchMode() {
+    if (wrenchMode) {
+      wrenchMode = false;
+      renderItems();
+    }
   }
 
   /* ---------- session 事件 → 渲染/音效 ---------- */
@@ -272,7 +364,16 @@
       renderHud();
       return;
     }
-    /* 机制事件（M2: gear/unlock/ice/prism 等） */
+    /* 机制事件（M2 T034/T036: gear/unlock/iceBreak/prism/staged 动效 + 音效映射） */
+    if (e.e === 'gear') { sound.play('gear'); renderer.handleEvent(e); renderer.refresh(); return; }
+    if (e.e === 'unlock') { sound.play('unlock'); renderer.handleEvent(e); renderer.refresh(); return; }
+    if (e.e === 'iceBreak') { sound.play('iceBreak'); renderer.handleEvent(e); renderer.refresh(); return; }
+    if (e.e === 'prism') { sound.play('prism'); renderer.handleEvent(e); renderer.refresh(); return; }
+    if (e.e === 'staged' || e.e === 'staged-return') {
+      sound.play(e.e === 'staged' ? 'item' : 'flyout');
+      renderer.handleEvent(e); renderer.refresh(); renderDock(); renderItems(); renderHud(); return;
+    }
+    if (e.e === 'undo') { renderer.refresh(); renderDock(); renderHud(); renderItems(); return; }
     renderer.handleEvent(e);
     renderer.refresh();
   }
@@ -341,6 +442,21 @@
     if (!session || !renderer) return;
     var id = renderer.hitTest(ev.clientX, ev.clientY);
     if (id < 0) return;
+    /* T035 扳手目标选择模式: 点击即施加转向（不 tap） */
+    if (wrenchMode) {
+      var r = session.useItem('wrench', id);
+      if (r && r.type === 'wrench') {
+        sound.play('gear');
+        exitWrenchMode();
+        renderer.refresh();
+        renderHud();
+        renderItems();
+        toast('已顺时针转向');
+      } else if (r && r.type === 'invalid') {
+        toast('该滑块不可转向');
+      }
+      return;
+    }
     session.tap(id);
     /* 弹回动画后由事件流 refresh；这里兜底刷新一次 */
     setTimeout(function () { renderer.refresh(); }, 400);

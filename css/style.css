@@ -126,6 +126,17 @@ html, body {
 .btn-mute:hover { opacity: 1; }
 .btn-mute.muted { opacity: .4; }
 
+/* T035: 道具栏选择态（扳手目标选择模式） */
+#items button.selecting {
+  border-color: var(--gold, #F5B301);
+  box-shadow: 0 0 0 2px rgba(245, 179, 1, 0.35);
+  animation: item-select .8s ease-in-out infinite alternate;
+}
+@keyframes item-select {
+  from { box-shadow: 0 0 0 2px rgba(245, 179, 1, 0.2); }
+  to { box-shadow: 0 0 0 4px rgba(245, 179, 1, 0.5); }
+}
+
 /* ---------- 棋盘区（约 62%） ---------- */
 #board-wrap {
   flex: 1 1 62%;
