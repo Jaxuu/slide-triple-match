@@ -210,6 +210,62 @@ function assignSuits(groups, suitsN, rng, params) {
       cur = (cur + 1 + Math.floor(rng() * 2)) % suitsN; /* 跳 1~2 步滚动 */
     }
   }
+  /* 覆盖保证: 跳步滚动可能漏花色（distinct < suitsN 违反 FR-008 矩阵）
+   * 每缺失花色优先「多 run 花色的最短 run 整段改派」，否则「分裂最长的 ≥2 组 run」
+   * 任意段组数 ×3 ≡ 0 mod 3 → 两侧花色计数恒 %3；源花色保留 ≥1 组故仍在场。
+   * 群数 ≥ suitsN 时恒可修复（slack = groups - distinct ≥ 缺失数） */
+  var used = {};
+  var gi;
+  for (gi = 0; gi < assignment.length; gi++) used[assignment[gi]] = (used[assignment[gi]] || 0) + 1;
+  var missing = [];
+  var s;
+  for (s = 0; s < suitsN; s++) if (!used[s]) missing.push(s);
+  if (missing.length) {
+    /* run 边界重建（与生成循环同规则） */
+    var runs = [];
+    var start = 0;
+    for (gi = 0; gi < assignment.length; gi++) {
+      if (gi === assignment.length - 1 || assignment[gi + 1] !== assignment[gi]) {
+        runs.push({ suit: assignment[gi], from: start, to: gi });
+        start = gi + 1;
+      }
+    }
+    var mi = 0;
+    while (mi < missing.length) {
+      /* (a) 多 run 花色: 整段改派其最短 run */
+      var bySuit = {};
+      runs.forEach(function (r) { (bySuit[r.suit] = bySuit[r.suit] || []).push(r); });
+      var donor = null;
+      for (s = 0; s < suitsN && !donor; s++) {
+        var list = bySuit[s];
+        if (list && list.length >= 2) {
+          var shortest = list[0];
+          for (var bi = 1; bi < list.length; bi++) {
+            if (list[bi].to - list[bi].from < shortest.to - shortest.from) shortest = list[bi];
+          }
+          donor = shortest;
+        }
+      }
+      /* (b) 无多 run 花色: 分裂最长的 ≥2 组 run（保 1 组给源） */
+      if (!donor) {
+        for (var ri = 0; ri < runs.length; ri++) {
+          if (runs[ri].to - runs[ri].from >= 1) { donor = runs[ri]; break; }
+        }
+        if (donor) {
+          var splitAt = donor.from + 1; /* 源保留 1 组 */
+          runs.push({ suit: missing[mi], from: splitAt, to: donor.to });
+          donor.to = splitAt - 1;
+          for (gi = splitAt; gi <= runs[runs.length - 1].to; gi++) assignment[gi] = missing[mi];
+          mi++;
+          continue;
+        }
+        break; /* 群数 < suitsN（参数错误）→ 上层重试 */
+      }
+      for (gi = donor.from; gi <= donor.to; gi++) assignment[gi] = missing[mi];
+      donor.suit = missing[mi];
+      mi++;
+    }
+  }
   return assignment;
 }
 

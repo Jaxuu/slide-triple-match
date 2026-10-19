@@ -1107,12 +1107,12 @@
       name: "Level 14",
       n: 5,
       tiles: [
-        { r: 0, c: 0, s: 0, d: 0 },
-        { r: 0, c: 1, s: 0, d: 0 },
-        { r: 0, c: 2, s: 0, d: 0 },
-        { r: 0, c: 3, s: 0, d: 0, m: "i", x: 1 },
-        { r: 0, c: 4, s: 0, d: 0 },
-        { r: 1, c: 0, s: 0, d: 3 },
+        { r: 0, c: 0, s: 2, d: 0 },
+        { r: 0, c: 1, s: 2, d: 0 },
+        { r: 0, c: 2, s: 2, d: 0 },
+        { r: 0, c: 3, s: 2, d: 0, m: "i", x: 1 },
+        { r: 0, c: 4, s: 2, d: 0 },
+        { r: 1, c: 0, s: 2, d: 3 },
         { r: 1, c: 4, s: 1, d: 1 },
         { r: 2, c: 0, s: 1, d: 3 },
         { r: 2, c: 4, s: 1, d: 1 },
@@ -1153,7 +1153,7 @@
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 36, solutionCount: ">=10000", dockPeak: 6, mechCount: 2, difficultyScore: 32, openSuitsMax: 3 },
+      metrics: { minMoves: 36, solutionCount: ">=10000", dockPeak: 6, mechCount: 2, difficultyScore: 34, openSuitsMax: 3 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -1404,9 +1404,9 @@
         { r: 4, c: 0, s: 3, d: 3 },
         { r: 4, c: 5, s: 3, d: 1 },
         { r: 5, c: 0, s: 3, d: 2 },
-        { r: 5, c: 1, s: 0, d: 2 },
-        { r: 5, c: 2, s: 0, d: 2, m: "i", x: 2 },
-        { r: 5, c: 3, s: 0, d: 2 },
+        { r: 5, c: 1, s: 4, d: 2 },
+        { r: 5, c: 2, s: 4, d: 2, m: "i", x: 2 },
+        { r: 5, c: 3, s: 4, d: 2 },
         { r: 5, c: 4, s: 1, d: 2, m: "i", x: 1 },
         { r: 5, c: 5, s: 1, d: 3, m: "g" },
         { r: 1, c: 1, s: 1, d: 0 },
@@ -1438,7 +1438,7 @@
         chains: [],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 39, solutionCount: ">=10000", dockPeak: 4, mechCount: 2, difficultyScore: 30, openSuitsMax: 2 },
+      metrics: { minMoves: 39, solutionCount: ">=10000", dockPeak: 4, mechCount: 2, difficultyScore: 31, openSuitsMax: 2 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -2178,7 +2178,7 @@
         chains: [[3,[40]],[21,[37]],[10,[26]],[17,[32]],[33,[36]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 45, solutionCount: ">=10000", dockPeak: 6, mechCount: 3, difficultyScore: 47, openSuitsMax: 3 },
+      metrics: { minMoves: 45, solutionCount: ">=10000", dockPeak: 6, mechCount: 3, difficultyScore: 48, openSuitsMax: 3 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -2233,9 +2233,9 @@
       name: "Level 25",
       n: 6,
       tiles: [
-        { r: 0, c: 0, s: 0, d: 3 },
-        { r: 0, c: 1, s: 0, d: 0 },
-        { r: 0, c: 2, s: 0, d: 0 },
+        { r: 0, c: 0, s: 4, d: 3 },
+        { r: 0, c: 1, s: 4, d: 0 },
+        { r: 0, c: 2, s: 4, d: 0 },
         { r: 0, c: 3, s: 1, d: 0 },
         { r: 0, c: 4, s: 1, d: 0 },
         { r: 0, c: 5, s: 1, d: 0 },
@@ -2291,7 +2291,7 @@
         chains: [[15,[30]],[22,[36]],[25,[32]],[8,[31]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 48, solutionCount: ">=10000", dockPeak: 4, mechCount: 3, difficultyScore: 42, openSuitsMax: 2 },
+      metrics: { minMoves: 48, solutionCount: ">=10000", dockPeak: 4, mechCount: 3, difficultyScore: 44, openSuitsMax: 2 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -2526,7 +2526,7 @@
         chains: [[18,[45]],[14,[30]],[23,[38]],[11,[26]],[9,[37]],[47,[48]],[43,[49]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 51, solutionCount: 13, dockPeak: 6, mechCount: 3, difficultyScore: 58, openSuitsMax: 3 },
+      metrics: { minMoves: 51, solutionCount: 13, dockPeak: 6, mechCount: 3, difficultyScore: 59, openSuitsMax: 3 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -2648,7 +2648,7 @@
         chains: [[1,[33]],[44,[45]],[29,[30]],[5,[46]],[16,[48]],[9,[36]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 51, solutionCount: 63, dockPeak: 6, mechCount: 3, difficultyScore: 58, openSuitsMax: 3 },
+      metrics: { minMoves: 51, solutionCount: 63, dockPeak: 6, mechCount: 3, difficultyScore: 59, openSuitsMax: 3 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -2901,7 +2901,7 @@
         chains: [[5,[50]],[24,[51]],[27,[31]],[4,[29]],[7,[33]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 54, solutionCount: ">=10000", dockPeak: 6, mechCount: 3, difficultyScore: 51, openSuitsMax: 3 },
+      metrics: { minMoves: 54, solutionCount: ">=10000", dockPeak: 6, mechCount: 3, difficultyScore: 52, openSuitsMax: 3 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -3533,12 +3533,12 @@
       name: "Level 36",
       n: 7,
       tiles: [
-        { r: 0, c: 0, s: 0, d: 3 },
-        { r: 0, c: 1, s: 0, d: 0 },
-        { r: 0, c: 2, s: 0, d: 0 },
-        { r: 0, c: 3, s: 0, d: 0 },
-        { r: 0, c: 4, s: 0, d: 0 },
-        { r: 0, c: 5, s: 0, d: 0 },
+        { r: 0, c: 0, s: 4, d: 3 },
+        { r: 0, c: 1, s: 4, d: 0 },
+        { r: 0, c: 2, s: 4, d: 0 },
+        { r: 0, c: 3, s: 4, d: 0 },
+        { r: 0, c: 4, s: 4, d: 0 },
+        { r: 0, c: 5, s: 4, d: 0 },
         { r: 0, c: 6, s: 1, d: 0, m: "k" },
         { r: 1, c: 0, s: 1, d: 3 },
         { r: 1, c: 6, s: 1, d: 1 },
@@ -3594,7 +3594,7 @@
         chains: [[25,[31]],[6,[30]],[10,[29]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 51, solutionCount: ">=10000", dockPeak: 4, mechCount: 4, difficultyScore: 56, openSuitsMax: 2 },
+      metrics: { minMoves: 51, solutionCount: ">=10000", dockPeak: 4, mechCount: 4, difficultyScore: 58, openSuitsMax: 2 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -3828,9 +3828,9 @@
         { r: 5, c: 5, s: 6, d: 1, m: "g" },
         { r: 2, c: 2, s: 6, d: 3 },
         { r: 2, c: 3, s: 6, d: 0, z: 1 },
-        { r: 2, c: 3, s: 0, d: 0, m: "c" },
-        { r: 2, c: 4, s: 0, d: 1, m: "g" },
-        { r: 4, c: 2, s: 0, d: 2, z: 1, m: "i", x: 2 },
+        { r: 2, c: 3, s: 3, d: 0, m: "c" },
+        { r: 2, c: 4, s: 3, d: 1, m: "g" },
+        { r: 4, c: 2, s: 3, d: 2, z: 1, m: "i", x: 2 },
         { r: 4, c: 2, s: 2, d: 2, m: "i", x: 2 },
         { r: 4, c: 3, s: 2, d: 2, m: "i", x: 1 },
         { r: 4, c: 4, s: 2, d: 2, z: 1 },
@@ -3847,7 +3847,7 @@
         chains: [[3,[35]],[22,[29]],[30,[36]],[28,[39]],[20,[45]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 54, solutionCount: ">=10000", dockPeak: 6, mechCount: 4, difficultyScore: 61, openSuitsMax: 3 },
+      metrics: { minMoves: 54, solutionCount: ">=10000", dockPeak: 6, mechCount: 4, difficultyScore: 63, openSuitsMax: 3 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -4203,9 +4203,9 @@
         { r: 6, c: 4, s: 6, d: 2, m: "i", x: 2 },
         { r: 6, c: 5, s: 6, d: 2 },
         { r: 6, c: 6, s: 6, d: 3, m: "g" },
-        { r: 1, c: 1, s: 0, d: 3, m: "i", x: 1 },
-        { r: 1, c: 2, s: 0, d: 0 },
-        { r: 1, c: 3, s: 0, d: 0, z: 1 },
+        { r: 1, c: 1, s: 3, d: 3, m: "i", x: 1 },
+        { r: 1, c: 2, s: 3, d: 0 },
+        { r: 1, c: 3, s: 3, d: 0, z: 1 },
         { r: 1, c: 3, s: 1, d: 0 },
         { r: 1, c: 4, s: 1, d: 0, m: "i", x: 1 },
         { r: 1, c: 5, s: 1, d: 0 },
@@ -4224,9 +4224,9 @@
         { r: 5, c: 5, s: 6, d: 1, m: "g" },
         { r: 2, c: 2, s: 6, d: 0, m: "c" },
         { r: 2, c: 3, s: 6, d: 0, m: "c" },
-        { r: 2, c: 4, s: 0, d: 1, z: 1 },
-        { r: 2, c: 4, s: 0, d: 1, m: "i", x: 2 },
-        { r: 3, c: 2, s: 0, d: 3 },
+        { r: 2, c: 4, s: 5, d: 1, z: 1 },
+        { r: 2, c: 4, s: 5, d: 1, m: "i", x: 2 },
+        { r: 3, c: 2, s: 5, d: 3 },
         { r: 3, c: 4, s: 1, d: 1 },
         { r: 4, c: 2, s: 1, d: 2, z: 1 },
         { r: 4, c: 2, s: 1, d: 3, m: "i", x: 2 },
@@ -4243,7 +4243,7 @@
         chains: [[17,[43]],[33,[39]],[9,[44]],[12,[37]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 54, solutionCount: ">=10000", dockPeak: 4, mechCount: 4, difficultyScore: 55, openSuitsMax: 2 },
+      metrics: { minMoves: 54, solutionCount: ">=10000", dockPeak: 4, mechCount: 4, difficultyScore: 58, openSuitsMax: 2 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -4511,7 +4511,7 @@
         chains: [[41,[43]],[51,[54]],[34,[35]],[22,[48]],[5,[50]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 60, solutionCount: 1630, dockPeak: 7, mechCount: 4, difficultyScore: 73, openSuitsMax: 4 },
+      metrics: { minMoves: 60, solutionCount: 1630, dockPeak: 7, mechCount: 4, difficultyScore: 74, openSuitsMax: 4 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -4672,7 +4672,7 @@
         chains: [[51,[52]],[37,[74]],[13,[65]],[67,[73]],[53,[57]],[2,[55]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 81, solutionCount: ">=10000", dockPeak: 7, mechCount: 4, difficultyScore: 74, openSuitsMax: 4 },
+      metrics: { minMoves: 81, solutionCount: ">=10000", dockPeak: 7, mechCount: 4, difficultyScore: 75, openSuitsMax: 4 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -4769,15 +4769,15 @@
         { r: 0, c: 3, s: 0, d: 0 },
         { r: 0, c: 4, s: 0, d: 0 },
         { r: 0, c: 5, s: 0, d: 0 },
-        { r: 0, c: 6, s: 2, d: 0 },
-        { r: 1, c: 0, s: 2, d: 3 },
-        { r: 1, c: 6, s: 2, d: 1, m: "k" },
-        { r: 2, c: 0, s: 2, d: 3, m: "i", x: 2 },
-        { r: 2, c: 6, s: 2, d: 1 },
-        { r: 3, c: 0, s: 2, d: 3, m: "k" },
-        { r: 3, c: 6, s: 2, d: 1 },
-        { r: 4, c: 0, s: 2, d: 3 },
-        { r: 4, c: 6, s: 2, d: 1, m: "k" },
+        { r: 0, c: 6, s: 3, d: 0 },
+        { r: 1, c: 0, s: 3, d: 3 },
+        { r: 1, c: 6, s: 3, d: 1, m: "k" },
+        { r: 2, c: 0, s: 3, d: 3, m: "i", x: 2 },
+        { r: 2, c: 6, s: 3, d: 1 },
+        { r: 3, c: 0, s: 3, d: 3, m: "k" },
+        { r: 3, c: 6, s: 3, d: 1 },
+        { r: 4, c: 0, s: 3, d: 3 },
+        { r: 4, c: 6, s: 3, d: 1, m: "k" },
         { r: 5, c: 0, s: 4, d: 3 },
         { r: 5, c: 6, s: 4, d: 1, m: "i", x: 1 },
         { r: 6, c: 0, s: 4, d: 2 },
@@ -4827,7 +4827,7 @@
         chains: [[14,[46]],[25,[50]],[32,[40]],[11,[29]],[8,[34]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 54, solutionCount: ">=10000", dockPeak: 2, mechCount: 4, difficultyScore: 52, openSuitsMax: 1 },
+      metrics: { minMoves: 54, solutionCount: ">=10000", dockPeak: 2, mechCount: 4, difficultyScore: 54, openSuitsMax: 1 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -4971,7 +4971,7 @@
         chains: [[11,[59]],[4,[51]],[29,[62]],[38,[46]],[24,[65]],[52,[67]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 69, solutionCount: ">=10000", dockPeak: 4, mechCount: 4, difficultyScore: 63, openSuitsMax: 2 },
+      metrics: { minMoves: 69, solutionCount: ">=10000", dockPeak: 4, mechCount: 4, difficultyScore: 64, openSuitsMax: 2 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -5074,9 +5074,9 @@
         { r: 7, c: 1, s: 6, d: 2 },
         { r: 7, c: 2, s: 6, d: 2 },
         { r: 7, c: 3, s: 6, d: 2, m: "i", x: 1 },
-        { r: 7, c: 4, s: 0, d: 2, m: "k" },
-        { r: 7, c: 5, s: 0, d: 2, m: "k" },
-        { r: 7, c: 6, s: 0, d: 2 },
+        { r: 7, c: 4, s: 7, d: 2, m: "k" },
+        { r: 7, c: 5, s: 7, d: 2, m: "k" },
+        { r: 7, c: 6, s: 7, d: 2 },
         { r: 7, c: 7, s: 2, d: 0, m: "g" },
         { r: 1, c: 1, s: 2, d: 3 },
         { r: 1, c: 3, s: 2, d: 0 },
@@ -5132,7 +5132,7 @@
         chains: [[24,[43]],[47,[59]],[34,[56]],[3,[49]],[48,[54]],[25,[66]],[19,[40]],[5,[57]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 72, solutionCount: ">=10000", dockPeak: 4, mechCount: 4, difficultyScore: 63, openSuitsMax: 2 },
+      metrics: { minMoves: 72, solutionCount: ">=10000", dockPeak: 4, mechCount: 4, difficultyScore: 65, openSuitsMax: 2 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -5475,7 +5475,7 @@
         chains: [[24,[49]],[3,[77]],[42,[78]],[35,[64]],[25,[54]],[46,[59]],[16,[79]],[22,[56]],[14,[52]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 81, solutionCount: ">=10000", dockPeak: 4, mechCount: 4, difficultyScore: 67, openSuitsMax: 2 },
+      metrics: { minMoves: 81, solutionCount: ">=10000", dockPeak: 4, mechCount: 4, difficultyScore: 68, openSuitsMax: 2 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },
@@ -5608,12 +5608,12 @@
         { r: 5, c: 4, s: 7, d: 2 },
         { r: 5, c: 5, s: 7, d: 2, m: "g" },
         { r: 2, c: 2, s: 7, d: 0, z: 1 },
-        { r: 2, c: 2, s: 0, d: 3, m: "i", x: 2 },
-        { r: 2, c: 3, s: 0, d: 0, m: "c" },
-        { r: 2, c: 4, s: 0, d: 1, z: 1, m: "i", x: 2 },
-        { r: 2, c: 4, s: 0, d: 0 },
-        { r: 3, c: 2, s: 0, d: 3 },
-        { r: 3, c: 4, s: 0, d: 1 },
+        { r: 2, c: 2, s: 5, d: 3, m: "i", x: 2 },
+        { r: 2, c: 3, s: 5, d: 0, m: "c" },
+        { r: 2, c: 4, s: 5, d: 1, z: 1, m: "i", x: 2 },
+        { r: 2, c: 4, s: 5, d: 0 },
+        { r: 3, c: 2, s: 5, d: 3 },
+        { r: 3, c: 4, s: 5, d: 1 },
         { r: 4, c: 2, s: 1, d: 3, z: 1, m: "c" },
         { r: 4, c: 2, s: 1, d: 0, m: "g" },
         { r: 4, c: 4, s: 1, d: 2, z: 1, m: "c" },
@@ -5630,7 +5630,7 @@
         chains: [[11,[34]],[8,[48]],[3,[43]],[10,[50]]],
         scoring: { comboBase: 10, comboStep: 5 }
       },
-      metrics: { minMoves: 54, solutionCount: ">=10000", dockPeak: 4, mechCount: 4, difficultyScore: 58, openSuitsMax: 2 },
+      metrics: { minMoves: 54, solutionCount: ">=10000", dockPeak: 4, mechCount: 4, difficultyScore: 60, openSuitsMax: 2 },
       solutionMoves: [
         { k: 0, t: 0 },
         { k: 0, t: 1 },

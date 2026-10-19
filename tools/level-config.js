@@ -110,7 +110,7 @@ var CHAPTERS = [
  * mechCount 为唯一未归一项（原始 0~4）——1.0 时其在第 5 章（全关 mech=4）
  * 的常量抬升不再压缩 spike/valley 相对振幅，锯齿门（1.10/0.90）按设计区分度成立 */
 var SCORE_WEIGHTS = {
-  minMoves: 1.0,
+  minMoves: 1.1,
   solutionCount: 0.8,
   dockPeak: 1.2,
   mechCount: 1.0,
