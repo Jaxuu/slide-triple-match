@@ -427,6 +427,33 @@
     var lastProbe = null;
     var tileInfo = {};     /* M1.6: id → {s,d,z,stackDepth} 视觉缓存（滑块移除后动画仍可绘制） */
     var revealAt = {};     /* Δ7: tileId → 上浮起始时刻（含延迟） */
+    var bgCanvas = null;   /* Δ14: 生态背景缓存层（cycleIndex/尺寸变化才重绘——60fps 预算） */
+    var bgCycle = -1;      /* 当前背景 cycleIndex（-1 = 未绘制） */
+    var bgDim = 0;         /* 当前背景缓存尺寸 */
+
+    /* Δ14/T052d: 生态背景绘制（缓存 offscreen——滑块层每帧仅 drawImage） */
+    function drawEcoBackdrop() {
+      var bd = STM.Backdrops;
+      if (!bd) { ctx.fillStyle = BG; ctx.fillRect(0, 0, boardPx, boardPx); return; }
+      var ci = bd.cycleIndexOf(pendingLevel ? pendingLevel.id : currentLevelId);
+      if (!bgCanvas || bgCycle !== ci || bgDim !== boardPx) {
+        bgCycle = ci; bgDim = boardPx;
+        if (typeof document !== 'undefined') {
+          bgCanvas = document.createElement('canvas');
+          bgCanvas.width = boardPx; bgCanvas.height = boardPx;
+          var bctx = bgCanvas.getContext('2d');
+          try { bd.drawBackdrop(bctx, (pendingLevel ? pendingLevel.id : currentLevelId) || 1, boardPx, boardPx); } catch (err) { /* 兜底 */ }
+        } else {
+          bgCanvas = null;
+        }
+      }
+      if (bgCanvas) {
+        ctx.drawImage(bgCanvas, 0, 0);
+      } else {
+        /* Node 无 DOM: 直接绘制到主 ctx（自测路径） */
+        try { bd.drawBackdrop(ctx, (pendingLevel ? pendingLevel.id : currentLevelId) || 1, boardPx, boardPx); } catch (err) { /* 兜底 */ }
+      }
+    }
 
     function nowMs() {
       return global.performance ? global.performance.now() : Date.now();
@@ -535,12 +562,19 @@
       var now = nowMs();
       var n = lastProbe.n;
 
-      /* 背景板 */
-      ctx.fillStyle = BG;
+      /* Δ14/T052d: 生态背景层（cycleIndex 绑定当前关 id——低频重绘） */
+      drawEcoBackdrop();
+
+      /* Δ14: 毛玻璃暗角蒙版（半透明暖白透底——滑块/角标对比度红线） */
+      var veil = ctx.createRadialGradient(boardPx / 2, boardPx / 2, boardPx * 0.22, boardPx / 2, boardPx / 2, boardPx * 0.74);
+      veil.addColorStop(0, 'rgba(240,244,248,0.20)');
+      veil.addColorStop(0.62, 'rgba(228,234,240,0.34)');
+      veil.addColorStop(1, 'rgba(205,214,224,0.55)');
+      ctx.fillStyle = veil;
       ctx.fillRect(0, 0, boardPx, boardPx);
 
-      /* 点阵格线（避免与牌块横竖线冲突） */
-      ctx.fillStyle = GRID_LINE;
+      /* 点阵格线（深色系在浅蒙版上保持可辨） */
+      ctx.fillStyle = 'rgba(120,135,155,0.4)';
       var dotR = Math.max(1, cell * 0.035);
       for (var gr = 0; gr < n; gr++) {
         for (var gc = 0; gc < n; gc++) {
@@ -864,10 +898,11 @@
     }
 
     /* Δ14: 关卡上下文注册（main.js loadLevel 时调用——花色映射/背景随 id 切换） */
-    var pendingLevel = null;
+    var pendingLevel = null; /* 工厂作用域 var 提升——drawEcoBackdrop/refresh 均可读 */
     function setLevel(level) {
       pendingLevel = level;
       setSuitLevel(level);
+      bgCycle = -1; /* 换关强制背景重绘（跳关/Undo 均以当前 id 实时计算） */
       markDirty();
     }
 

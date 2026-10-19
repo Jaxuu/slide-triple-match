@@ -21,6 +21,7 @@ globalThis.STM = globalThis.STM || {};
 globalThis.STM.RulesEngine = RE; /* BoardRenderer/GameState 装载时读 STM.RulesEngine */
 require('../src/core/GameState.js');
 require('../src/render/bestiary.js'); /* Δ14: BoardRenderer 之前（装载序 D-01） */
+require('../src/render/backdrops.js'); /* Δ14/T052d: 生态背景池（BoardRenderer 消费） */
 require('../src/render/BoardRenderer.js');
 var STM = globalThis.STM;
 var LEVELS = require('../src/data/levels.js'); /* T052c: 60 关映射断言只读消费 */
