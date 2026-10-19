@@ -23,7 +23,11 @@
 ## 双分支管理与里程碑合并规范 (Branching & Milestone Merge)
 - **日常开发分支**：所有子任务与功能逻辑组的日常 commit 与 push 均在特性分支 `001-slide-triple-match-core` 上进行。
 - **主干合并时机（Milestone Gate Merge）**：每当完成一个完整里程碑的 Checkpoint 验收门（即完成 T022、T039、T052、T063 时），在特性分支 push 成功后，必须依次执行以下命令将稳定成果同步合并至 `main` 主干分支，随后切回特性分支继续开发：
-  1. `git checkout main`
-  2. `git merge 001-slide-triple-match-core --no-ff -m "chore(release): merge milestone checkpoint into main"`
-  3. `git push origin main`
-  4. `git checkout 001-slide-triple-match-core`
+1. `git checkout main`
+2. `git merge 001-slide-triple-match-core --no-ff -m "chore(release): merge milestone checkpointinto main"`
+3. `git push origin main`
+4. `git checkout 001-slide-triple-match-core`
+
+## 防 Token 超限与文件写入规范 (Anti-Truncation Rules)
+1. **严禁使用 Bash 重定向写代码**：禁止使用 `cat >>`、`echo` 或 PowerShell `Set-Content` 在 Bash 工具中拼接源码文件，必须始终使用原生 `Write` 或 `Edit` 工具。
+2. **控制单次输出体量**：编写超过 250 行的模块（如渲染器或生成器）时，先用 `Write` 写入核心骨架与基础函数，再分 2~3 次使用 `Edit` 增量补充子函数，每次工具调用输出代码控制在 150 行以内，防止触发 API max_tokens 截断。

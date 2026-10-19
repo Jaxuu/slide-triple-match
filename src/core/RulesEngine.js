@@ -9,6 +9,17 @@
  * 棱镜反射全枚举映射（8 条，rules-engine.md §0）:
  *   '/': U→R, R→U, D→L, L→D
  *   '\': U→L, L→U, D→R, R→D
+ *
+ * M1.5 Δ7 多层堆叠棋盘（Multi-Layer Stack）:
+ *   TileSpec 可选字段 z: 0|1|2（0 最底层，数字大者位于当前格最顶层）
+ *   board[r][c] = 栈数组（底→顶）；仅栈顶滑块可点击/受齿轮作用/触发飞出；顶层飞出后次顶层立即暴露（reveal 事件）
+ *
+ * M1.7 Δ8 分层立体阻挡（Layer-Aware Raycasting）:
+ *   射线阻挡按层高 z 分层计算——高层滑块从低层滑块头顶凌空飞越！
+ *   飞行滑块层高 z_self，前方格 (nr,nc) 栈顶层高 z_target:
+ *     · z_target < z_self（含空格）→ 不阻挡，凌空飞越
+ *     · z_target >= z_self（同层/高层）→ 有效阻挡
+ *     · 棱镜 = 全层高柱体（任意层高射线均视为阻挡/折射）
  * ========================================================= */
 (function (global, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -74,15 +85,26 @@
       board[p.r][p.c] = { prism: true, t: p.t };
     }
 
-    /* tiles 深拷贝 + id = TileSpec 索引 */
+    /* tiles 深拷贝 + id = TileSpec 索引（id 序保持 TileSpec 序——D-08 确定性）
+     * M1.5 Δ7 多层堆叠: 同格滑块按 z 升序入栈，board[r][c] = 栈数组（底→顶） */
     var tiles = [];
+    var stacks = {};
     for (var j = 0; j < level.tiles.length; j++) {
       var t = deepClone(level.tiles[j]);
       t.id = j;
+      t.z = t.z || 0;
       if (t.m === MECH.ICE) t.ice = (t.x != null ? t.x : 1);
       if (t.m === MECH.CHAIN) t.locked = true;
-      board[t.r][t.c] = t;
       tiles.push(t);
+      var key = t.r + ':' + t.c;
+      if (!stacks[key]) stacks[key] = [];
+      stacks[key].push(t);
+    }
+    for (var sk in stacks) {
+      var cell = stacks[sk];
+      if (cell.length > 1) cell.sort(function (a, b) { return a.z - b.z; });
+      var pos = sk.split(':');
+      board[parseInt(pos[0], 10)][parseInt(pos[1], 10)] = cell;
     }
 
     return {
@@ -96,18 +118,28 @@
       score: 0,
       combo: 0,
       items: deepClone(cfg.items),
-      actions: []            /* 动作序列（onRail 基准） */
+      actions: [],           /* 动作序列（onRail 基准） */
+      chainConsumed: []      /* 已消费 chains 配对（Undo/Solver 回溯逆放恢复） */
     };
   }
 
-  /* T008: canTap 谓词——射线畅通性不属于 canTap（受阻滑块仍可点击，点击后弹回） */
+  /* T008: canTap 谓词——射线畅通性不属于 canTap（受阻滑块仍可点击，点击后弹回）
+   * M1.5 Δ7: 仅当前格栈顶滑块可点击（下层滑块被顶层压住，不可交互） */
   function canTap(state, tileId) {
     var t = state.tiles[tileId];
     if (!t || t.removed) return false;
     if (t.inStaging) return true;             /* 暂存滑块恒可 tap（Δ3 自由牌） */
     if (t.ice > 0) return false;              /* 冰封不可点（FR-015，M1 关卡无此标记） */
     if (t.locked) return false;               /* 锁链不可点（FR-018，M1 关卡无此标记） */
+    if (!isTopOfStack(state, t)) return false;
     return true;
+  }
+
+  /* M1.5 Δ7: 栈顶判定——board[r][c] 栈数组末位即当前顶层滑块 */
+  function isTopOfStack(state, t) {
+    var cell = state.board[t.r][t.c];
+    if (!cell || !cell.length) return false;
+    return cell[cell.length - 1] === t;
   }
 
   /* T008: enumerateTaps 枚举可行 tap 目标 id（id 序 = 行优先列优先——D-08 确定性） */
@@ -120,9 +152,11 @@
   }
 
   /* T009: 射线行走——从 (r,c) 沿 d 逐格行走到边缘，返回首个被占格信息
+   * Δ8 分层立体阻挡: 飞行滑块层高 z，前方格栈顶滑块层高 < z → 凌空飞越不阻挡；
+   * 栈顶层高 >= z（同层/高层）或棱镜（全层高柱体）→ 阻挡
    * 返回 { free: true, exit: {r,c} }（exit=越界前的最后格）或
-   *      { free: false, blocker: {r,c}, cell }（cell = 占格内容：滑块或棱镜） */
-  function castRay(state, r, c, d) {
+   *      { free: false, blocker: {r,c}, cell }（cell = 占格内容：滑块栈或棱镜） */
+  function castRay(state, r, c, d, z) {
     var v = DIR_VEC[d];
     var rr = r, cc = c;
     var lastR = r, lastC = c;
@@ -132,13 +166,20 @@
         return { free: true, exit: { r: lastR, c: lastC } };
       }
       var cell = state.board[rr][cc];
-      if (cell) return { free: false, blocker: { r: rr, c: cc }, cell: cell };
+      if (cell) {
+        if (cell.prism) return { free: false, blocker: { r: rr, c: cc }, cell: cell };
+        /* Δ8: 栈顶滑块层高低于飞行层 → 凌空飞越（继续行进） */
+        var top = cell[cell.length - 1];
+        if ((top.z || 0) < z) { lastR = rr; lastC = cc; continue; }
+        return { free: false, blocker: { r: rr, c: cc }, cell: cell };
+      }
       lastR = rr; lastC = cc;
     }
   }
 
-  /* 构造飞行路径（渲染动画用）：从 (r,c) 沿 d 至出口（含越界一步起点） */
-  function buildPath(state, r, c, d) {
+  /* 构造飞行路径（渲染动画用）：从 (r,c) 沿 d 至出口（含越界一步起点）
+   * Δ8: 与 castRay 同步层高感知——低层格照常入 path（视觉凌空飞越低层牌顶） */
+  function buildPath(state, r, c, d, z) {
     var v = DIR_VEC[d];
     var path = [{ r: r, c: c }];
     var rr = r, cc = c;
@@ -146,7 +187,13 @@
       rr += v.dr; cc += v.dc;
       path.push({ r: rr, c: cc });
       if (rr < 0 || rr >= state.n || cc < 0 || cc >= state.n) return path;
-      if (state.board[rr][cc]) return path;
+      var cell = state.board[rr][cc];
+      if (cell) {
+        if (cell.prism) return path;
+        var top = cell[cell.length - 1];
+        if ((top.z || 0) < z) continue; /* 凌空飞越——不终止路径 */
+        return path;
+      }
     }
   }
 
@@ -191,7 +238,17 @@
       state.score += gain * ids.length / 1; /* 每组三消按连击加成计分（GameState 记账口径） */
       events.push({ e: 'match', suit: matched, ids: ids.slice(), combo: state.combo, gain: gain });
       events.push({ e: 'remove', ids: ids.slice() });
-      /* M1 无破冰联动（M2 T024 按 cfg.iceMode 扩展） */
+      /* T024 'triple' 破冰口径（主口径）: 每次三消全场所有 ice>0 各减 1、归 0 清冰封标记 */
+      if (state.cfg.iceMode !== 'adjacent') {
+        for (var ii = 0; ii < state.tiles.length; ii++) {
+          var iced = state.tiles[ii];
+          if (iced.removed || iced.inStaging || !(iced.ice > 0)) continue;
+          var ffrom = iced.ice;
+          iced.ice -= 1;
+          if (iced.ice <= 0) { iced.ice = 0; iced.m = null; }
+          events.push({ e: 'ice', id: iced.id, from: ffrom, to: iced.ice });
+        }
+      }
     }
     return events;
   }
@@ -214,15 +271,15 @@
 
     state.actions.push({ k: 0, t: tileId });
 
-    /* Step 1: 射线行走 */
-    var ray = castRay(state, t.r, t.c, t.d);
+    /* Step 1: 射线行走（Δ8 层高感知） */
+    var ray = castRay(state, t.r, t.c, t.d, t.z || 0);
 
     /* Step 2: Blocked 分支 */
     if (!ray.free && !(ray.cell && ray.cell.prism)) {
       var damage = state.cfg.damageOnBlock ? 1 : 0;
       if (damage) state.lives -= 1; /* 生命扣减写回 EngineState（rules-engine.md §7.3 契约） */
-      var path = buildPath(state, t.r, t.c, t.d);
-      path.pop(); /* 去掉越界步（被阻挡时不到达越界格）——保留到阻挡格前一格 */
+      var path = buildPath(state, t.r, t.c, t.d, t.z || 0);
+      path.pop(); /* 去掉越界步（被阻挡时不到达越界格）——保留到阻挡格前一格（含凌空飞越格） */
       return {
         type: 'blocked',
         tileId: tileId,
@@ -239,8 +296,11 @@
     }
 
     /* Step 4: Fly-out（无阻挡直达边缘） */
-    var flyPath = buildPath(state, t.r, t.c, t.d);
-    removeFromBoard(state, t);
+    var flyPath = buildPath(state, t.r, t.c, t.d, t.z || 0);
+    var revealed = removeFromBoard(state, t);
+    if (revealed) events.push({ e: 'reveal', id: revealed.id, r: revealed.r, c: revealed.c, z: revealed.z });
+    /* T027 级联管线（顺序固定）: 4a 齿轮 → 4b 钥匙解锁 → adjacent 破冰 → 4c 入槽 → 4d 三消 */
+    cascadeOnFlyout(state, t, events);
     var slotIndex = dockInsert(state.dock, t);
     events.push({ e: 'dock', id: tileId, slotIndex: slotIndex });
 
@@ -255,8 +315,66 @@
     };
   }
 
-  /* T026 占位实现（M1 关卡无棱镜；结构就绪）——折射分支 */
+  /* =========================================================
+   * T023~T027 级联管线（单一事实源，顺序固定——Edge Case 原子级联）
+   * 4a 齿轮: 十字相邻滑块 t 成功飞出 → 每个齿轮滑块 g（与 t 十字相邻）d=(d+1)%4
+   *          Δ8 层高对齐: 触发对象恒为相邻格**当前栈顶**齿轮滑块
+   * 4b 钥匙: t 为钥匙 → chains 或语义解锁（任一配对钥集全飞出 → 该锁解锁）
+   * 4c adjacent 破冰（变体口径在入槽前结算: 仅与 t 十字相邻的冰封滑块 ice--）
+   * （'triple' 主口径破冰在 settleMatches 内按三消结算触发）
+   * ========================================================= */
+  function cascadeOnFlyout(state, t, events) {
+    /* 4a 齿轮联动（Δ8: 相邻格当前栈顶齿轮滑块） */
+    for (var i = 0; i < state.tiles.length; i++) {
+      var g = state.tiles[i];
+      if (g.removed || g.inStaging || g.m !== MECH.GEAR) continue;
+      if (g.r < t.r - 1 || g.r > t.r + 1 || g.c < t.c - 1 || g.c > t.c + 1) continue;
+      if (Math.abs(g.r - t.r) + Math.abs(g.c - t.c) !== 1) continue; /* 十字相邻（对角不触发） */
+      var from = g.d;
+      g.d = (g.d + 1) % 4;
+      events.push({ e: 'gear', id: g.id, from: from, to: g.d });
+    }
+
+    /* 4b 钥匙解锁（chains: [[keyId,[lockId,...]],...] 或语义——一锁配多钥、一钥多锁）
+     * 解锁后配对出队记入 state.chainConsumed（Undo/Solver 回溯逆放恢复） */
+    if (t.m === MECH.KEY && Array.isArray(state.cfg.chains) && state.cfg.chains.length) {
+      for (var ci = 0; ci < state.cfg.chains.length; ci++) {
+        var pair = state.cfg.chains[ci];
+        if (!Array.isArray(pair) || pair.length !== 2) continue;
+        if (pair[0] !== t.id || !Array.isArray(pair[1])) continue;
+        /* pair[1] = [lockId,...]——本钥即该锁唯一钥 → 直接解锁 */
+        for (var li = 0; li < pair[1].length; li++) {
+          var lockId = pair[1][li];
+          var lock = state.tiles[lockId];
+          if (!lock || lock.removed || !lock.locked) continue;
+          lock.locked = false;
+          events.push({ e: 'unlock', id: lockId, by: t.id });
+        }
+        if (!state.chainConsumed) state.chainConsumed = [];
+        state.chainConsumed.push({ at: state.actions.length, idx: ci, pair: pair });
+        state.cfg.chains.splice(ci, 1); /* 已消费配对（防止重复解锁; Undo 按原位回插） */
+        ci--;
+      }
+    }
+
+    /* 4c adjacent 破冰（变体口径: 与 t 十字相邻的冰封滑块 ice--） */
+    if (state.cfg.iceMode === 'adjacent') {
+      for (var ai = 0; ai < state.tiles.length; ai++) {
+        var it = state.tiles[ai];
+        if (it.removed || it.inStaging || !(it.ice > 0)) continue;
+        if (Math.abs(it.r - t.r) + Math.abs(it.c - t.c) !== 1) continue;
+        var ifrom = it.ice;
+        it.ice -= 1;
+        if (it.ice <= 0) { it.ice = 0; it.m = null; }
+        events.push({ e: 'ice', id: it.id, from: ifrom, to: it.ice });
+      }
+    }
+  }
+
+  /* T026 占位实现（M1 关卡无棱镜；结构就绪）——折射分支
+   * Δ8: 折射后续走与出口计算均层高感知（棱镜本身=全层高柱体恒阻挡） */
   function tapPrism(state, t, ray, events) {
+    var zSelf = t.z || 0;
     /* 新方向 = 反射表[prism.t][dir]；从棱镜格沿新方向续走 */
     var nd = REFLECT[ray.cell.t][t.d];
     var v = DIR_VEC[nd];
@@ -267,7 +385,14 @@
       rr += v.dr; cc += v.dc;
       if (rr < 0 || rr >= state.n || cc < 0 || cc >= state.n) break;
       var cell = state.board[rr][cc];
-      if (cell) { blocked = { r: rr, c: cc }; break; }
+      if (cell) {
+        if (!cell.prism) {
+          var top = cell[cell.length - 1];
+          if ((top.z || 0) < zSelf) { lastR = rr; lastC = cc; continue; } /* Δ8 凌空飞越 */
+        }
+        blocked = { r: rr, c: cc };
+        break;
+      }
       lastR = rr; lastC = cc;
     }
 
@@ -275,16 +400,17 @@
       /* 3b: 折射后受阻 → 弹回原位（单次折射上限，FR-022） */
       var damage = state.cfg.damageOnBlock ? 1 : 0;
       if (damage) state.lives -= 1;
-      var path = buildPath(state, t.r, t.c, t.d);
-      path.push({ r: ray.blocker.r, c: ray.blocker.c }); /* 折射折点 */
+      var path = buildPath(state, t.r, t.c, t.d, zSelf);
+      path.push({ r: ray.blocker.r, c: ray.blocker.c }); /* 折射折点（棱镜格） */
+      /* 棱镜格 → 受阻格前一行走（lastR/lastC 已算就——直接补 path 剩余段） */
       var v2 = DIR_VEC[nd];
-      var backR = lastR, backC = lastC;
-      /* 新射线行至阻挡前一格 */
-      var pr = ray.blocker.r - v2.dr, pc = ray.blocker.c - v2.dc;
-      var cur = { r: ray.blocker.r, c: ray.blocker.c };
-      while (!(cur.r === pr && cur.c === pc)) {
-        cur.r += v2.dr; cur.c += v2.dc;
-        path.push({ r: cur.r, c: cur.c });
+      var cr = ray.blocker.r, cc2 = ray.blocker.c;
+      /* 从棱镜格沿 nd 行至 lastR/lastC（受阻前一格——buildPath 未覆盖的折射段） */
+      for (;;) {
+        cr += v2.dr; cc2 += v2.dc;
+        path.push({ r: cr, c: cc2 });
+        if (cr === lastR && cc2 === lastC) break;
+        if (cr < 0 || cr >= state.n || cc2 < 0 || cc2 >= state.n) break; /* 越界保护 */
       }
       return {
         type: 'blocked',
@@ -297,16 +423,24 @@
     }
 
     /* 3a: 新射线畅通 → prism-flyout（path 含折射折点） */
-    var flyPath = buildPath(state, t.r, t.c, t.d);
+    var flyPath = buildPath(state, t.r, t.c, t.d, zSelf);
     flyPath.push({ r: ray.blocker.r, c: ray.blocker.c }); /* 折点（棱镜格） */
-    /* 棱镜格起沿新方向到越界 */
+    /* 棱镜格起沿新方向到越界（Δ8 层高感知——低层格照常飞越入 path） */
     var fr = ray.blocker.r, fc = ray.blocker.c;
     for (;;) {
       fr += v.dr; fc += v.dc;
+      if (fr < 0 || fr >= state.n || fc < 0 || fc >= state.n) { flyPath.push({ r: fr, c: fc }); break; }
+      var fcell = state.board[fr][fc];
+      if (fcell && !fcell.prism) {
+        var ftop = fcell[fcell.length - 1];
+        if ((ftop.z || 0) < zSelf) { flyPath.push({ r: fr, c: fc }); continue; }
+      }
       flyPath.push({ r: fr, c: fc });
-      if (fr < 0 || fr >= state.n || fc < 0 || fc >= state.n) break;
+      if (fcell) break;
     }
     removeFromBoard(state, t);
+    /* T027: prism-flyout 同走级联管线（齿轮/钥匙/adjacent 破冰） */
+    cascadeOnFlyout(state, t, events);
     var slotIndex = dockInsert(state.dock, t);
     events.push({ e: 'dock', id: t.id, slotIndex: slotIndex });
     settleMatches(state, events);
@@ -318,12 +452,23 @@
     };
   }
 
+  /* M1.5 Δ7: 弹栈移除——飞出后暴露次顶层（返回新顶层滑块或 null）
+   * 栈弹空 → 格置 null（后续射线不再被该格阻挡） */
   function removeFromBoard(state, t) {
-    state.board[t.r][t.c] = null;
+    var cell = state.board[t.r][t.c];
+    if (cell && cell.length) {
+      for (var i = 0; i < cell.length; i++) {
+        if (cell[i] === t) { cell.splice(i, 1); break; }
+      }
+      if (cell.length === 0) state.board[t.r][t.c] = null;
+      t.removed = true;
+      return cell.length > 0 ? cell[cell.length - 1] : null;
+    }
     t.removed = true;
+    return null;
   }
 
-  /* Δ3 暂存回填（M2 T030 完整实现；结构就绪） */
+  /* Δ3 暂存回填（M2 T030 完整实现）: staging 滑块 → dock 尾（无射线判定，自由牌） */
   function applyStageReturn(state, tileId, events) {
     var t = state.tiles[tileId];
     var idx = -1;
@@ -339,6 +484,42 @@
     events.push({ e: 'dock', id: tileId, slotIndex: state.dock.length - 1 });
     settleMatches(state, events);
     return { type: 'staged-return', tileId: tileId, path: [], events: events };
+  }
+
+  /* T030 道具引擎语义（Δ3/FR-024/026）:
+   * wrench: 目标滑块 (d+1)%4——仅普通与齿轮滑块可用（冰封/锁链 invalid，FR-024-2）
+   * stage:  dock 前 k 个滑块（k=min(3, staging 余量)）移入 staging（FR-026 满即 invalid、无自动回填） */
+  function applyItem(state, item, tileId) {
+    if (item === 'wrench') {
+      var t = state.tiles[tileId];
+      if (!t || t.removed || t.inStaging) return { type: 'invalid', item: item, events: [] };
+      if (t.ice > 0 || t.locked) return { type: 'invalid', item: item, events: [] }; /* FR-024-2 */
+      var from = t.d;
+      t.d = (t.d + 1) % 4;
+      state.actions.push({ k: 2, t: tileId });
+      return { type: 'wrench', tileId: tileId, from: from, to: t.d, events: [{ e: 'gear', id: tileId, from: from, to: t.d }] };
+    }
+    if (item === 'stage') {
+      if (state.staging.length >= STAGING_CAP) return { type: 'invalid', item: item, events: [] }; /* FR-026 */
+      var k = Math.min(3, STAGING_CAP - state.staging.length);
+      var moved = [];
+      for (var i = 0; i < k && state.dock.length > 0; i++) {
+        var d0 = state.dock.shift();
+        d0.inStaging = true;
+        d0.removed = false;
+        state.staging.push(d0);
+        moved.push(d0.id);
+      }
+      if (!moved.length) return { type: 'invalid', item: item, events: [] };
+      state.actions.push({ k: 2, t: -1 });
+      return { type: 'stage', movedIds: moved, events: [{ e: 'staged', ids: moved }] };
+    }
+    return { type: 'invalid', item: item, events: [] };
+  }
+
+  /* T030 stageTile: staging 滑块点击飞入 dock 尾（k=1 动作） */
+  function stageTile(state, tileId) {
+    return applyStageReturn(state, tileId, []);
   }
 
   /* T011: terminal 终局判定（M1 基础版；M2 扩展 staging 与死锁复证） */
@@ -370,12 +551,43 @@
     return 'playing';
   }
 
-  /* T011: deadlockSuspect 占位返回 false（M2 T028 实现保守谓词） */
+  /* ---------- T028 死锁保守谓词（D-09/FR-006；复证由调用方执行） ---------- */
   function deadlockSuspect(state) {
-    return false;
+    /* ① 存在飞出型 tap → 非疑（快照试算——纯谓词、无副作用） */
+    var taps = enumerateTaps(state);
+    for (var i = 0; i < taps.length; i++) {
+      var snap = snapshot(state);
+      var r = applyTap(state, taps[i]);
+      var isFly = r.type === 'flyout' || r.type === 'prism-flyout';
+      restore(state, snap);
+      if (isFly) return false;
+    }
+    /* ② 有道具可用（wrench/stage）→ 非疑（可救） */
+    if (state.items && ((state.items.wrench > 0 && taps.length > 0) || (state.items.stage > 0 && state.staging.length < 3 && state.dock.length > 0))) return false;
+    /* ③ ice>0 且 dock 内某花色计数 ≥2 → 三消可解冻 → 非疑 */
+    var hasIce = false;
+    for (var j = 0; j < state.tiles.length; j++) {
+      if (!state.tiles[j].removed && !state.tiles[j].inStaging && state.tiles[j].ice > 0) { hasIce = true; break; }
+    }
+    if (hasIce) {
+      var dc = {};
+      for (var k = 0; k < state.dock.length; k++) dc[state.dock[k].s] = (dc[state.dock[k].s] || 0) + 1;
+      for (var s in dc) if (dc[s] >= 2) return false;
+    }
+    /* ④ 存在 locked 且场上存在钥匙 → 可解锁 → 非疑 */
+    var hasLock = false, hasKey = false;
+    for (var m = 0; m < state.tiles.length; m++) {
+      var tt = state.tiles[m];
+      if (tt.removed || tt.inStaging) continue;
+      if (tt.locked) hasLock = true;
+      if (tt.m === MECH.KEY) hasKey = true;
+    }
+    if (hasLock && hasKey) return false;
+    return true; /* 全部可救路径不存在 → 疑死锁（复证由调用方） */
   }
 
-  /* T012: snapshot/restore 深拷贝对（Undo 与 Solver 回溯共用；运行时 dock 保序——D-07 规范化仅限 Solver 哈希） */
+  /* T012: snapshot/restore 深拷贝对（Undo 与 Solver 回溯共用；运行时 dock 保序——D-07 规范化仅限 Solver 哈希）
+   * actions 仅记长度（快照体量 O(1)——Solver DFS 数百万快照下 O(n) actions 拷贝会 OOM） */
   function snapshot(state) {
     return deepClone({
       boardTiles: boardTileSnap(state),
@@ -385,7 +597,8 @@
       combo: state.combo,
       score: state.score,
       lives: state.lives,
-      actions: state.actions
+      actionCount: state.actions.length,
+      chainConsumedCount: (state.chainConsumed || []).length
     });
   }
 
@@ -395,7 +608,7 @@
     for (var i = 0; i < state.tiles.length; i++) {
       var t = state.tiles[i];
       out.push({
-        id: t.id, r: t.r, c: t.c, d: t.d,
+        id: t.id, r: t.r, c: t.c, d: t.d, z: t.z || 0,
         m: t.m || null,
         ice: t.ice != null ? t.ice : null,
         locked: t.locked === true,
@@ -410,18 +623,36 @@
     for (var i = 0; i < snap.boardTiles.length; i++) {
       var s = snap.boardTiles[i];
       var t = state.tiles[s.id];
-      t.r = s.r; t.c = s.c; t.d = s.d;
+      t.r = s.r; t.c = s.c; t.d = s.d; t.z = s.z || 0;
       t.ice = s.ice; t.locked = s.locked;
       t.removed = s.removed; t.inStaging = s.inStaging;
     }
     rebuildBoard(state);
-    state.dock = deepClone(snap.dock);
-    state.staging = deepClone(snap.staging);
+    /* dock/staging 恢复为 state.tiles 同一对象引用（对象身份统一——
+     * 深拷贝会分叉身份: settleMatches 置 removed 的对象 ≠ state.tiles[id] → 幽灵滑块回棋盘 → 状态爆炸） */
+    state.dock = [];
+    for (var di = 0; di < snap.dock.length; di++) {
+      state.dock.push(state.tiles[snap.dock[di].id]);
+    }
+    state.staging = [];
+    for (var si = 0; si < snap.staging.length; si++) {
+      state.staging.push(state.tiles[snap.staging[si].id]);
+    }
     state.items = deepClone(snap.items);
     state.combo = snap.combo;
     state.score = snap.score;
     state.lives = snap.lives;
-    state.actions = deepClone(snap.actions || []);
+    /* actions 截断回快照长度（保留真实历史前缀; DFS 回溯按长度截断） */
+    if (snap.actionCount != null) state.actions.length = snap.actionCount;
+    else if (Array.isArray(snap.actions)) state.actions = deepClone(snap.actions);
+    /* chainConsumed 截断: 超出快照计数的已消费配对逆序回插 cfg.chains
+     * chains 顺序对语义无影响（解锁按内容查找）——计数对齐即可 */
+    if (snap.chainConsumedCount != null && state.chainConsumed) {
+      while (state.chainConsumed.length > snap.chainConsumedCount) {
+        var back = state.chainConsumed.pop();
+        state.cfg.chains.push(back.pair);
+      }
+    }
     return state;
   }
 
@@ -434,14 +665,25 @@
         state.board[r][c] = null;
       }
     }
+    /* M1.5 Δ7: 同格未移除滑块按 z 升序重建栈数组 */
+    var stacks = {};
     for (var i = 0; i < state.tiles.length; i++) {
       var t = state.tiles[i];
       if (t.removed || t.inStaging) continue;
-      state.board[t.r][t.c] = t;
+      var key = t.r + ':' + t.c;
+      if (!stacks[key]) stacks[key] = [];
+      stacks[key].push(t);
+    }
+    for (var sk in stacks) {
+      var cellArr = stacks[sk];
+      if (cellArr.length > 1) cellArr.sort(function (a, b) { return (a.z || 0) - (b.z || 0); });
+      var pos = sk.split(':');
+      state.board[parseInt(pos[0], 10)][parseInt(pos[1], 10)] = cellArr;
     }
   }
 
-  /* T013: validateLevel 基础校验（+ 每关 id===i+1 连续性由消费方遍历保证） */
+  /* T013: validateLevel 基础校验（+ 每关 id===i+1 连续性由消费方遍历保证）
+   * M1.5 Δ7: tiles 同格堆叠合法（z 0..2 唯一）；「无 (r,c) 重复」改为「同格 z 不重复」 */
   function validateLevel(level) {
     var errors = [];
     if (!level || typeof level !== 'object') { errors.push('level 非对象'); return { ok: false, errors: errors }; }
@@ -450,19 +692,29 @@
     if (!Array.isArray(level.tiles) || level.tiles.length < 6 || level.tiles.length % 3 !== 0) {
       errors.push('tiles 数量须 ≥6 且 %3==0');
     }
+    if (Array.isArray(level.tiles) && level.tiles.length > 128) errors.push('tiles 数量超上限 128（M3 5 层塔容量放宽）');
     var seen = {};
     for (var i = 0; i < (level.tiles || []).length; i++) {
       var t = level.tiles[i];
-      var key = t.r + ':' + t.c;
-      if (seen[key]) errors.push('tiles 位置重复 (' + t.r + ',' + t.c + ')');
+      var key = t.r + ':' + t.c + ':' + (t.z || 0);
+      if (seen[key]) errors.push('tiles 同格同层重复 (' + t.r + ',' + t.c + ',z' + (t.z || 0) + ')');
       seen[key] = true;
       if (t.r < 0 || t.r >= level.n || t.c < 0 || t.c >= level.n) errors.push('tile 越界 (' + t.r + ',' + t.c + ')');
       if (t.d < 0 || t.d > 3) errors.push('tile 方向非法 d=' + t.d);
+      if (t.z != null && (t.z < 0 || t.z > 4 || !isFinite(t.z) || Math.floor(t.z) !== t.z)) errors.push('tile 层号非法 z=' + t.z);
       if (t.m != null && t.m !== 'g' && t.m !== 'i' && t.m !== 'c' && t.m !== 'k') {
         errors.push('tile 机制标记非法 m=' + t.m);
       }
       if (t.m === 'i' && !(t.x >= 1)) errors.push('冰封滑块 x 须 ≥1');
     }
+    /* 同格堆叠深度 ≤5（M3 最高 5 层立体塔） */
+    var depth = {};
+    for (var di = 0; di < (level.tiles || []).length; di++) {
+      var dt = level.tiles[di];
+      var dk = dt.r + ':' + dt.c;
+      depth[dk] = (depth[dk] || 0) + 1;
+    }
+    for (var dkk in depth) if (depth[dkk] > 5) errors.push('格子 ' + dkk + ' 堆叠深度 >5');
     var suits = {};
     for (var j = 0; j < (level.tiles || []).length; j++) {
       var s = level.tiles[j].s;
@@ -473,13 +725,47 @@
     }
     var prisms = level.prisms || [];
     var pSeen = {};
+    var occupied = {};
+    for (var oi = 0; oi < (level.tiles || []).length; oi++) {
+      var ot = level.tiles[oi];
+      occupied[ot.r + ':' + ot.c] = true;
+    }
     for (var k = 0; k < prisms.length; k++) {
       var p = prisms[k];
       var pk = p.r + ':' + p.c;
-      if (seen[pk]) errors.push('棱镜与滑块重叠 (' + p.r + ',' + p.c + ')');
+      if (occupied[pk]) errors.push('棱镜与滑块重叠 (' + p.r + ',' + p.c + ')');
       if (pSeen[pk]) errors.push('棱镜位置重复 (' + p.r + ',' + p.c + ')');
       pSeen[pk] = true;
       if (p.t !== '/' && p.t !== '\\') errors.push('棱镜型非法 t=' + p.t);
+    }
+    /* M1.6 根基规范 2: 底层 z=0 必须 100% 满铺（棱镜格除外——严禁空置黑洞格） */
+    var nVal = typeof level.n === 'number' ? level.n : 0;
+    var baseGrid = {};
+    var zSets = {}; /* M1.7 Δ8: 同格层号集合——塔式堆叠须连续 {0..maxZ}（无悬空层） */
+    for (var gi = 0; gi < (level.tiles || []).length; gi++) {
+      var gt = level.tiles[gi];
+      if ((gt.z || 0) === 0) baseGrid[gt.r + ':' + gt.c] = true;
+      var gk = gt.r + ':' + gt.c;
+      if (!zSets[gk]) zSets[gk] = {};
+      zSets[gk][gt.z || 0] = true;
+    }
+    for (var zk in zSets) {
+      var maxZ = 0;
+      for (var zz in zSets[zk]) { var zNum = parseInt(zz, 10); if (zNum > maxZ) maxZ = zNum; }
+      for (var zc = 0; zc <= maxZ; zc++) {
+        if (!zSets[zk][zc]) errors.push('格子 ' + zk + ' 层号不连续（缺 z=' + zc + '——塔式堆叠禁悬空层）');
+      }
+    }
+    for (var gr2 = 0; gr2 < nVal; gr2++) {
+      for (var gc2 = 0; gc2 < nVal; gc2++) {
+        var isPrismCell = false;
+        for (var gp = 0; gp < prisms.length; gp++) {
+          if (prisms[gp].r === gr2 && prisms[gp].c === gc2) { isPrismCell = true; break; }
+        }
+        if (!isPrismCell && !baseGrid[gr2 + ':' + gc2]) {
+          errors.push('底层 z=0 未满铺: 空洞格 (' + gr2 + ',' + gc2 + ')');
+        }
+      }
     }
     var cfg = level.cfg || {};
     if (cfg.iceMode != null && cfg.iceMode !== 'triple' && cfg.iceMode !== 'adjacent') {
@@ -493,6 +779,13 @@
           continue;
         }
         if (pair[0] === pair[1][0]) errors.push('chains[' + ci + '] 自环');
+        /* T029: 键指向 m=='k' 滑块、锁指向 m=='c' 滑块 */
+        var keyTile = (level.tiles || [])[pair[0]];
+        if (!keyTile || keyTile.m !== 'k') errors.push('chains[' + ci + '] 键 ' + pair[0] + ' 非 m==k 钥匙滑块');
+        for (var lk = 0; lk < pair[1].length; lk++) {
+          var lockTile = (level.tiles || [])[pair[1][lk]];
+          if (!lockTile || lockTile.m !== 'c') errors.push('chains[' + ci + '] 锁 ' + pair[1][lk] + ' 非 m==c 锁链滑块');
+        }
       }
     }
     if (Array.isArray(level.solutionMoves)) {
@@ -509,17 +802,32 @@
     return { ok: errors.length === 0, errors: errors };
   }
 
-  /* T013: renderProbe（§8 轻量视图，仅浏览器构建含；Node 侧为纯数据） */
+  /* T013: renderProbe（§8 轻量视图，仅浏览器构建含；Node 侧为纯数据）
+   * M1.5 Δ7: tiles 含 z 与 stackDepth（渲染堆叠底座/下层角标）；board 滑块 id 序 = tiles 序 */
   function renderProbe(state) {
     var tiles = [];
     for (var i = 0; i < state.tiles.length; i++) {
       var t = state.tiles[i];
       if (t.removed) continue;
       tiles.push({
-        id: t.id, r: t.r, c: t.c, s: t.s, d: t.d,
+        id: t.id, r: t.r, c: t.c, s: t.s, d: t.d, z: t.z || 0,
         m: t.m || null, ice: t.ice != null ? t.ice : null,
         locked: t.locked === true, inStaging: t.inStaging === true
       });
+    }
+    /* 堆叠深度表（格 → 未移除滑块数） */
+    var depthMap = {};
+    var j, tt;
+    for (j = 0; j < tiles.length; j++) {
+      tt = tiles[j];
+      if (tt.inStaging) continue;
+      var dk = tt.r + ':' + tt.c;
+      depthMap[dk] = (depthMap[dk] || 0) + 1;
+    }
+    for (j = 0; j < tiles.length; j++) {
+      tt = tiles[j];
+      if (tt.inStaging) { tt.stackDepth = 1; continue; }
+      tt.stackDepth = depthMap[tt.r + ':' + tt.c] || 1;
     }
     return {
       n: state.n,
@@ -542,14 +850,7 @@
     return out;
   }
 
-  /* ---------- 道具占位（T030 M2 实现） ---------- */
-  function applyItem(state, item, tileId) {
-    return { type: 'invalid', events: [] };
-  }
-
-  function stageTile(state, tileId) {
-    return { type: 'invalid', tileId: tileId, path: [], events: [] };
-  }
+  /* ---------- 道具（T030 实现于 applyItem/stageTile） ---------- */
 
   /* ---------- 导出 ---------- */
   return {

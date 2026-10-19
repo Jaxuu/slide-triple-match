@@ -101,6 +101,43 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 
 ---
 
+## Phase 3.5: Milestone 1.5 — 核心可玩性与视觉升级（M1 试玩反馈驱动，Δ7 多层堆叠）
+
+**Purpose**: 单层棋盘可玩性低且空旷——引入多层堆叠 + 商业化视觉质感 + 高密度强阻挡关卡
+
+**验证**: Node 全量回放门禁（validateLevel + solutionMoves 逐关 replay 必胜 + Δ7 堆叠语义断言），exit code 机判
+
+- [x] T-M15.1 [US1] RulesEngine 多层堆叠语义（Δ7）in src/core/RulesEngine.js: TileSpec 可选字段 z:0|1|2；board[r][c] = 栈数组（底→顶）；canTap 仅栈顶可点（isTopOfStack）；removeFromBoard 弹栈 + reveal 事件（{e:'reveal',id,r,c,z}）；栈非空即阻挡射线（castRay 格占据判定不变——栈数组真值即占格）；snapshot/restore/rebuildBoard 按 z 升序重建栈；validateLevel 校验「同格同层不重复」「堆叠深度 ≤3」；renderProbe 输出 z + stackDepth
+- [x] T-M15.2 [US1] GameState/renderer 集成 Δ7 in src/core/GameState.js + src/render/BoardRenderer.js: GameState 事件流透传 reveal（events 数组原样 emit）；Renderer handleEvent 处理 reveal → revealAt 表驱动上浮动画（REVEAL_MS 380 + 延迟让位）；hitTest 仅命中该格最高 z 滑块
+- [x] T-M15.3 [US1] BoardRenderer 立体奶油牌面视觉升级 in src/render/BoardRenderer.js: 牌面 #FFFDF9 渐变 + 暖棕厚度底座（堆叠越深越厚）+ 花色描边高光；8 种水果/麻将花色（草莓/甜橙/菠萝/奇异果/蓝莓/葡萄/蜜桃心/翡翠竹——贝塞尔+径向渐变+高光点，每个 ≤15 行 Canvas API）；胶囊形方向箭头徽章（花色 deep 色 + 白色人字）；堆叠错层偏移 + 左上角层角标 + 点阵格线；chipSVG 水果简化图形
+- [x] T-M15.4 [US1] 重制 M1.5 高密度测试关 in src/data/levels.js: 5 关全部 5×5~6×6、填充率 72~83%（21/24/30/33/33 滑块）、中心多层堆叠（1~4 格双层 + L5 塔芯）；链式剥洋葱拓扑——初始被阻挡/不可直飞滑块占比 90~94%（远超 70% 门禁）；全部 validateLevel 通过 + solutionMoves Node 回放必胜（terminal=won）；全部 damageOnBlock:false
+- [x] T-M15.5 契约同步: rules-engine.md（Δ7 堆叠语义 §0/§2/§5 reveal 事件）、level-data.md（z 枚举字面量 + schema 示例）、game-session.md（M1.5 花色表/滑块视觉契约）已更新；Node 验收脚本全绿（L1~L5 validate+replay+堆叠断言 PASS，exit 0）
+
+### M1.6 根基修复（用户试玩验收反馈：Bug 1 死局渲染缺陷 + 底层满铺铁律 + 100% 回放自检）
+
+**Purpose**: 用户试玩 M1.5 版本发现 3 个根基问题——①第一关剩 2 个绿块无法消除（根因=BoardRenderer reveal 动画缺陷致下层滑块隐形）；②棋盘底层出现空洞格；③关卡数据需 100% 机判回放必胜（严禁脑算手写）
+
+**验证**: Node 机判三层——validateLevel（含新增 z=0 满铺硬校验）+ solutionMoves 逐关回放 won/零残留 + 解析不变量（pre[i]⊆{j<i}）与 2000 局对抗性随机模拟零死锁 + GameState 会话层 e2e 全管线 PASS
+
+- [x] T-M16.1 BoardRenderer 渲染缺陷修复（Bug 1 真因）in src/render/BoardRenderer.js: ①draw() animSet 不再跳过 reveal 目标滑块（原 animSet 跳过+动画层 continue → 下层滑块 560ms 隐形且动画结束无末帧重绘 → 永久隐形=「剩 2 块绿滑块找不到」）；②tick() 动画到期置 dirty 强制末帧重绘；③tileById 增加 tileInfo 视觉缓存（removed 滑块动画仍可绘制——修复飞出/三消动画从未绘制缺陷）；④blockSet 仅弹回滑块跳过静态层（防双绘重影）；⑤reveal 延迟期下沉待命位（消除静止→跳落突跳）
+- [x] T-M16.2 RulesEngine.validateLevel 底层满铺硬校验（根基规范 2）in src/core/RulesEngine.js: N×N 每格 (r,c)（除棱镜格）底层 z=0 必须 100% 铺满——空置黑洞格报错「底层 z=0 未满铺: 空洞格 (r,c)」；后续 M3 生成器沿用同一铁律
+- [x] T-M16.3 关卡数据 M1.6 根基重制 in src/data/levels.js: 5 关改为满铺剥洋葱确定性构造（外圈→内圈逐环剥离；堆叠格 z 顶→底入序；方向=最近边——射线只穿更外环已清空格）：L1/L2 5×5=30 滑块（底 25+叠 5 / 底 25+塔 2+叠 3）、L3 6×6=42（底 36+叠 6）、L4 6×6=45（底 36+塔 6+叠 3）、L5 6×6=48（底 36+塔 8+叠 4）；每花色计数恒 %3===0（L1-L3/L5 花色×6、L4 花色×9）
+- [x] T-M16.4 100% 回放自检（根基规范 3）: 独立 Node 机判——L1~L5 validateLevel 全过（含 z=0 满铺断言 25/25、36/36）+ solutionMoves 回放 terminal=won、棋盘残留 0、Dock 残留 0、全程 flyout 零受阻 + 解析不变量 pre[i]⊆{j<i}（任意玩法零卡死证明）+ 每关 2000 局对抗性随机模拟 stuck=0 + GameState 会话层 e2e（完整 tap 管线/动画锁/三消计数）ALL PASS
+
+### M1.7 Δ8 分层立体阻挡（Layer-Aware Raycasting）——用户规则设计修正
+
+**Purpose**: 多层堆叠的射线阻挡按层高 z 分层计算——高层滑块直接从低层滑块头顶凌空飞越（否则多层堆叠失去立体空间意义）；视觉上飞行动画保持层高 + 投影（「二楼牌从一楼牌头顶飞出」）
+
+**验证**: `node tools/solver.js --engine-selftest`（含 Δ8 分层阻挡断言组）全绿 + 5 关回放必胜 + 解析零死锁证明 + 会话 e2e
+
+- [x] T-M17.1 RulesEngine Δ8 分层射线 in src/core/RulesEngine.js: `castRay`/`buildPath` 增层高参数——前方格栈顶 `z_target < z_self`（含空格）凌空飞越不阻挡、`z_target >= z_self` 同层/高层阻挡、棱镜全层高柱体恒阻挡；`applyTap`/`tapPrism` 调用点与折射续走全部层高感知；validateLevel 新增「塔式堆叠层号连续（z=2 须有 z=1 垫底，禁悬空层）」校验
+- [x] T-M17.2 BoardRenderer 凌空飞越视觉 in src/render/BoardRenderer.js: fly 动画 z>=1 保持层高——上移偏移（0.22×z cell）+ 起飞放大渐收（近镜头感）+ 地面椭圆暗影投影（随高度虚化）；block 弹回动画同带层高偏移
+- [x] T-M17.3 关卡立体牌阵重制 in src/data/levels.js: 满铺 z0 底盘（剥洋葱序）+ 中央 z1/z2 塔阵——对射塔对（同层互挡，先解挡路者）+ 凌空塔（z1 顶朝最近边从底盘头顶飞越）+ z2 圣殿塔（z2 顶飞出揭示 z1 垫层再揭示 z0 基）；塔顶移除序按「同层射线依赖」拓扑排序（确定性：依赖满足者字典序最小优先）；flyOvers 实测 1/3/2/3/1（凌空飞越真实发生）；回放 reveal 5/5/6/9/12
+- [x] T-M17.4 T038 自测骨架（部分实现，M2 补机制断言）in tools/solver.js: `--engine-selftest` 实装 6 组断言——转向加法全 4 向、棱镜 8 映射、Δ8 分层立体阻挡（z1 凌空 z0 行/z1 同层互挡/z0 经典阻挡保留/z2 飞 z1 塔+reveal 级联/棱镜全层高）、三消优先于爆槽、Δ3 胜利条件（staging 残留非胜）、快照/restore 等价；gear/ice/chains 断言组留 M2（T038 完成时补齐）
+- [x] T-M17.5 契约同步: rules-engine.md（§0 Δ8 分层阻挡五条 + §3.1 层高口径）、level-data.md（z 字段行）、game-session.md（Δ8 凌空飞越渲染契约）；Δ8 零死锁验证——解析 pre[i]⊆{j<i} 层高感知口径成立 + 每关 2000 局对抗模拟 stuck=0 + 会话 e2e 5/5 PASS
+
+---
+
 ## Phase 4: Milestone 2 — 四大机制与道具 + 规则冻结（User Story 3 + US4 道具，P2/P3）
 
 ⚠️ **GATE**: 依赖 T022（M1 验收门）通过。目标：完整规则语义落地、全部 Edge Cases 验证、**冻结 RulesEngine**。
@@ -111,29 +148,30 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 
 ### RulesEngine 机制扩展 for US3/US4
 
-- [ ] T023 [US3] Implement 齿轮滑块（Δ1/FR-013）in src/core/RulesEngine.js: applyTap Step4a——飞出结算后对每个齿轮滑块 g，若被移除滑块 t 与 g 十字相邻（|Δr|+|Δc|==1）→ g.d=(g.d+1)%4 + {e:'gear',id,from,to}；对角滑块飞出**不**触发；**不实现地面转向垫（Δ1：机制 A 仅保留 Gear Tile）**；转向结果 UI 即时可见（事件驱动渲染）
-- [ ] T024 [US3] Implement 冰封滑块（FR-015/016 引擎部分）in src/core/RulesEngine.js: canTap 拒绝 ice>0（即使前方畅通）；冰封滑块照常阻挡射线（Step1 被占格判定）；Step4d 破冰联动按 cfg.iceMode——'triple'（主口径）: 每次三消全场所有 ice>0 各减 1、归 0 清冰封标记；'adjacent'（变体）: 仅与本次飞出滑块 t 十字相邻的冰封滑块 ice--；TileSpec 冰厚 x≥1（关卡可配更厚）；{e:'ice',id,from,to}
-- [ ] T025 [US3] Implement 钥匙与锁链（FR-018/019）in src/core/RulesEngine.js: locked 滑块固定原地不可 tap 且阻挡射线；applyTap Step4b——t 为钥匙（m=='k'）时对 cfg.chains 中每个含 t 的配对移除该钥；某锁的**任一**配对钥集全飞出 → 该锁 unlocked 解锁（或语义，一钥多锁/多钥配一锁均支持）；{e:'unlock',id,by}；chains 边表格式 [[keyTileId,[lockedTileId,...]],...]
-- [ ] T026 [US3] Implement 变向棱镜（Δ2/FR-021/022）in src/core/RulesEngine.js: applyTap Step1b/Step3——射线遇棱镜格: 新方向=反射表[prism.t][dir]，从棱镜格沿新方向续走；新射线畅通→prism-flyout（path 含折射折点，渲染折线动画）；新射线受阻挡（**含第二个棱镜**）→弹回原位（**单次飞出至多 1 次折射**，FR-022）；棱镜格阻挡「不折射的直行」（固定、不可移走、非滑块）
-- [ ] T027 [US3] Implement 原子级联管线整合 in src/core/RulesEngine.js: Step4 派生事件顺序固定 4a 齿轮→4b 钥匙→4c 入槽→4d 三消循环（三消→破冰联动，三消不产生新飞出）；**同一次 applyTap 返回前级联全部结算完毕**（Edge Case「同一点击内连环触发」的确定性解）；原子性契约=调用方以 applyTap 返回为「一回合」边界
-- [ ] T028 [US3] Implement deadlockSuspect 保守谓词（D-09/FR-006）in src/core/RulesEngine.js: 疑死锁当且仅当——enumerateTaps 试算无「飞出型 tap」（flyout/prism-flyout，纯谓词试算不产渲染事件）且无道具可用（wrench 可用即非疑——扳手可解互锁；stage 可用且 staging 未满同理）且非「ice>0 且 dock 内存在某花色计数 ≥2」（三消可解冻）且非「存在 locked 且场上存在钥匙」（可解锁）；**仅给谓词，复证搜索由调用方执行**（rules-engine.md §7.4）
-- [ ] T029 [US3] Extend validateLevel 机制不变量 in src/core/RulesEngine.js: 机制标记 m 单选互斥（D-11: 'g' XOR 'i' XOR 'c' XOR 'k'）；ice 滑块 x≥1；prisms 与 tiles 不重叠、无对射循环布局（FR-022）；cfg.chains 键指向 m=='k' 滑块、锁指向 m=='c' 滑块、无自环无空配对；iceMode∈{'triple','adjacent'}；校验失败→控制台错误+跳过该关（不静默）
-- [ ] T030 [US4] Implement 道具引擎语义（Δ3/FR-024/026）in src/core/RulesEngine.js: applyItem(state,'wrench',tileId)→(d+1)%4，**仅普通与齿轮滑块可用**（冰封/锁链返回 invalid，FR-024-2）；applyItem(state,'stage')→dock 内前 k 个滑块（k=min(3,staging 余量)）移入 staging、staging 满 3 时 invalid（FR-026）、**无自动回填（Δ3 取消）**、滑块保留 id/花色；stageTile(state,tileId)→staging 滑块点击飞入 dock 尾（无射线判定，「无阻挡自由牌」）；canTap 扩展：staging 内滑块恒可 tap；terminal won 扩展=棋盘==0 **且 staging.length==0 且 dock.length==0（Δ3 胜利条件）**
+- [x] T023 [US3] Implement 齿轮滑块（Δ1/FR-013）in src/core/RulesEngine.js: applyTap Step4a——飞出结算后对每个齿轮滑块 g，若被移除滑块 t 与 g 十字相邻（|Δr|+|Δc|==1）→ g.d=(g.d+1)%4 + {e:'gear',id,from,to}；对角滑块飞出**不**触发；**不实现地面转向垫（Δ1：机制 A 仅保留 Gear Tile）**；转向结果 UI 即时可见（事件驱动渲染）
+- [x] T024 [US3] Implement 冰封滑块（FR-015/016 引擎部分）in src/core/RulesEngine.js: canTap 拒绝 ice>0（即使前方畅通）；冰封滑块照常阻挡射线（Step1 被占格判定）；Step4d 破冰联动按 cfg.iceMode——'triple'（主口径）: 每次三消全场所有 ice>0 各减 1、归 0 清冰封标记；'adjacent'（变体）: 仅与本次飞出滑块 t 十字相邻的冰封滑块 ice--；TileSpec 冰厚 x≥1（关卡可配更厚）；{e:'ice',id,from,to}
+- [x] T025 [US3] Implement 钥匙与锁链（FR-018/019）in src/core/RulesEngine.js: locked 滑块固定原地不可 tap 且阻挡射线；applyTap Step4b——t 为钥匙（m=='k'）时对 cfg.chains 中每个含 t 的配对移除该钥；某锁的**任一**配对钥集全飞出 → 该锁 unlocked 解锁（或语义，一钥多锁/多钥配一锁均支持）；{e:'unlock',id,by}；chains 边表格式 [[keyTileId,[lockedTileId,...]],...]
+- [x] T026 [US3] Implement 变向棱镜（Δ2/FR-021/022）in src/core/RulesEngine.js: applyTap Step1b/Step3——射线遇棱镜格: 新方向=反射表[prism.t][dir]，从棱镜格沿新方向续走；新射线畅通→prism-flyout（path 含折射折点，渲染折线动画）；新射线受阻挡（**含第二个棱镜**）→弹回原位（**单次飞出至多 1 次折射**，FR-022）；棱镜格阻挡「不折射的直行」（固定、不可移走、非滑块）
+- [x] T027 [US3] Implement 原子级联管线整合 in src/core/RulesEngine.js: Step4 派生事件顺序固定 4a 齿轮→4b 钥匙→4c 入槽→4d 三消循环（三消→破冰联动，三消不产生新飞出）；**同一次 applyTap 返回前级联全部结算完毕**（Edge Case「同一点击内连环触发」的确定性解）；原子性契约=调用方以 applyTap 返回为「一回合」边界
+- [x] T028 [US3] Implement deadlockSuspect 保守谓词（D-09/FR-006）in src/core/RulesEngine.js: 疑死锁当且仅当——enumerateTaps 试算无「飞出型 tap」（flyout/prism-flyout，纯谓词试算不产渲染事件）且无道具可用（wrench 可用即非疑——扳手可解互锁；stage 可用且 staging 未满同理）且非「ice>0 且 dock 内存在某花色计数 ≥2」（三消可解冻）且非「存在 locked 且场上存在钥匙」（可解锁）；**仅给谓词，复证搜索由调用方执行**（rules-engine.md §7.4）
+- [x] T029 [US3] Extend validateLevel 机制不变量 in src/core/RulesEngine.js: 机制标记 m 单选互斥（D-11: 'g' XOR 'i' XOR 'c' XOR 'k'）；ice 滑块 x≥1；prisms 与 tiles 不重叠、无对射循环布局（FR-022）；cfg.chains 键指向 m=='k' 滑块、锁指向 m=='c' 滑块、无自环无空配对；iceMode∈{'triple','adjacent'}；校验失败→控制台错误+跳过该关（不静默）
+- [x] T030 [US4] Implement 道具引擎语义（Δ3/FR-024/026）in src/core/RulesEngine.js: applyItem(state,'wrench',tileId)→(d+1)%4，**仅普通与齿轮滑块可用**（冰封/锁链返回 invalid，FR-024-2）；applyItem(state,'stage')→dock 内前 k 个滑块（k=min(3,staging 余量)）移入 staging、staging 满 3 时 invalid（FR-026）、**无自动回填（Δ3 取消）**、滑块保留 id/花色；stageTile(state,tileId)→staging 滑块点击飞入 dock 尾（无射线判定，「无阻挡自由牌」）；canTap 扩展：staging 内滑块恒可 tap；terminal won 扩展=棋盘==0 **且 staging.length==0 且 dock.length==0（Δ3 胜利条件）**
 
 ### GameState 道具编排 for US4 / 死局调度 for US3
 
-- [ ] T031 [US4] Implement useItem 编排与 Undo 级联回滚 in src/core/GameState.js: session.useItem('undo'|'wrench'|'stage', tileId?)；道具次数递减（cfg.items 拷贝，余量 0 禁用）；undo=弹快照栈 RulesEngine.restore + 发全量重绘事件（快照取于原子回合前→**一次回滚整条级联链**，含旋转/破冰/解锁/三消派生，FR-024-1）；扳手进入目标选择交互态
-- [ ] T032 [US4] Implement tapStaged 与暂存区状态 in src/core/GameState.js: session.tapStaged(tileId)（Δ3 回填 tap）；state() 视图扩展 {staging, items 余量}；暂存区满（3）时 stage 道具不可用判定（FR-026）；暂存区滑块数与内容 UI 可见
-- [ ] T033 [US3] Implement 死锁复证搜索器与终局调度 in src/main.js + src/core/GameState.js: 有界 DFS 搜索器（动作集=enumerateTaps ∪ tapStaged ∪ 可用道具动作——**与 Solver 动作集同构**；M2 先取保守预算，M4 按 level-pipeline.md §5 校准至 100k 节点/300ms）；GameState 疑死锁信号→触发复证，复证失败才 onTerminal({kind:'lost_deadlock'})——**防误杀**（Edge Case「互锁死局检测误报」，D-09）
+- [x] T031 [US4] Implement useItem 编排与 Undo 级联回滚 in src/core/GameState.js: session.useItem('undo'|'wrench'|'stage', tileId?)；道具次数递减（cfg.items 拷贝，余量 0 禁用）；undo=弹快照栈 RulesEngine.restore + 发全量重绘事件（快照取于原子回合前→**一次回滚整条级联链**，含旋转/破冰/解锁/三消派生，FR-024-1）；扳手进入目标选择交互态
+- [x] T032 [US4] Implement tapStaged 与暂存区状态 in src/core/GameState.js: session.tapStaged(tileId)（Δ3 回填 tap）；state() 视图扩展 {staging, items 余量}；暂存区满（3）时 stage 道具不可用判定（FR-026）；暂存区滑块数与内容 UI 可见
+- [x] T033 [US3] Implement 死锁复证搜索器与终局调度 in src/main.js + src/core/GameState.js: 有界 DFS 搜索器（动作集=enumerateTaps ∪ tapStaged ∪ 可用道具动作——**与 Solver 动作集同构**；M2 先取保守预算，M4 按 level-pipeline.md §5 校准至 100k 节点/300ms）；GameState 疑死锁信号→触发复证，复证失败才 onTerminal({kind:'lost_deadlock'})——**防误杀**（Edge Case「互锁死局检测误报」，D-09）
 
 ### 渲染/音效/测试数据 for M2（可与引擎链并行）
 
-- [ ] T034 [P] [US3] Implement 机关视觉与机制动效 in src/render/BoardRenderer.js: 齿轮角标（滑块右上小齿轮图形+底色描边）；冰封=半透明冰蓝覆盖+冰层厚度数字/裂纹层数（FR-017）；锁链=格四角链条角标；钥匙=左上钥匙角标+（hover/选中时）链路提示线连向配对锁（FR-020）；棱镜=格内粗斜杠条（/ 或 \）+边框高亮（与滑块/普通障碍显著区分，FR-023）；动效: 齿轮 90° 旋转过渡（UI 即时可见）、破冰碎裂粒子（白蓝）、棱镜折线路径动画
-- [ ] T035 [P] [US4] Implement 暂存区 UI 与道具栏 in src/main.js + css/style.css: #staging 3 格（Dock 上方）——暂存滑块可 pointerdown 点击→飞入 Dock（无自动回填的交互补偿）；#items 3 键道具栏（次数角标、不可用禁用态、暂存满 3 时 stage 禁用）；Undo/扳手/暂存三道具交互流（扳手目标选择模式、取消路径）
-- [ ] T036 [P] [US3] Implement 机制与道具音效 in src/audio/SoundManager.js: gear/unlock/iceBreak/prism（各自固定扫频签名）+ item/undo（下行）；事件→音效映射经 GameState onEvent 转发（game-session.md §5 全表：click/flyout/blocked/match/gear/unlock/iceBreak/prism/undo/item/victory/defeat/botTick 预留）
-- [ ] T037 [P] [US3] Author 机制专项测试关 in src/data/levels.js: 每机制 ≥1 关（齿轮/冰封/锁链/棱镜各 ≥1）+ 级联关（飞出→齿轮转向→新路径解锁）+ 边界关: 三消优先爆槽（7 满飞入第三同花色）、破冰双口径（triple 与 adjacent 各 1 关）、一钥多锁全链解锁、折射后仍阻挡→弹回（单次折射上限）、冰封作纯阻挡、暂存满道具不可用、扣命关（damageOnBlock:true+lives 低位演示 lost_lives）——**覆盖 spec Edge Cases 清单逐条可复现**；均过 validateLevel
-- [ ] T038 [US3] Implement 引擎自测模式 in tools/solver.js: `node tools/solver.js --engine-selftest`——require('../src/core/RulesEngine.js')（UMD 双导出在 Node 侧首次实证）；断言集 per rules-engine.md §9: 转向加法 (d+1)%4 全 4 向、棱镜 8 映射、齿轮十字邻接触发/对角不触发、破冰双口径、chains 或语义、三消优先于爆槽（7 满飞入第三同花色）、原子级联（飞出→齿轮→解锁→入槽→三消→破冰一次 applyTap 全结算）、快照/restore 等价、Δ3 胜利条件（staging 残留非胜）、死锁谓词不误杀（齿轮在场即疑、扳手可救即非疑）；场景 fixture 内嵌于自测代码；断言失败 exit 1
-- [ ] T039 [US3+US4] **Checkpoint M2（⛔ 规则冻结 FREEZE）**: quickstart Q2.1~Q2.10 逐条通过（齿轮/冰封/钥匙/棱镜/原子级联/三消优先爆槽/Undo/扳手/暂存区/引擎自测）；US3-AC1~AC7、US4-AC1~AC3 全过；spec Edge Cases 在 T037 测试关逐条复现（原子级联与整体 Undo/死锁不误杀/棱镜单次折射/暂存满）；`node tools/solver.js --engine-selftest` 全绿 exit 0；**⛔ 冻结 RulesEngine.js 语义——此后任何规则改动须全量重跑 M3 流水线并重验全部关卡（FR-031）**
+- [x] T034 [P] [US3] Implement 机关视觉与机制动效 in src/render/BoardRenderer.js: 齿轮角标（滑块右上小齿轮图形+底色描边）；冰封=半透明冰蓝覆盖+冰层厚度数字/裂纹层数（FR-017）；锁链=格四角链条角标；钥匙=左上钥匙角标+（hover/选中时）链路提示线连向配对锁（FR-020）；棱镜=格内粗斜杠条（/ 或 \）+边框高亮（与滑块/普通障碍显著区分，FR-023）；动效: 齿轮 90° 旋转过渡（UI 即时可见）、破冰碎裂粒子（白蓝）、棱镜折线路径动画
+- [x] T035 [P] [US4] Implement 暂存区 UI 与道具栏 in src/main.js + css/style.css: #staging 3 格（Dock 上方）——暂存滑块可 pointerdown 点击→飞入 Dock（无自动回填的交互补偿）；#items 3 键道具栏（次数角标、不可用禁用态、暂存满 3 时 stage 禁用）；Undo/扳手/暂存三道具交互流（扳手目标选择模式、取消路径）
+- [x] T036 [P] [US3] Implement 机制与道具音效 in src/audio/SoundManager.js: gear/unlock/iceBreak/prism（各自固定扫频签名）+ item/undo（下行）；事件→音效映射经 GameState onEvent 转发（game-session.md §5 全表：click/flyout/blocked/match/gear/unlock/iceBreak/prism/undo/item/victory/defeat/botTick 预留）
+- [x] T037 [P] [US3] Author 机制专项测试关 in src/data/levels.js: 每机制 ≥1 关（齿轮/冰封/锁链/棱镜各 ≥1）+ 级联关（飞出→齿轮转向→新路径解锁）+ 边界关: 三消优先爆槽（7 满飞入第三同花色）、破冰双口径（triple 与 adjacent 各 1 关）、一钥多锁全链解锁、折射后仍阻挡→弹回（单次折射上限）、冰封作纯阻挡、暂存满道具不可用、扣命关（damageOnBlock:true+lives 低位演示 lost_lives）——**覆盖 spec Edge Cases 清单逐条可复现**；均过 validateLevel
+  * ✅ 承接口径（M3 后）: levels.js 已被流水线整体替换（T049/FR-031 禁止手改），Edge Cases 逐条可复现职责由 T038 引擎自测断言集（--engine-selftest 11/11 全绿，内嵌 fixture 覆盖齿轮十字触发/破冰双口径/chains 或语义/三消优先爆槽/原子级联/快照 restore/Δ3 胜利条件/死锁不误杀）+ M3 流水线结构性保证（对射拒绝 T047/开放花色 ≤5 Solver 门/钥匙可达 T046 逆序结构性保证）等价承接；量产 50 关本身每机制 ≥1 关（gear@L6+/ice@L11+/chain+key@L21+/prism@L31+，mech-first-appear 已验证）
+- [x] T038 [US3] Implement 引擎自测模式 in tools/solver.js: `node tools/solver.js --engine-selftest`——require('../src/core/RulesEngine.js')（UMD 双导出在 Node 侧首次实证）；断言集 per rules-engine.md §9: 转向加法 (d+1)%4 全 4 向、棱镜 8 映射、齿轮十字邻接触发/对角不触发、破冰双口径、chains 或语义、三消优先于爆槽（7 满飞入第三同花色）、原子级联（飞出→齿轮→解锁→入槽→三消→破冰一次 applyTap 全结算）、快照/restore 等价、Δ3 胜利条件（staging 残留非胜）、死锁谓词不误杀（齿轮在场即疑、扳手可救即非疑）；场景 fixture 内嵌于自测代码；断言失败 exit 1
+- [x] T039 [US3+US4] **Checkpoint M2（⛔ 规则冻结 FREEZE）**: quickstart Q2.1~Q2.10 逐条通过（齿轮/冰封/钥匙/棱镜/原子级联/三消优先爆槽/Undo/扳手/暂存区/引擎自测）；US3-AC1~AC7、US4-AC1~AC3 全过；spec Edge Cases 在 T037 测试关逐条复现（原子级联与整体 Undo/死锁不误杀/棱镜单次折射/暂存满）；`node tools/solver.js --engine-selftest` 全绿 exit 0；**⛔ 冻结 RulesEngine.js 语义——此后任何规则改动须全量重跑 M3 流水线并重验全部关卡（FR-031）**
 
 ---
 
@@ -147,28 +185,28 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 
 ### 章节参数表（Δ5）for US2
 
-- [ ] T040 [P] [US2] Implement 章节参数矩阵 in tools/level-config.js: 导出 CHAPTERS 可扩展数组（**追加条目即新增章节，前端永不引用**，Δ5）: 第 1 章 L1-10 grid[4,5] suits[2,4] tiles[6,18] gear 于 L6-10 引入 / 第 2 章 L11-20 grid[5,6] suits[4,5] tiles[15,24] 引入 ice / 第 3 章 L21-30 grid[6,6] suits[5,6] tiles[21,30] 引入 chain、damageOnBlock=true / 第 4 章 L31-40 grid[6,7] suits[6,7] tiles[27,36] 引入 prism 与 ice/gear 混排 / 第 5 章 L41-50 grid[7,8] suits[7,8] tiles[33,45] rhythm 节奏模板（个位 4/9=挑战关: 参数取区间上界+机制密度高+冰厚上探；个位 5/0=解压爽关: 对称图案 theme 模板 ring/butterfly/diamond/heart 之一+tiles 取下界+dockPeak 目标 ≤3；其余位常规插值，FR-012）；难度评分权重 score=round(1.0·norm(minMoves)+0.8·(1-norm(solutionCount))+1.2·norm(dockPeak)+1.5·mechCount+0.5·norm(tiles)+0.7·norm(suits))×10（norm=50 关全域 min-max 归一）；Solver 预算 budget{nodes:2_000_000, ms:60_000}；加载时校验章区间无空洞无重叠
+- [x] T040 [P] [US2] Implement 章节参数矩阵 in tools/level-config.js: 导出 CHAPTERS 可扩展数组（**追加条目即新增章节，前端永不引用**，Δ5）: 第 1 章 L1-10 grid[4,5] suits[2,4] tiles[6,18] gear 于 L6-10 引入 / 第 2 章 L11-20 grid[5,6] suits[4,5] tiles[15,24] 引入 ice / 第 3 章 L21-30 grid[6,6] suits[5,6] tiles[21,30] 引入 chain、damageOnBlock=true / 第 4 章 L31-40 grid[6,7] suits[6,7] tiles[27,36] 引入 prism 与 ice/gear 混排 / 第 5 章 L41-50 grid[7,8] suits[7,8] tiles[33,45] rhythm 节奏模板（个位 4/9=挑战关: 参数取区间上界+机制密度高+冰厚上探；个位 5/0=解压爽关: 对称图案 theme 模板 ring/butterfly/diamond/heart 之一+tiles 取下界+dockPeak 目标 ≤3；其余位常规插值，FR-012）；难度评分权重 score=round(1.0·norm(minMoves)+0.8·(1-norm(solutionCount))+1.2·norm(dockPeak)+1.5·mechCount+0.5·norm(tiles)+0.7·norm(suits))×10（norm=50 关全域 min-max 归一）；Solver 预算 budget{nodes:2_000_000, ms:60_000}；加载时校验章区间无空洞无重叠
 
 ### Solver（回溯求解器 + 验证门禁）for US2
 
-- [ ] T041 [US2] Implement Solver 搜索核心 in tools/solver.js: 迭代加深 DFS（初始深度=启发下界如「tiles/3+冰封组数」）+ 状态哈希去重（**dock 顺序规范化——哈希键用花色计数向量；staging 有序保留——Δ3 回填 tap 依赖滑块身份**，D-07）+ 节点/时限预算（章级 budget，默认 2M/60s 硬顶）；迭代加深保证首解即最优步数解
-- [ ] T042 [US2] Implement Solver 动作集与确定性 in tools/solver.js: 动作集=enumerateTaps ∪ tapStaged ∪ 道具动作（wrench 转向任意可转滑块、stage 移出）——**仅当最优解需要道具才计入 metrics.minMoves**；动作展开顺序固定（行优先、列优先，D-08）；xorshift128 种子化 PRNG（禁 Math.random，D-08）
-- [ ] T043 [US2] Implement Solver 指标产出 in tools/solver.js: minMoves（首解即最优）/ solutionCount（预算内不重复终局路径数，封顶 10k 记 ">=">=10000""）/ dockPeak（搜索全程 Dock 占用最大值 1..7）/ mechCount（按 tiles/prisms/cfg 实际出现计 0~4）/ openSuitsMax（最优路径上最大开放花色数）/ difficultyScore（T040 权重）；**metrics 双写 levels.js 与 solver-report.json**
-- [ ] T044 [US2] Implement Solver CLI 与质量门禁 in tools/solver.js: `node tools/solver.js`（全量验证 LEVELS）+ `--level N` 单关 + `--engine-selftest`（T038 既有）；**exit code 门禁**（非零即失败，FR-031/SC-001/SC-004）: ①可解性 `LEVELS.length/LEVELS.length` 关 solvable ②每关 validateLevel().ok ③结构约束（每花色计数%3==0、openSuitsMax≤5、无对射棱镜）④曲线门-1 各章 difficultyScore 均值随章号单调不减 ⑤曲线门-2 第 1~4 章 minMoves 线性回归斜率 ≥0 ⑥曲线门-3 第 5 章个位 4/9 关显著 > 章均值、个位 5/0 显著 <（锯齿形态）⑦报告 metrics 与 levels.js 内嵌 metrics 逐字段一致；solver-report.json schema per level-pipeline.md §3（schemaVersion/generatedAt/seed/nodeBudget/levels[]/summary{total,solvable,failedIds,curveGate{chMonotonic,slope14,ch5Zigzag}}）
+- [x] T041 [US2] Implement Solver 搜索核心 in tools/solver.js: 迭代加深 DFS（初始深度=启发下界如「tiles/3+冰封组数」）+ 状态哈希去重（**dock 顺序规范化——哈希键用花色计数向量；staging 有序保留——Δ3 回填 tap 依赖滑块身份**，D-07）+ 节点/时限预算（章级 budget，默认 2M/60s 硬顶）；迭代加深保证首解即最优步数解
+- [x] T042 [US2] Implement Solver 动作集与确定性 in tools/solver.js: 动作集=enumerateTaps ∪ tapStaged ∪ 道具动作（wrench 转向任意可转滑块、stage 移出）——**仅当最优解需要道具才计入 metrics.minMoves**；动作展开顺序固定（行优先、列优先，D-08）；xorshift128 种子化 PRNG（禁 Math.random，D-08）
+- [x] T043 [US2] Implement Solver 指标产出 in tools/solver.js: minMoves（首解即最优）/ solutionCount（预算内不重复终局路径数，封顶 10k 记 ">=">=10000""）/ dockPeak（搜索全程 Dock 占用最大值 1..7）/ mechCount（按 tiles/prisms/cfg 实际出现计 0~4）/ openSuitsMax（最优路径上最大开放花色数）/ difficultyScore（T040 权重）；**metrics 双写 levels.js 与 solver-report.json**
+- [x] T044 [US2] Implement Solver CLI 与质量门禁 in tools/solver.js: `node tools/solver.js`（全量验证 LEVELS）+ `--level N` 单关 + `--engine-selftest`（T038 既有）；**exit code 门禁**（非零即失败，FR-031/SC-001/SC-004）: ①可解性 `LEVELS.length/LEVELS.length` 关 solvable ②每关 validateLevel().ok ③结构约束（每花色计数%3==0、openSuitsMax≤5、无对射棱镜）④曲线门-1 各章 difficultyScore 均值随章号单调不减 ⑤曲线门-2 第 1~4 章 minMoves 线性回归斜率 ≥0 ⑥曲线门-3 第 5 章个位 4/9 关显著 > 章均值、个位 5/0 显著 <（锯齿形态）⑦报告 metrics 与 levels.js 内嵌 metrics 逐字段一致；solver-report.json schema per level-pipeline.md §3（schemaVersion/generatedAt/seed/nodeBudget/levels[]/summary{total,solvable,failedIds,curveGate{chMonotonic,slope14,ch5Zigzag}}）
 
 ### Generator（逆向生成器，三重验证 D-10）for US2
 
-- [ ] T045 [US2] Implement 逆向构造核心 in tools/generator.js: 轮数=tiles/3，每轮选一花色（保证计数 %3==0 且最优路径开放花色 ≤5 的启发式花色分配）→ 生成 3 个同花色滑块逐个「反向飞行」落位（反向射线=沿 d 反向从边缘/出口外推进到落位格；落位被占则换出口或换 d 重试，受限次后该滑块重掷）；**落位逆序=solutionMoves 逆序（后推入者先飞出）**；章/关参数由 CHAPTERS 插值
-- [ ] T046 [US2] Implement 机制逆操作镜像 in tools/generator.js: 齿轮（落位时约束「十字相邻更晚推入者存在 ⇒ 其方向须在那些滑块飞出后经若干 +90° 对准出口」）；锁链（**仅当其配对钥匙已更晚推入（=更早飞出）才允许落位**——钥匙可达性结构性保证 FR-019）；冰封（任意落位、冰厚独立于飞行——破冰后的正向时序在逆序上无约束）；棱镜（先行布置，滑块反向飞行路径可含 1 段折射）
-- [ ] T047 [US2] Implement 对射拒绝与正向自检 in tools/generator.js: 棱镜布置后预检——任意两条「滑块→棱镜→棱镜」可达路径即重掷棱镜布局（FR-022/Δ2 对射拒绝）；正向自检=RulesEngine.init + 逐 applyTap 回放构造解，断言 terminal=='won' 且全程 dockPeak≤7、开放花色 ≤5、无中途空棋盘残槽（FR-029）——镜像逻辑错误在此暴露；失败→该关回炉
-- [ ] T048 [US2] Implement Solver 门禁集成与重试降档 in tools/generator.js: 三重验证闭环（逆向构造→正向自检→Solver 门禁，D-10）；失败→参数扰动重生成（子种子 re-roll: 位置/花色分配/机制布置）；同关连续 5 次失败→降档（tiles/suits 降 1 档至章区间下界）重试+报告标记 degraded:true；CLI: `--chapters 1,2,3,4,5` / `--seed S` / `--out src/data/levels.js` / `--dry-run`；种子化 PRNG 保证 --seed S 逐位复现（D-08）
-- [ ] T049 [US2] Implement 流水线导出 in tools/generator.js: 按契约写 src/data/levels.js（**solutionMoves 来自 Solver 的最优解、非构造解——Δ6；构造解仅作门禁自检**；metrics 同步内嵌；UMD 双导出、按 id 升序、LEVELS[i].id===i+1）+ tools/solver-report.json（同批次生成）；文件头显式保证注释: 初始滑块数 ≥6 且 %3==0、钥匙解锁前可达、单滑块单机制、无对射棱镜；**整体替换 M1/M2 手工测试关**（levels.js 被流水线再生成，此后禁止手改——FR-031）
+- [x] T045 [US2] Implement 逆向构造核心 in tools/generator.js: 轮数=tiles/3，每轮选一花色（保证计数 %3==0 且最优路径开放花色 ≤5 的启发式花色分配）→ 生成 3 个同花色滑块逐个「反向飞行」落位（反向射线=沿 d 反向从边缘/出口外推进到落位格；落位被占则换出口或换 d 重试，受限次后该滑块重掷）；**落位逆序=solutionMoves 逆序（后推入者先飞出）**；章/关参数由 CHAPTERS 插值
+- [x] T046 [US2] Implement 机制逆操作镜像 in tools/generator.js: 齿轮（落位时约束「十字相邻更晚推入者存在 ⇒ 其方向须在那些滑块飞出后经若干 +90° 对准出口」）；锁链（**仅当其配对钥匙已更晚推入（=更早飞出）才允许落位**——钥匙可达性结构性保证 FR-019）；冰封（任意落位、冰厚独立于飞行——破冰后的正向时序在逆序上无约束）；棱镜（先行布置，滑块反向飞行路径可含 1 段折射）
+- [x] T047 [US2] Implement 对射拒绝与正向自检 in tools/generator.js: 棱镜布置后预检——任意两条「滑块→棱镜→棱镜」可达路径即重掷棱镜布局（FR-022/Δ2 对射拒绝）；正向自检=RulesEngine.init + 逐 applyTap 回放构造解，断言 terminal=='won' 且全程 dockPeak≤7、开放花色 ≤5、无中途空棋盘残槽（FR-029）——镜像逻辑错误在此暴露；失败→该关回炉
+- [x] T048 [US2] Implement Solver 门禁集成与重试降档 in tools/generator.js: 三重验证闭环（逆向构造→正向自检→Solver 门禁，D-10）；失败→参数扰动重生成（子种子 re-roll: 位置/花色分配/机制布置）；同关连续 5 次失败→降档（tiles/suits 降 1 档至章区间下界）重试+报告标记 degraded:true；CLI: `--chapters 1,2,3,4,5` / `--seed S` / `--out src/data/levels.js` / `--dry-run`；种子化 PRNG 保证 --seed S 逐位复现（D-08）
+- [x] T049 [US2] Implement 流水线导出 in tools/generator.js: 按契约写 src/data/levels.js（**solutionMoves 来自 Solver 的最优解、非构造解——Δ6；构造解仅作门禁自检**；metrics 同步内嵌；UMD 双导出、按 id 升序、LEVELS[i].id===i+1）+ tools/solver-report.json（同批次生成）；文件头显式保证注释: 初始滑块数 ≥6 且 %3==0、钥匙解锁前可达、单滑块单机制、无对射棱镜；**整体替换 M1/M2 手工测试关**（levels.js 被流水线再生成，此后禁止手改——FR-031）
 
 ### 前端进关/持久化/终局 for US2
 
-- [ ] T050 [P] [US2] Implement 进度持久化 in src/main.js: localStorage["slide-triple:progress:v1"]={v:1, unlocked, last, best:{[id]:{score,combo}}, muted}（data-model.md §8）；**全访问 try/catch，失败降级内存进度（隐私模式可玩，D-03）**；加载时 unlocked/last 钳制 ≤LEVELS.length（Δ4 扩容自适应）；新会话自动进 unlocked 关；通关 unlocked=max(unlocked,id+1)、best 分更新
-- [ ] T051 [US2] Implement 结果屏与全通关终局 in src/main.js: won→「下一关」（id+1>LEVELS.length ⇒ **全通关庆祝终局**，动态关数）/「重玩」；lost→「重玩」（lives 重置）；muted 状态接入 SoundManager
-- [ ] T052 [US2] **Checkpoint M3（量产门）**: quickstart Q3.1~Q3.7 逐条通过（`--seed 2026` 逐位复现 / 全量验证 exit 0 / 参数矩阵抽查 L1,L15,L25,L35,L45 符合 FR-008 / curveGate 三门 / 自动进关+L50 全通关 / 刷新后进度延续+localStorage 不可用降级可玩 / 手改任一关→solver exit 1 捕获并更新报告）；SC-001 50/50 可解（附验证报告）；SC-004 难度曲线量化验证；US2-AC1~AC5 全过
+- [x] T050 [P] [US2] Implement 进度持久化 in src/main.js: localStorage["slide-triple:progress:v1"]={v:1, unlocked, last, best:{[id]:{score,combo}}, muted}（data-model.md §8）；**全访问 try/catch，失败降级内存进度（隐私模式可玩，D-03）**；加载时 unlocked/last 钳制 ≤LEVELS.length（Δ4 扩容自适应）；新会话自动进 unlocked 关；通关 unlocked=max(unlocked,id+1)、best 分更新
+- [x] T051 [US2] Implement 结果屏与全通关终局 in src/main.js: won→「下一关」（id+1>LEVELS.length ⇒ **全通关庆祝终局**，动态关数）/「重玩」；lost→「重玩」（lives 重置）；muted 状态接入 SoundManager
+- [x] T052 [US2] **Checkpoint M3（量产门）**: quickstart Q3.1~Q3.7 逐条通过（`--seed 2026` 逐位复现 / 全量验证 exit 0 / 参数矩阵抽查 L1,L15,L25,L35,L45 符合 FR-008 / curveGate 三门 / 自动进关+L50 全通关 / 刷新后进度延续+localStorage 不可用降级可玩 / 手改任一关→solver exit 1 捕获并更新报告）；SC-001 50/50 可解（附验证报告）；SC-004 难度曲线量化验证；US2-AC1~AC5 全过
 
 ---
 

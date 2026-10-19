@@ -55,10 +55,92 @@
       if (ready) onEvent({ e: 'phase', phase: phase, score: engine.score, combo: engine.combo, lives: engine.lives });
     }
 
+    /* ---- T033 死锁复证搜索器（D-09 防误杀——M2 保守预算 3k 节点/60ms; M4 校准） ----
+     * 动作集与 Solver 同构: enumerateTaps ∪ tapStaged ∪ 可用道具（wrench 目标遍历 + stage）
+     * true = 复证通过（确死）; false = 找到出路（非死锁） */
+    function verifyDeadlock() {
+      var nodes = 0;
+      var NODE_CAP = 3000;
+      var TIME_CAP = 60;
+      var t0 = Date.now();
+
+      function dfs(depth) {
+        if (nodes >= NODE_CAP || Date.now() - t0 > TIME_CAP) return false; /* 预算尽 → 非确死 */
+        if (RE.terminal(engine) === 'won') return true; /* 找到通关出路 → 非死锁 */
+        if (depth <= 0) return false;
+        var snap = RE.snapshot(engine);
+        var out = false;
+        try {
+          /* ① tap 动作 */
+          var taps = RE.enumerateTaps(engine);
+          for (var i = 0; i < taps.length && !out; i++) {
+            var snapI = RE.snapshot(engine);
+            var r = RE.applyTap(engine, taps[i]);
+            nodes++;
+            if (r.type === 'flyout' || r.type === 'prism-flyout' || r.type === 'staged-return') {
+              out = dfs(depth - 1);
+            }
+            RE.restore(engine, snapI);
+          }
+          /* ② tapStaged 动作 */
+          for (var si = 0; si < engine.staging.length && !out; si++) {
+            var snapS = RE.snapshot(engine);
+            var rs = RE.stageTile(engine, engine.staging[si].id);
+            nodes++;
+            if (rs.type !== 'invalid') out = dfs(depth - 1);
+            RE.restore(engine, snapS);
+          }
+          /* ③ stage 道具（暂存腾槽） */
+          if (!out && engine.items && engine.items.stage > 0 && engine.staging.length < 3 && engine.dock.length > 0) {
+            var snapT = RE.snapshot(engine);
+            var st = RE.applyItem(engine, 'stage', null);
+            nodes++;
+            if (st.type === 'stage') {
+              out = dfs(depth - 1);
+              /* stage 后递归内可能已消费道具——道具计数回滚由 restore 统一处理 */
+            }
+            RE.restore(engine, snapT);
+          }
+          /* ④ wrench 道具（方向扰动——仅普通/齿轮滑块） */
+          if (!out && engine.items && engine.items.wrench > 0) {
+            var tapsW = RE.enumerateTaps(engine);
+            for (var wi = 0; wi < tapsW.length && !out; wi++) {
+              var tile = engine.tiles[tapsW[wi]];
+              if (!tile || tile.ice > 0 || tile.locked || tile.inStaging) continue;
+              var snapW = RE.snapshot(engine);
+              var rw = RE.applyItem(engine, 'wrench', tapsW[wi]);
+              nodes++;
+              if (rw.type === 'wrench') out = dfs(depth - 1);
+              RE.restore(engine, snapW);
+            }
+          }
+        } finally {
+          RE.restore(engine, snap);
+        }
+        return out;
+      }
+      /* won 已在 judgeTerminal 排除; 此处搜索「有无任何出路」: 找到 won=true → 非死锁 */
+      var found = dfs(4);
+      /* 语义翻转: dfs 返回 true = 通关可达 = 非死锁 */
+      return !found;
+    }
+
     /* ---- 终局判定调度（SETTLING 末尾，顺序固定：won → burst → lives → deadlock） ---- */
     function judgeTerminal() {
       var t = RE.terminal(engine);
-      if (t === 'playing') return;
+      if (t === 'playing') {
+        /* T033: 疑死锁 → 复证（D-09 防误杀——复证失败才判负） */
+        if (RE.deadlockSuspect(engine)) {
+          var confirmed = verifyDeadlock();
+          if (confirmed) {
+            phase = PHASE.LOST_DEADLOCK;
+            emitPhase();
+            onTerminal({ kind: 'lost_deadlock', score: engine.score, combo: engine.combo });
+          }
+          /* 复证失败 → 继续游戏（保守不误杀） */
+        }
+        return;
+      }
       phase = t === 'won' ? PHASE.WON
         : t === 'lost_burst' ? PHASE.LOST_BURST
         : t === 'lost_lives' ? PHASE.LOST_LIVES
@@ -193,15 +275,77 @@
       emitPhase();
     }
 
-    /* ---- 道具编排（M2 T031/T032 实现；M1 占位接口） ---- */
+    /* ---- 道具编排（M2 T031 实现——引擎 applyItem + 快照/次数递减/事件转发） ---- */
     function useItem(item, tileId) {
-      emit({ e: 'item-unavailable', item: item });
-      return null;
+      if (phase !== PHASE.READY) { emit({ e: 'input-locked' }); return null; }
+      if (!engine.items || !engine.items[item] || engine.items[item] <= 0) {
+        emit({ e: 'item-unavailable', item: item });
+        return null;
+      }
+      /* undo: 弹快照栈整条级联链回滚（FR-024-1——快照取于原子回合前） */
+      if (item === 'undo') {
+        if (!history.length) { emit({ e: 'item-unavailable', item: 'undo' }); return null; }
+        var snap = history.pop();
+        RE.restore(engine, snap);
+        engine.items.undo = Math.max(0, (engine.items.undo || 0) - 1);
+        /* rail 失效（回滚后动作序列不再等于解前缀——保守置 off） */
+        onRail = false;
+        emit({ e: 'undo', snapshot: snap });
+        emit({ e: 'reset-soft' });
+        return { type: 'undo' };
+      }
+      /* wrench: 需要目标（无目标时进入选择态由 UI 层处理——此层只执行） */
+      if (item === 'wrench' && tileId == null) { emit({ e: 'item-needs-target', item: 'wrench' }); return null; }
+      /* stage: 满则 invalid（FR-026） */
+      if (item === 'stage' && engine.staging.length >= 3) { emit({ e: 'item-unavailable', item: 'stage' }); return null; }
+
+      /* 执行前快照（与 tap 同——undo 可整体回滚道具动作） */
+      history.push(RE.snapshot(engine));
+      if (history.length > 200) history.shift();
+
+      var result = RE.applyItem(engine, item, tileId);
+      if (result.type === 'invalid') {
+        history.pop(); /* 无效动作不入史 */
+        emit({ e: 'item-invalid', item: item, tileId: tileId });
+        return result;
+      }
+      /* 成功: 次数递减（cfg.items 拷贝上的运行时计数） */
+      engine.items[item] = Math.max(0, (engine.items[item] || 0) - 1);
+      trackRail({ k: 2, t: item === 'stage' ? -1 : tileId });
+      var i;
+      for (i = 0; i < result.events.length; i++) emit(result.events[i]);
+      for (i = 0; i < result.events.length; i++) {
+        if (result.events[i].e === 'match') windowCombo();
+      }
+      emit({ e: 'item', item: item });
+      lockForAnimation(result.events.length > 1 ? 700 : 450, function () {});
+      return result;
     }
 
+    /* ---- T032 暂存区点击: staging 滑块飞回 Dock 尾（Δ3 回填 tap; k=1） ---- */
     function tapStaged(tileId) {
-      emit({ e: 'input-locked' });
-      return null;
+      if (phase !== PHASE.READY) { emit({ e: 'input-locked' }); return null; }
+      var inStaging = false;
+      for (var j = 0; j < engine.staging.length; j++) {
+        if (engine.staging[j].id === tileId) { inStaging = true; break; }
+      }
+      if (!inStaging) { emit({ e: 'input-locked' }); return null; }
+
+      history.push(RE.snapshot(engine));
+      if (history.length > 200) history.shift();
+
+      var result = RE.stageTile(engine, tileId);
+      if (result.type === 'invalid') {
+        history.pop();
+        emit({ e: 'input-locked' });
+        return result;
+      }
+      trackRail({ k: 1, t: tileId });
+      var i;
+      for (i = 0; i < result.events.length; i++) emit(result.events[i]);
+      emit({ e: 'staged-return', tileId: tileId });
+      lockForAnimation(450, function () {});
+      return result;
     }
 
     /* ---- 引擎态直访（Renderer 轮询用） ---- */
