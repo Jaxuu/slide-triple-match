@@ -106,12 +106,14 @@ var CHAPTERS = [
   }
 ];
 
-/* 难度评分权重（FR-011/SC-004；norm = 50 关全域 min-max 归一） */
+/* 难度评分权重（FR-011/SC-004；norm = 50 关全域 min-max 归一）
+ * mechCount 为唯一未归一项（原始 0~4）——1.0 时其在第 5 章（全关 mech=4）
+ * 的常量抬升不再压缩 spike/valley 相对振幅，锯齿门（1.10/0.90）按设计区分度成立 */
 var SCORE_WEIGHTS = {
   minMoves: 1.0,
   solutionCount: 0.8,
   dockPeak: 1.2,
-  mechCount: 1.5,
+  mechCount: 1.0,
   tiles: 0.5,
   suits: 0.7
 };
@@ -185,8 +187,15 @@ function levelParams(levelId) {
     zMax = ch.zMax[1];
     suits = ch.suits[1];
   } else if (rhythmKind === 'relax') {
-    /* 解压爽关: tiles 取下界（对齐 3）、theme 对称模板 */
+    /* 解压爽关: tiles 取下界（对齐 3）、theme 对称模板
+     * n 收缩至底格 ≤ tiles（z0 满铺铁律: tiles ≥ n*n - prisms）——最小可容格 */
     tiles = Math.round(ch.tiles[0] / 3) * 3;
+    var prism0 = ch.mechFrom && levelId >= ch.mechFrom.prism ? 1 : 0;
+    var nMin = ch.grid[0];
+    for (var nc = nMin; nc <= ch.grid[1]; nc++) {
+      if (nc * nc - prism0 <= tiles) n = nc; else break;
+    }
+    n = Math.max(nMin, n);
     theme = ch.rhythm.themes[(Math.floor(levelId / 10)) % ch.rhythm.themes.length];
   }
 

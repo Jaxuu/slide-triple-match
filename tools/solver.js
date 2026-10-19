@@ -67,6 +67,94 @@ function makeBudget(nodes, ms) {
 }
 
 /* =========================================================
+ * Solver 内部回溯（事件撤销日志——O(events) 替代 O(tiles) 快照克隆）
+ * undoTap 精确逆放 applyTap 的 TapResult.events（含级联）:
+ *   · flyout: t 从 dock 摘出 → removed=false → 按原 (r,c,z) 插回棋盘栈
+ *   · remove(match): 3 滑块按原 dock 相对序 append 回 dock 尾（removed 已 true——维持入槽态）
+ *   · match: combo--、score 回扣
+ *   · gear/unlock/ice: 字段回退（from 值）
+ *   · blocked: damage 回补 lives
+ * 前置条件: dock 滑块为 state.tiles 同一对象（init/dockInsert/restore 均满足）
+ * ========================================================= */
+function undoTap(state, r) {
+  if (!r || !r.events) {
+    if (r && r.damage) state.lives += r.damage;
+    return;
+  }
+  var events = r.events;
+  var i, ev, j;  /* 逆序回退字段类事件（ice/gear/unlock） */
+  for (i = events.length - 1; i >= 0; i--) {
+    ev = events[i];
+    if (ev.e === 'gear') {
+      state.tiles[ev.id].d = ev.from;
+    } else if (ev.e === 'unlock') {
+      state.tiles[ev.id].locked = true;
+    } else if (ev.e === 'ice') {
+      var it = state.tiles[ev.id];
+      it.ice = ev.from;
+      if (ev.from > 0) it.m = 'i';
+    }
+  }
+  /* remove 事件（逆序）: 每组 3 滑块 append 回 dock 尾 */
+  for (i = events.length - 1; i >= 0; i--) {
+    ev = events[i];
+    if (ev.e === 'remove') {
+      for (j = 0; j < ev.ids.length; j++) {
+        state.dock.push(state.tiles[ev.ids[j]]);
+      }
+      state.combo = Math.max(0, state.combo - 1);
+      /* score 回扣由 match 事件携带 gain（undo 循环下） */
+    } else if (ev.e === 'match') {
+      state.score -= (ev.gain || 0) * ev.ids.length;
+    }
+  }
+  /* 钥匙消费的 chains 配对回滚（cascadeOnFlyout 摘除 → 回插）
+   * at 记录于 applyTap 动作入栈之后 = 当时 actions.length; 本回退点尚未弹动作 → 恰等
+   * 同一 tap 可消费多条配对 → while 循环逐条回插
+   * chains 顺序对语义无影响（解锁按内容查找、validate/stateKey 顺序无关）——回插至末尾即可 */
+  if (state.chainConsumed && state.chainConsumed.length) {
+    while (state.chainConsumed.length && state.chainConsumed[state.chainConsumed.length - 1].at === state.actions.length) {
+      var last = state.chainConsumed.pop();
+      state.cfg.chains.push(last.pair);
+    }
+  }
+  /* 主体滑块摘出 dock → 回棋盘（flyout/prism-flyout） */
+  if (r.type === 'flyout' || r.type === 'prism-flyout') {
+    var t = state.tiles[r.tileId];
+    var di = -1;
+    for (i = 0; i < state.dock.length; i++) {
+      if (state.dock[i] === t) { di = i; break; }
+    }
+    if (di >= 0) state.dock.splice(di, 1);
+    t.removed = false;
+    /* 插回棋盘栈（按 z 升序位置） */
+    var cell = state.board[t.r][t.c];
+    if (!cell || cell.prism) {
+      state.board[t.r][t.c] = [t];
+    } else {
+      var pos = cell.length;
+      for (j = 0; j < cell.length; j++) {
+        if ((cell[j].z || 0) > (t.z || 0)) { pos = j; break; }
+      }
+      cell.splice(pos, 0, t);
+    }
+  } else if (r.type === 'staged-return') {
+    var t2 = state.tiles[r.tileId];
+    var di2 = -1;
+    for (i = 0; i < state.dock.length; i++) {
+      if (state.dock[i] === t2) { di2 = i; break; }
+    }
+    if (di2 >= 0) state.dock.splice(di2, 1);
+    t2.inStaging = true;
+    t2.removed = false;
+    state.staging.push(t2);
+  }
+  /* applyTap 对 blocked 也 push 动作（Step 0 后立即入栈）→ 统一弹 1 */
+  state.actions.length = Math.max(0, state.actions.length - 1);
+  if (r.damage) state.lives += r.damage;
+}
+
+/* =========================================================
  * T041/T042/T043: 单关求解（迭代加深 DFS——首解即最优步数解）
  * ========================================================= */
 var SOLUTION_CAP = 10000;
@@ -75,11 +163,17 @@ function solveLevel(levelDef, opts) {
   opts = opts || {};
   var rawBudget = opts.budget || CFG.BUDGET;
   var budget = makeBudget(rawBudget.nodes, rawBudget.ms);
+  /* 生成器锚定: hintUpper 提供已知可行解长度（构造解）——搜索上界钉在该值
+   * （tiles 全消的任何解长度 = tiles.length——本游戏最优解步数结构性等于滑块数） */
+  var anchorLen = opts.hintUpper || null;
 
   var state = RE.init(levelDef);
   var tilesN = levelDef.tiles.length;
   var lowerBound = Math.ceil(tilesN / 3);
-  var upperLimit = Math.max(tilesN + 8, 60);
+  var upperLimit = anchorLen != null ? anchorLen : Math.max(tilesN + 8, 60);
+  /* 结构事实: 每次成功 tap 恰移除 1 滑块 → 任何胜利路径长度 == tiles.length
+   * minMoves 结构性 = tilesN（无更短可能）; Solver 任务 = 验证存在 + 计数 */
+  var structuralMin = tilesN;
 
   var dockPeakMax = 0;
   var openSuitsMaxSeen = 0;
@@ -119,26 +213,35 @@ function solveLevel(levelDef, opts) {
 
     var acts = expandActions(st);
     for (var ai = 0; ai < acts.length; ai++) {
+      if (budget.tick()) return 'budget'; /* 预算按动作边计（每边 = 一次快照+克隆——OOM 防护） */
       var a = acts[ai];
-      var snap = RE.snapshot(st);
       var r = RE.applyTap(st, a.t);
-      if (r.type === 'invalid' || r.type === 'blocked') { RE.restore(st, snap); continue; }
+      if (r.type === 'invalid') continue;
+      if (r.type === 'blocked') { if (r.damage) st.lives += r.damage; continue; } /* 无棋盘副作用 */
       if (st.dock.length > dockPeakMax) dockPeakMax = st.dock.length;
       trackOpenSuits(st);
       var key = stateKey(st);
-      if (seen[key]) { RE.restore(st, snap); continue; }
+      if (seen[key]) { undoTap(st, r); continue; }
       seen[key] = true;
       path.push(a.t);
       var res = dfs(st, depth + 1, seen, path);
       path.pop();
       delete seen[key];
-      RE.restore(st, snap);
+      undoTap(st, r);
       if (res === 'capped' || res === 'budget') return res;
     }
     return 'dead';
   }
 
-  for (var limit = lowerBound; limit <= upperLimit; limit++) {
+  /* 迭代加深: 锚定时直接以 anchor 深度首扫（无逐层浪费）; 否则 lowerBound→upperLimit */
+  var depths = [];
+  if (anchorLen != null) {
+    depths = [anchorLen];
+  } else {
+    for (var dl = lowerBound; dl <= upperLimit; dl++) depths.push(dl);
+  }
+  for (var di2 = 0; di2 < depths.length; di2++) {
+    var limit = depths[di2];
     var seen = {};
     seen[stateKey(state)] = true;
     var r = dfs(state, 0, seen, []);
@@ -146,10 +249,11 @@ function solveLevel(levelDef, opts) {
     if (r === 'budget') { result = 'budget'; break; }
     if (r === 'capped') { result = 'capped'; break; }
   }
+  /* 结构性最优: tiles 全消路径长度 == tilesN（若首解 = tilesN 即最优——无需更深探索） */
 
   return {
     solvable: foundMoves != null,
-    minMoves: foundMoves,
+    minMoves: foundMoves != null ? foundMoves : structuralMin,
     solutionMoves: foundPath,
     dockPeak: dockPeakMax,
     openSuitsMax: openSuitsMaxSeen,
@@ -794,6 +898,7 @@ module.exports = {
   stateKey: stateKey,
   makeBudget: makeBudget,
   solveLevel: solveLevel,
+  undoTap: undoTap,
   mechCountOf: mechCountOf,
   difficultyScoreOf: difficultyScoreOf,
   curveGates: curveGates

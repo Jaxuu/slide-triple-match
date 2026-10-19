@@ -118,7 +118,8 @@
       score: 0,
       combo: 0,
       items: deepClone(cfg.items),
-      actions: []            /* 动作序列（onRail 基准） */
+      actions: [],           /* 动作序列（onRail 基准） */
+      chainConsumed: []      /* 已消费 chains 配对（Undo/Solver 回溯逆放恢复） */
     };
   }
 
@@ -334,7 +335,8 @@
       events.push({ e: 'gear', id: g.id, from: from, to: g.d });
     }
 
-    /* 4b 钥匙解锁（chains: [[keyId,[lockId,...]],...] 或语义——一锁配多钥、一钥多锁） */
+    /* 4b 钥匙解锁（chains: [[keyId,[lockId,...]],...] 或语义——一锁配多钥、一钥多锁）
+     * 解锁后配对出队记入 state.chainConsumed（Undo/Solver 回溯逆放恢复） */
     if (t.m === MECH.KEY && Array.isArray(state.cfg.chains) && state.cfg.chains.length) {
       for (var ci = 0; ci < state.cfg.chains.length; ci++) {
         var pair = state.cfg.chains[ci];
@@ -348,7 +350,9 @@
           lock.locked = false;
           events.push({ e: 'unlock', id: lockId, by: t.id });
         }
-        state.cfg.chains.splice(ci, 1); /* 已消费配对（防止重复解锁） */
+        if (!state.chainConsumed) state.chainConsumed = [];
+        state.chainConsumed.push({ at: state.actions.length, idx: ci, pair: pair });
+        state.cfg.chains.splice(ci, 1); /* 已消费配对（防止重复解锁; Undo 按原位回插） */
         ci--;
       }
     }
@@ -397,15 +401,16 @@
       var damage = state.cfg.damageOnBlock ? 1 : 0;
       if (damage) state.lives -= 1;
       var path = buildPath(state, t.r, t.c, t.d, zSelf);
-      path.push({ r: ray.blocker.r, c: ray.blocker.c }); /* 折射折点 */
+      path.push({ r: ray.blocker.r, c: ray.blocker.c }); /* 折射折点（棱镜格） */
+      /* 棱镜格 → 受阻格前一行走（lastR/lastC 已算就——直接补 path 剩余段） */
       var v2 = DIR_VEC[nd];
-      var backR = lastR, backC = lastC;
-      /* 新射线行至阻挡前一格 */
-      var pr = ray.blocker.r - v2.dr, pc = ray.blocker.c - v2.dc;
-      var cur = { r: ray.blocker.r, c: ray.blocker.c };
-      while (!(cur.r === pr && cur.c === pc)) {
-        cur.r += v2.dr; cur.c += v2.dc;
-        path.push({ r: cur.r, c: cur.c });
+      var cr = ray.blocker.r, cc2 = ray.blocker.c;
+      /* 从棱镜格沿 nd 行至 lastR/lastC（受阻前一格——buildPath 未覆盖的折射段） */
+      for (;;) {
+        cr += v2.dr; cc2 += v2.dc;
+        path.push({ r: cr, c: cc2 });
+        if (cr === lastR && cc2 === lastC) break;
+        if (cr < 0 || cr >= state.n || cc2 < 0 || cc2 >= state.n) break; /* 越界保护 */
       }
       return {
         type: 'blocked',
@@ -581,7 +586,8 @@
     return true; /* 全部可救路径不存在 → 疑死锁（复证由调用方） */
   }
 
-  /* T012: snapshot/restore 深拷贝对（Undo 与 Solver 回溯共用；运行时 dock 保序——D-07 规范化仅限 Solver 哈希） */
+  /* T012: snapshot/restore 深拷贝对（Undo 与 Solver 回溯共用；运行时 dock 保序——D-07 规范化仅限 Solver 哈希）
+   * actions 仅记长度（快照体量 O(1)——Solver DFS 数百万快照下 O(n) actions 拷贝会 OOM） */
   function snapshot(state) {
     return deepClone({
       boardTiles: boardTileSnap(state),
@@ -591,7 +597,8 @@
       combo: state.combo,
       score: state.score,
       lives: state.lives,
-      actions: state.actions
+      actionCount: state.actions.length,
+      chainConsumedCount: (state.chainConsumed || []).length
     });
   }
 
@@ -621,13 +628,31 @@
       t.removed = s.removed; t.inStaging = s.inStaging;
     }
     rebuildBoard(state);
-    state.dock = deepClone(snap.dock);
-    state.staging = deepClone(snap.staging);
+    /* dock/staging 恢复为 state.tiles 同一对象引用（对象身份统一——
+     * 深拷贝会分叉身份: settleMatches 置 removed 的对象 ≠ state.tiles[id] → 幽灵滑块回棋盘 → 状态爆炸） */
+    state.dock = [];
+    for (var di = 0; di < snap.dock.length; di++) {
+      state.dock.push(state.tiles[snap.dock[di].id]);
+    }
+    state.staging = [];
+    for (var si = 0; si < snap.staging.length; si++) {
+      state.staging.push(state.tiles[snap.staging[si].id]);
+    }
     state.items = deepClone(snap.items);
     state.combo = snap.combo;
     state.score = snap.score;
     state.lives = snap.lives;
-    state.actions = deepClone(snap.actions || []);
+    /* actions 截断回快照长度（保留真实历史前缀; DFS 回溯按长度截断） */
+    if (snap.actionCount != null) state.actions.length = snap.actionCount;
+    else if (Array.isArray(snap.actions)) state.actions = deepClone(snap.actions);
+    /* chainConsumed 截断: 超出快照计数的已消费配对逆序回插 cfg.chains
+     * chains 顺序对语义无影响（解锁按内容查找）——计数对齐即可 */
+    if (snap.chainConsumedCount != null && state.chainConsumed) {
+      while (state.chainConsumed.length > snap.chainConsumedCount) {
+        var back = state.chainConsumed.pop();
+        state.cfg.chains.push(back.pair);
+      }
+    }
     return state;
   }
 

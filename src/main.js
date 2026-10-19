@@ -17,6 +17,51 @@
   var currentId = 1;
 
   /* =========================================================
+   * T050: 进度持久化（data-model.md §8，D-03 隐私模式降级）
+   * localStorage 全访问 try/catch；不可用时内存进度照常可玩
+   * ========================================================= */
+  var PROGRESS_KEY = 'slide-triple:progress:v1';
+  var progress = { v: 1, unlocked: 1, last: 1, best: {}, muted: false };
+  var storageUsable = true;
+
+  function loadProgress() {
+    try {
+      var raw = global.localStorage.getItem(PROGRESS_KEY);
+      if (raw) {
+        var p = JSON.parse(raw);
+        if (p && p.v === 1) {
+          var max = (STM.LEVELS || []).length || 1;
+          progress.unlocked = Math.min(Math.max(1, p.unlocked | 0), max); /* 钳制 ≤LEVELS.length（Δ4） */
+          progress.last = Math.min(Math.max(1, p.last | 0), max);
+          progress.best = p.best && typeof p.best === 'object' ? p.best : {};
+          progress.muted = !!p.muted;
+        }
+      }
+    } catch (e) { storageUsable = false; } /* 隐私模式/禁用 → 内存进度（D-03） */
+  }
+
+  function saveProgress() {
+    try {
+      global.localStorage.setItem(PROGRESS_KEY, JSON.stringify(progress));
+    } catch (e) { storageUsable = false; } /* 写失败静默降级 */
+  }
+
+  function recordWin(id, score, combo) {
+    progress.unlocked = Math.max(progress.unlocked, Math.min(id + 1, (STM.LEVELS || []).length));
+    var b = progress.best[id];
+    if (!b || score > b.score) progress.best[id] = { score: score, combo: combo };
+    else if (score === b.score && combo > (b.combo || 0)) progress.best[id] = { score: score, combo: combo };
+    progress.last = id;
+    saveProgress();
+  }
+
+  function setMuted(m) {
+    progress.muted = m;
+    if (sound) sound.setMuted(m);
+    saveProgress();
+  }
+
+  /* =========================================================
    * T020: boot 流程与 LEVELS.length 动态化（Δ4——禁止硬编码关数）
    * ========================================================= */
   function boot() {
@@ -26,6 +71,7 @@
       showError('关卡数据为空（STM.LEVELS 未加载）');
       return;
     }
+    loadProgress(); /* T050: LEVELS 就绪后才钳制 unlocked/last（Δ4 动态关数） */
 
     /* ?level=N 深链（1 ≤ N ≤ LEVELS.length 钳制——Δ4） */
     var deepId = 1;
@@ -36,13 +82,38 @@
     } catch (e) { /* file:// 下 location.search 恒可读，防御性包裹 */ }
 
     sound = STM.createSoundManager({});
+    if (sound.setMuted && progress.muted) sound.setMuted(progress.muted);
 
     /* 首次 pointerdown 惰性解锁 AudioContext（autoplay 政策） */
     global.document.addEventListener('pointerdown', function onFirst() {
       if (sound) sound.unlock();
     }, { capture: true });
 
-    loadLevel(deepId);
+    /* T051: 静音开关（muted 持久化于 progress） */
+    if (els.btnMute) {
+      els.btnMute.addEventListener('pointerdown', onMuteDown);
+      renderMuteBtn();
+    }
+
+    /* 深链 ?level=N 优先；否则自动进 unlocked 关（Q3.6） */
+    loadLevel(deepId > 1 ? deepId : progress.unlocked);
+  }
+
+  function onMuteDown() {
+    setMuted(!progress.muted);
+    renderMuteBtn();
+  }
+
+  function renderMuteBtn() {
+    if (!els.btnMute) return;
+    if (progress.muted) {
+      els.btnMute.textContent = '🔇';
+      els.btnMute.classList.add('muted');
+    } else {
+      els.btnMute.textContent = '🔊';
+      els.btnMute.classList.remove('muted');
+    }
+    if (!storageUsable) els.btnMute.title = '进度无法持久化（存储不可用）';
   }
 
   function cacheEls() {
@@ -63,6 +134,7 @@
       resultDetail: d.getElementById('result-detail'),
       btnRetry: d.getElementById('result-retry'),
       btnNext: d.getElementById('result-next'),
+      btnMute: d.getElementById('btn-mute'),
       toast: ensureToast(d)
     };
   }
@@ -221,18 +293,21 @@
     }, 900);
   }
 
-  /* ---------- 终局结算（won/lost） ---------- */
+  /* ---------- 终局结算（won/lost）T051: 进关/进度/终局 ---------- */
   function handleTerminal(o) {
     if (o.kind === 'won') {
       sound.play('victory');
+      recordWin(currentId, o.score, o.combo); /* T050: unlocked/max 刷新 + 持久化 */
       var isLast = currentId >= STM.LEVELS.length; /* 动态终局判定（Δ4） */
-      showOverlay(
-        isLast ? '全通关！' : '胜利！',
-        '得分 ' + o.score + ' · 连击 x' + o.combo,
-        !isLast
-      );
+      var best = progress.best[currentId];
+      var detail = isLast
+        ? '全部 ' + STM.LEVELS.length + ' 关通关！ 总分 ' + o.score + ' · 连击 x' + o.combo
+        : '得分 ' + o.score + ' · 连击 x' + o.combo + (best ? ' · 最佳 ' + best.score : '');
+      showOverlay(isLast ? '全通关！' : '胜利！', detail, !isLast);
     } else {
       sound.play('defeat');
+      progress.last = currentId; /* 失败也记录 last（刷新回本关） */
+      saveProgress();
       var reason = o.kind === 'lost_burst' ? '收集槽爆满' :
         o.kind === 'lost_lives' ? '生命耗尽' : '陷入死局';
       showOverlay('失败', reason + ' · 得分 ' + o.score, false);
@@ -296,5 +371,5 @@
     boot();
   }
 
-  STM.main = { boot: boot, loadLevel: loadLevel };
+  STM.main = { boot: boot, loadLevel: loadLevel, session: function () { return session; }, progress: progress };
 })(typeof window !== 'undefined' ? window : globalThis);
