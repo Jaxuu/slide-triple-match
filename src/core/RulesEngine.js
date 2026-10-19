@@ -10,8 +10,8 @@
  *   '/': U→R, R→U, D→L, L→D
  *   '\': U→L, L→U, D→R, R→D
  *
- * M1.5 Δ7 多层堆叠棋盘（Multi-Layer Stack）:
- *   TileSpec 可选字段 z: 0|1|2（0 最底层，数字大者位于当前格最顶层）
+ * M1.5 Δ7 多层堆叠棋盘（Multi-Layer Stack; Δ11 扩容至 5 层）:
+ *   TileSpec 可选字段 z: 0|1|2|3|4（0 最底层，数字大者位于当前格最顶层）
  *   board[r][c] = 栈数组（底→顶）；仅栈顶滑块可点击/受齿轮作用/触发飞出；顶层飞出后次顶层立即暴露（reveal 事件）
  *
  * M1.7 Δ8 分层立体阻挡（Layer-Aware Raycasting）:
@@ -638,7 +638,7 @@
     if (!Array.isArray(level.tiles) || level.tiles.length < 6 || level.tiles.length % 3 !== 0) {
       errors.push('tiles 数量须 ≥6 且 %3==0');
     }
-    if (Array.isArray(level.tiles) && level.tiles.length > 128) errors.push('tiles 数量超上限 128（M3 5 层塔容量放宽）');
+    if (Array.isArray(level.tiles) && level.tiles.length > 150) errors.push('tiles 数量超上限 150（Δ11 大棋盘 5 层塔容量放宽）');
     var seen = {};
     for (var i = 0; i < (level.tiles || []).length; i++) {
       var t = level.tiles[i];

@@ -3,9 +3,10 @@
  * classic script；向 window.STM 挂载（D-01）
  * 不实现任何规则（纯编排）——规则语义全部在 RulesEngine
  *
- * 状态机（data-model.md §7）:
- *   LOADING → READY ⇄ ANIMATING → SETTLING → READY …
- *   READY ──判定──→ WON | LOST_BURST | LOST_LIVES | LOST_DEADLOCK
+ * 状态机（data-model.md §7；Δ10 无锁连点）:
+ *   LOADING → READY → WON | LOST_BURST | LOST_LIVES | LOST_DEADLOCK
+ *   逻辑瞬时结算：applyTap 同步执行（0ms），动画纯视觉异步并发；
+ *   不存在 ANIMATING/SETTLING 输入锁——「别急，动画中…」提示已删除
  * ========================================================= */
 (function (global) {
   'use strict';
@@ -16,16 +17,12 @@
   var PHASE = {
     LOADING: 'LOADING',
     READY: 'READY',
-    ANIMATING: 'ANIMATING',
-    SETTLING: 'SETTLING',
     WON: 'WON',
     LOST_BURST: 'LOST_BURST',
     LOST_LIVES: 'LOST_LIVES',
     LOST_DEADLOCK: 'LOST_DEADLOCK'
   };
 
-  /* 级联动画时长上限（超时强制结算解锁，防卡死——game-session.md §2） */
-  var MAX_ANIM_MS = 1200;
   /* 连击窗口：连续三消间隔 < 1.5s（game-session.md §2） */
   var COMBO_WINDOW_MS = 1500;
 
@@ -41,7 +38,6 @@
     var comboActive = false;
     var railIndex = 0;           /* onRail 基准：已匹配 solutionMoves 前缀长度 */
     var onRail = true;
-    var animTimer = null;
 
     /* ---- 事件转发（Renderer/SoundManager 订阅） ---- */
     var ready = false; /* 构造期静默标志：调用方尚未拿到 session 引用 */
@@ -131,24 +127,8 @@
       onTerminal({ kind: t, score: engine.score, combo: engine.combo });
     }
 
-    /* ---- 动画锁：ANIMATING/SETTLING 期间 tap 忽略（忽略 + 短提示音策略） ---- */
-    function lockForAnimation(durationMs, done) {
-      phase = PHASE.ANIMATING;
-      emitPhase();
-      if (animTimer) clearTimeout(animTimer);
-      /* 上限 1.2s 强制结算解锁 */
-      animTimer = setTimeout(function () {
-        animTimer = null;
-        phase = PHASE.SETTLING;
-        emitPhase();
-        done();
-        if (phase === PHASE.SETTLING) {
-          phase = PHASE.READY;
-          emitPhase();
-        }
-        judgeTerminal();
-      }, Math.min(durationMs, MAX_ANIM_MS));
-    }
+    /* ---- Δ10 无锁连点：逻辑瞬时结算（0ms 同步），无动画锁 ----
+     * 终局判定调度（每原子回合末，顺序固定：won → burst → lives → deadlock） */
 
     /* ---- 计分记账（连击窗口由会话层管理；引擎 combo 为累计三消数） ----
      * 引擎已按 comboBase+combo×comboStep 计分（settleMatches）。
@@ -176,12 +156,10 @@
       return false;
     }
 
-    /* ---- 公共动作 API（玩家输入与 Bot/Hint 同一入口） ---- */
+    /* ---- 公共动作 API（玩家输入与 Bot/Hint 同一入口） ----
+     * Δ10 无锁连点: 仅终态（won/lost_*）拦截；READY 期间 0ms 瞬时结算——
+     * flyout 后格子立即腾空，renderProbe 即时反映，连续点击直接命中下层滑块 */
     function tap(tileId) {
-      if (phase === PHASE.ANIMATING || phase === PHASE.SETTLING) {
-        emit({ e: 'input-locked' });
-        return null;
-      }
       if (phase !== PHASE.READY) {
         emit({ e: 'input-locked' });
         return null;
@@ -204,7 +182,7 @@
       var result = RE.applyTap(engine, tileId);
       trackRail({ k: 0, t: tileId });
 
-      /* 事件流转发（渲染/音效） */
+      /* 事件流转发（渲染/音效——动画并发非阻塞，由 Renderer 各自动画槽消化） */
       emit({ e: 'click', tileId: tileId });
       var i;
       for (i = 0; i < result.events.length; i++) emit(result.events[i]);
@@ -214,14 +192,8 @@
         if (result.events[i].e === 'match') windowCombo();
       }
 
-      if (result.type === 'blocked') {
-        /* 弹回动画短锁 */
-        lockForAnimation(380, function () {});
-        return result;
-      }
-
-      /* 飞出/入槽/三消动画锁（级联时长上限 1.2s 兜底） */
-      lockForAnimation(result.events.length > 1 ? 700 : 450, function () {});
+      /* 瞬时终局判定（无 SETTLING 等待——级联已在 applyTap 内原子结算完毕） */
+      judgeTerminal();
       return result;
     }
 
@@ -251,7 +223,6 @@
       onRail = true;
       comboActive = false;
       lastMatchAt = 0;
-      if (animTimer) { clearTimeout(animTimer); animTimer = null; }
       emit({ e: 'reset' });
       emitPhase();
     }
@@ -297,7 +268,7 @@
         if (result.events[i].e === 'match') windowCombo();
       }
       emit({ e: 'item', item: item });
-      lockForAnimation(result.events.length > 1 ? 700 : 450, function () {});
+      judgeTerminal(); /* Δ10: 道具动作同样瞬时终局判定 */
       return result;
     }
 

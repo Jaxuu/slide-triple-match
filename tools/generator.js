@@ -72,11 +72,14 @@ function planCells(params, rng) {
       var p = candidates[i];
       var k = p.r + ':' + p.c;
       if (used[k]) continue;
-      /* 对射拒绝（简化预检）: 不与已放棱镜同行/列/斜线相邻 */
+      /* 对射拒绝（FR-022 预检）: 不与已放棱镜同行/同列/同斜线（滑块→棱镜→棱镜
+       * 可达路径高风险布局; 正向自检 + Solver 门禁兜底复验） */
       var conflict = false;
       for (var j = 0; j < prisms.length; j++) {
         var q = prisms[j];
-        if (Math.abs(q.r - p.r) + Math.abs(q.c - p.c) === 0) { conflict = true; break; }
+        if (q.r === p.r || q.c === p.c || Math.abs(q.r - p.r) === Math.abs(q.c - p.c)) {
+          conflict = true; break;
+        }
       }
       if (conflict) continue;
       used[k] = true;
@@ -322,14 +325,21 @@ function assignMechanisms(slots, flyOrder, params, rng) {
     }
   }
 
-  /* ice: 密度插值; 厚度 1~iceMax（挑战上探）; 任意段 */
+  /* ice: 密度插值; 厚度 1~iceMax（挑战上探）; 任意段
+   * Δ11 结构约束: 冰封滑块须为组内第 2/3 位（fly%3!==0）——组内首块入槽后
+   * 若冰封块卡住（不可点），该组滞留 1~2 块于槽 → 跨组交错 → 开放花色失控
+   * （openSuitsMax>5 门禁失败的根因）。组内第 2/3 位 + 破冰由首个三消触发
+   * → 冰块解锁时同组最多已滞留 1 块，开放花色峰值 ≤ 2+机制位少量 */
   if (params.iceOn) {
     var iDens = params.iceDensity[0] + (params.iceDensity[1] - params.iceDensity[0]) * rng();
     if (params.rhythmKind === 'challenge') iDens = params.iceDensity[1];
     var iCount = Math.max(1, Math.round(total * iDens));
     var idxs2 = [];
-    /* 冰封滑块 fly 序 ≥3（首个三消组之后——保证破冰三消先发生; 破冰后按序畅通） */
-    for (var k = 3; k < total; k++) idxs2.push(k);
+    /* 冰封滑块 fly 序 ≥3 且组内非首位（首个三消组之后——保证破冰三消先发生） */
+    for (var k = 3; k < total; k++) {
+      if (k % 3 === 0) continue; /* 组内首位禁放（结构约束） */
+      idxs2.push(k);
+    }
     shuffle(rng, idxs2);
     for (var m = 0; m < iCount && m < idxs2.length; m++) {
       var ii = idxs2[m];
@@ -338,12 +348,16 @@ function assignMechanisms(slots, flyOrder, params, rng) {
     }
   }
 
-  /* chain: 锁链在后 50%（晚飞）; 钥匙在锁链之前飞出（早段）; 每锁一钥 */
+  /* chain: 锁链在后 50%（晚飞）; 钥匙在锁链之前飞出（早段）; 每锁一钥
+   * Δ11 结构约束: 锁/钥匙均须组内第 2/3 位（同上——防跨组交错滞留） */
   if (params.chainOn) {
     var cDens = params.chainDensity[0] + (params.chainDensity[1] - params.chainDensity[0]) * rng();
     var cCount = Math.max(1, Math.round(total * cDens));
     var lockIdxs = [];
-    for (var p2 = Math.floor(total * 0.5); p2 < total; p2++) lockIdxs.push(p2);
+    for (var p2 = Math.floor(total * 0.5); p2 < total; p2++) {
+      if (p2 % 3 === 0) continue; /* 组内首位禁放（结构约束） */
+      lockIdxs.push(p2);
+    }
     shuffle(rng, lockIdxs);
     var locks = [];
     for (var q = 0; q < cCount && q < lockIdxs.length; q++) {
@@ -357,7 +371,7 @@ function assignMechanisms(slots, flyOrder, params, rng) {
       /* 钥匙位置: 0..lockPos-1 中未标记滑块（避开已用键/锁/机制位） */
       var keyCands = [];
       for (var kc = 0; kc < lockPos; kc++) {
-        if (!marked[kc]) keyCands.push(kc);
+        if (!marked[kc] && kc % 3 !== 0) keyCands.push(kc); /* Δ11: 钥匙非组内首位 */
       }
       if (!keyCands.length) continue;
       var keyPos = pick(rng, keyCands);
@@ -501,13 +515,16 @@ function generateOne(levelId, seed) {
   var normal = attemptWith(JSON.parse(JSON.stringify(params)), 0);
   if (normal) return { levelDef: normal, degraded: false };
 
-  /* 降档（T048: tiles/suits 降 1 档至章区间下界; 连续 5 次失败后） */
+  /* 降档（T048: tiles/suits 降 1 档至章区间下界; 连续 5 次失败后）
+   * Δ11: 网格铁律优先——n 保持 waveGrid 输出不降（8×8 难关不缩成 7×7;
+   * z0 满铺自动满足: 降档后 tiles ≥ 阶段下界 ≥ n*n - prisms） */
   var CH = CFG.CHAPTERS[params.chapter - 1];
   for (var dg = 1; dg <= 3; dg++) {
     var p = JSON.parse(JSON.stringify(params));
     p.tiles = Math.max(Math.round(CH.tiles[0] / 3) * 3, p.tiles - 3 * dg);
     p.suits = Math.max(CH.suits[0], p.suits - dg);
-    while (p.n > 5 && p.tiles < p.n * p.n) p.n -= 1;
+    if (p.tiles < p.n * p.n - (p.prismCount || 0)) p.tiles = p.n * p.n - (p.prismCount || 0); /* 满铺下限 */
+    p.tiles = Math.round(p.tiles / 3) * 3;
     console.log('  L' + levelId + ' 降档 ' + dg + '（tiles=' + p.tiles + ' suits=' + p.suits + ' n=' + p.n + '）');
     var d = attemptWith(p, 997 * dg);
     if (d) return { levelDef: d, degraded: true };

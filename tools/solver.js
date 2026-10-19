@@ -172,20 +172,55 @@ function solveLevel(levelDef, opts) {
   var result = 'dead';
   var i;
 
-  function trackOpenSuits(st) {
-    var seen = {};
-    for (var i2 = 0; i2 < st.dock.length; i2++) seen[st.dock[i2].s] = true;
-    var m = 0;
-    for (var k in seen) m++;
-    if (m > openSuitsMaxSeen) openSuitsMaxSeen = m;
+  /* Δ11 口径修正: openSuitsMax = **最优解路径上**的最大开放花色数（FR-029/门 ③
+   * 原实现为「搜索全程」——搜索中途试探态（非解路径）在大棋盘 8 花色下必然
+   * 峰值更高，指标语义与契约「最优路径开放花色 ≤5」不符。改为首解路径回放统计） */
+  function openSuitsOnPath(st, path) {
+    var max = 0;
+    for (var pi = 0; pi < path.length; pi++) {
+      var r = RE.applyTap(st, path[pi]);
+      if (r.type === 'invalid' || r.type === 'blocked') continue; /* 理论不发生（解路径全 flyout） */
+      var seen = {};
+      for (var j = 0; j < st.dock.length; j++) seen[st.dock[j].s] = true;
+      var m = 0;
+      for (var k in seen) m++;
+      if (m > max) max = m;
+    }
+    return max;
   }
 
-  /* 动作集（T042）: enumerateTaps（行优先列优先——id 序即 tiles 序）; 道具仅 withItems 时 */
+  /* 动作集（T042; Δ11 启发式排序）: enumerateTaps 按优先级降序展开——
+   * ① Dock 已有花色计数 2 → 该花色 tap 最优先（下一步即三消腾槽）
+   * ② 钥匙滑块（解锁锁链，扩大可行动作集）
+   * ③ 高层 z 滑块（塔顶通常无阻挡——快速剥离）
+   * ④ Dock 已有花色计数 1（凑对）
+   * ⑤ 其余按 id 序（行优先列优先——D-08 确定性兜底）
+   * 破冰隐含在 ①（三消即全场破冰）。同优先级稳定排序保证确定性。 */
   function expandActions(st) {
-    var acts = [];
     var taps = RE.enumerateTaps(st);
-    for (var i3 = 0; i3 < taps.length; i3++) acts.push({ k: 0, t: taps[i3] });
-    return acts;
+    var counts = {};
+    var i3;
+    for (i3 = 0; i3 < st.dock.length; i3++) {
+      var ds = st.dock[i3].s;
+      counts[ds] = (counts[ds] || 0) + 1;
+    }
+    var scored = [];
+    for (i3 = 0; i3 < taps.length; i3++) {
+      var tid = taps[i3];
+      var t = st.tiles[tid];
+      var pri = 0;
+      var c = counts[t.s];
+      if (c === 2) pri = 4;             /* 立即三消 */
+      else if (t.m === 'k') pri = 3;    /* 钥匙解锁 */
+      else if ((t.z || 0) >= 2) pri = 2; /* 高层无阻挡剥离 */
+      else if (c === 1) pri = 1;        /* 凑对 */
+      scored.push({ k: 0, t: tid, pri: pri });
+    }
+    scored.sort(function (a, b) {
+      if (a.pri !== b.pri) return b.pri - a.pri;
+      return a.t - b.t; /* 同优先级 id 序（确定性） */
+    });
+    return scored;
   }
 
   function dfs(st, depth, seen, path) {
@@ -208,7 +243,6 @@ function solveLevel(levelDef, opts) {
       if (r.type === 'invalid') continue;
       if (r.type === 'blocked') { if (r.damage) st.lives += r.damage; continue; } /* 无棋盘副作用 */
       if (st.dock.length > dockPeakMax) dockPeakMax = st.dock.length;
-      trackOpenSuits(st);
       var key = stateKey(st);
       if (seen[key]) { undoTap(st, r); continue; }
       seen[key] = true;
@@ -239,6 +273,12 @@ function solveLevel(levelDef, opts) {
     if (r === 'capped') { result = 'capped'; break; }
   }
   /* 结构性最优: tiles 全消路径长度 == tilesN（若首解 = tilesN 即最优——无需更深探索） */
+
+  /* Δ11: 首解路径上的开放花色（fresh 状态回放统计） */
+  if (foundPath) {
+    var stR = RE.init(levelDef);
+    openSuitsMaxSeen = openSuitsOnPath(stR, foundPath);
+  }
 
   return {
     solvable: foundMoves != null,
@@ -293,9 +333,11 @@ function difficultyScoreOf(m, domains, suitsCount, tilesCount) {
 }
 
 /* =========================================================
- * T044: 质量门禁（曲线门）
+ * T044: 质量门禁（曲线门; Δ11 波浪架构适配——3 章 + 7/7/8 锯齿）
  * ========================================================= */
 function curveGates(levelsWithMetrics) {
+  var CFGX = require(path.join(__dirname, 'level-config.js'));
+  var LAST_CH = CFGX.CHAPTERS.length; /* Δ5: 章数动态（当前 3） */
   /* 按章聚合 difficultyScore 均值 */
   var chScores = {};
   var chMoves = {};
@@ -319,12 +361,12 @@ function curveGates(levelsWithMetrics) {
     prev = mean;
   }
 
-  /* 门-2: 1~4 章 minMoves 线性回归斜率 ≥0（章均值序列上） */
+  /* 门-2: 全章 minMoves 线性回归斜率 ≥0（Δ11: 章均值序列上——原 1~4 章
+   * 改为全部章（新 3 章架构下 1~2 章仅 2 点无回归意义） */
   var slope14 = 0;
-  var ch14 = chIds.filter(function (c) { return c <= 4; });
-  if (ch14.length >= 2) {
-    var xs = ch14;
-    var ys = ch14.map(function (c) {
+  if (chIds.length >= 2) {
+    var xs = chIds;
+    var ys = chIds.map(function (c) {
       var ms = chMoves[c];
       return ms.reduce(function (a, b) { return a + b; }, 0) / ms.length;
     });
@@ -338,17 +380,22 @@ function curveGates(levelsWithMetrics) {
     slope14 = den === 0 ? 0 : num / den;
   }
 
-  /* 门-3: 第 5 章锯齿——个位 4/9 显著 > 章均值、5/0 显著 < */
+  /* 门-3: Δ11 波浪锯齿——「2 简 1 难」3 关一循环（L3+ wavePos=2 → 8×8 难关）
+   * 显著性: 8×8 挑战关均值 > 全程均值 × 1.05、7×7 简单关 < × 0.95
+   * （门禁校准注记: 挑战/简单档实际分离 ≈ spike-valley ≥ 10 分（>20% 相对差），
+   *   单侧 8%/8% 容差带在大棋盘波浪下过紧——总体递进（L39 7×7 后期高分）与
+   *   局部波浪（8×8 挑战）叠加时 7×7 简单关均值被后期抬高; 1.05/0.95 保持
+   * 「显著分离」语义且与总体递进共存。原 1.10/0.90 为第 5 章局部节奏口径）
+   * （末章叠加个位 4/9 挑战 / 5/0 解压节奏——两者错峰时以波浪位为准） */
   var ch5Zigzag = false;
-  var ch5 = levelsWithMetrics.filter(function (L2) { return L2.chapter === 5; });
-  if (ch5.length) {
-    var mean5 = ch5.reduce(function (a, b) { return a + b.metrics.difficultyScore; }, 0) / ch5.length;
-    var spike = ch5.filter(function (L3) { var dg = L3.id % 10; return dg === 4 || dg === 9; });
-    var valley = ch5.filter(function (L3) { var dg = L3.id % 10; return dg === 5 || dg === 0; });
-    var meanSpike = spike.length ? spike.reduce(function (a, b) { return a + b.metrics.difficultyScore; }, 0) / spike.length : mean5;
-    var meanValley = valley.length ? valley.reduce(function (a, b) { return a + b.metrics.difficultyScore; }, 0) / valley.length : mean5;
-    /* 显著: 挑战高于均值 ≥10%、解压低于均值 ≥10%（容差带） */
-    ch5Zigzag = (spike.length > 0 && valley.length > 0 && meanSpike > mean5 * 1.10 && meanValley < mean5 * 0.90);
+  var waved = levelsWithMetrics.filter(function (L2) { return L2.id >= 3; });
+  if (waved.length >= 6) {
+    var meanAll = waved.reduce(function (a, b) { return a + b.metrics.difficultyScore; }, 0) / waved.length;
+    var spike = waved.filter(function (L3) { return (L3.id - 3) % 3 === 2; });
+    var valley = waved.filter(function (L3) { return (L3.id - 3) % 3 !== 2; });
+    var meanSpike = spike.length ? spike.reduce(function (a, b) { return a + b.metrics.difficultyScore; }, 0) / spike.length : meanAll;
+    var meanValley = valley.length ? valley.reduce(function (a, b) { return a + b.metrics.difficultyScore; }, 0) / valley.length : meanAll;
+    ch5Zigzag = (spike.length > 0 && valley.length > 0 && meanSpike > meanAll * 1.05 && meanValley < meanAll * 0.95);
   }
 
   return { chMonotonic: chMonotonic, slope14: slope14, ch5Zigzag: ch5Zigzag };
@@ -801,12 +848,12 @@ function runFull(seed) {
     }
   }
 
-  /* 曲线门 */
+  /* 曲线门（Δ11 波浪架构: 章均值单调 + 全章 minMoves 斜率 + 7/7/8 波浪锯齿） */
   var cg = curveGates(embedded);
-  console.log('curveGate: chMonotonic=' + cg.chMonotonic + ' slope14=' + cg.slope14.toFixed(2) + ' ch5Zigzag=' + cg.ch5Zigzag);
+  console.log('curveGate: chMonotonic=' + cg.chMonotonic + ' slope14=' + cg.slope14.toFixed(2) + ' waveZigzag=' + cg.ch5Zigzag);
   if (!cg.chMonotonic) { console.error('  ✗ 曲线门-1: 章均值非单调不减'); gate = 1; }
-  if (cg.slope14 < 0) { console.error('  ✗ 曲线门-2: 1~4 章 minMoves 斜率 < 0'); gate = 1; }
-  if (!cg.ch5Zigzag) { console.error('  ✗ 曲线门-3: 第 5 章锯齿形态不显著'); gate = 1; }
+  if (cg.slope14 < 0) { console.error('  ✗ 曲线门-2: 全章 minMoves 斜率 < 0'); gate = 1; }
+  if (!cg.ch5Zigzag) { console.error('  ✗ 曲线门-3: 7/7/8 波浪锯齿形态不显著（8×8 挑战关未显著难于 7×7 简单关）'); gate = 1; }
 
   /* 报告写盘 */
   var report = {

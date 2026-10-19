@@ -24,7 +24,7 @@ SolverReport (流水线工件, 1)  ←验证── 50×Level
 | 字段 | 类型 | 约束 / 校验规则（`RulesEngine.validateLevel` 执行） |
 |---|---|---|
 | `id` | int | 1 起连续；`LEVELS[i].id === i+1`（索引=关卡号-1，跳关/进度以此为界） |
-| `chapter` | int | 1~5（默认交付），由参数表派生；仅展示与统计用 |
+| `chapter` | int | 1~3（默认交付; Δ11 阶段章 = 前期/中期/后期），由参数表派生；仅展示与统计用 |
 | `name` | string | 展示名（如 "Level 7 · 齿轮初鸣"），非机制判据 |
 | `n` | int | 网格边长，4 ≤ n ≤ 8（FR-008 矩阵） |
 | `tiles` | `TileSpec[]` | 见 §2；长度 = 滑块总数，`tiles.length % 3 === 0 && ≥ 6`（FR-029）；无重复 `(r,c)`；无滑块占据棱镜格 |
@@ -128,13 +128,12 @@ SolverReport (流水线工件, 1)  ←验证── 50×Level
 ### Session 状态机
 
 ```text
-LOADING → READY ⇄ ANIMATING* → SETTLING(级联结算) → READY …
-READY ──判定──→ WON | LOST_BURST | LOST_LIVES | LOST_DEADLOCK
+LOADING → READY → WON | LOST_BURST | LOST_LIVES | LOST_DEADLOCK
 WON/LOST ──结算交互──→ (下一关: id+1>LEVELS.length ⇒ ALL_CLEAR 终局 | 重玩: 同 id 重载)
 ```
 
-- `ANIMATING*`: 飞出/弹回动效期间输入锁（Renderer 回调解锁）；Settling = 同一 tap 触发的级联链（三消→破冰→齿轮→解锁→再判定）**原子结算**完毕才回 READY（Edge Case「同一点击内连环触发」）。
-- 判定调度（SETTLING 末尾，顺序固定）: ① 棋盘+dock 全空 → WON（Δ9: 暂存区已移除）；② dock 满且无三消 → LOST_BURST；③ lives ≤0 → LOST_LIVES；④ 疑死锁谓词 + 有界复证 → LOST_DEADLOCK（D-09）。
+- **Δ10 无锁连点**: 无 ANIMATING/SETTLING 态——`tap()` 在 READY 态 0ms 瞬时结算（级联链在 applyTap 返回前原子结算完毕，Edge Case「同一点击内连环触发」的确定性保持）；动画纯视觉异步并发，不阻塞下一次点击（「别急，动画中…」输入锁已删除）。
+- 判定调度（每原子回合末——tap 返回前，顺序固定）: ① 棋盘+dock 全空 → WON（Δ9: 暂存区已移除）；② dock 满且无三消 → LOST_BURST；③ lives ≤0 → LOST_LIVES；④ 疑死锁谓词 + 有界复证 → LOST_DEADLOCK（D-09）。
 - **三消优先于爆槽**（Edge Case）：第 7 格飞入同 tap 内先结算三消再判负。
 
 ### Snapshot（Undo 快照）
