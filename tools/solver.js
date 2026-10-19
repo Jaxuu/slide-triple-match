@@ -314,7 +314,7 @@ function mechCountOf(levelDef) {
 
 /* =========================================================
  * T040/T043: difficultyScore（权重 level-config SCORE_WEIGHTS）
- * norm = 全 50 关全域 min-max 归一（传入预计算域）
+ * norm = 全 60 关全域 min-max 归一（传入预计算域——Δ13 扩容后全域）
  * ========================================================= */
 function difficultyScoreOf(m, domains, suitsCount, tilesCount) {
   function norm(v, dom) {
@@ -380,7 +380,8 @@ function curveGates(levelsWithMetrics) {
     slope14 = den === 0 ? 0 : num / den;
   }
 
-  /* 门-3: Δ11 波浪锯齿——「2 简 1 难」3 关一循环（L3+ wavePos=2 → 8×8 难关）
+  /* 门-3: Δ11 波浪锯齿——「2 简 1 难」3 关一循环（Δ13 锚点: L4+ (id-4)%3==2 → 8×8 难关;
+   * L1~L3 新手循环 1 不计入波浪统计）
    * 显著性: 8×8 挑战关均值 > 全程均值 × 1.05、7×7 简单关 < × 0.95
    * （门禁校准注记: 挑战/简单档实际分离 ≈ spike-valley ≥ 10 分（>20% 相对差），
    *   单侧 8%/8% 容差带在大棋盘波浪下过紧——总体递进（L39 7×7 后期高分）与
@@ -388,11 +389,11 @@ function curveGates(levelsWithMetrics) {
    * 「显著分离」语义且与总体递进共存。原 1.10/0.90 为第 5 章局部节奏口径）
    * （末章叠加个位 4/9 挑战 / 5/0 解压节奏——两者错峰时以波浪位为准） */
   var ch5Zigzag = false;
-  var waved = levelsWithMetrics.filter(function (L2) { return L2.id >= 3; });
+  var waved = levelsWithMetrics.filter(function (L2) { return L2.id >= 4; });
   if (waved.length >= 6) {
     var meanAll = waved.reduce(function (a, b) { return a + b.metrics.difficultyScore; }, 0) / waved.length;
-    var spike = waved.filter(function (L3) { return (L3.id - 3) % 3 === 2; });
-    var valley = waved.filter(function (L3) { return (L3.id - 3) % 3 !== 2; });
+    var spike = waved.filter(function (L3) { return (L3.id - 4) % 3 === 2; });
+    var valley = waved.filter(function (L3) { return (L3.id - 4) % 3 !== 2; });
     var meanSpike = spike.length ? spike.reduce(function (a, b) { return a + b.metrics.difficultyScore; }, 0) / spike.length : meanAll;
     var meanValley = valley.length ? valley.reduce(function (a, b) { return a + b.metrics.difficultyScore; }, 0) / valley.length : meanAll;
     ch5Zigzag = (spike.length > 0 && valley.length > 0 && meanSpike > meanAll * 1.05 && meanValley < meanAll * 0.95);
@@ -729,8 +730,7 @@ function fmtMs(n) { return (n / 1000).toFixed(2) + 's'; }
 function runFull(seed) {
   var levels = LEVELS_SRC;
   var t0 = Date.now();
-  console.log('solver: 全量验证 ' + levels.length + ' 关（预算 nodes=' + CFG.BUDGET.nodes + ' ms=' + CFG.BUDGET.ms + '/关）');
-  var gate = 0; /* 0 = pass; 非 0 = fail（exit code） */
+  console.log('solver: 全量验证 ' + levels.length + ' 关（预算 nodes=' + CFG.BUDGET.nodes + ' ms=' + CFG.BUDGET.ms + '/关）');  var gate = 0; /* 0 = pass; 非 0 = fail（exit code） */
   var failedIds = [];
   var records = [];
 
@@ -769,7 +769,7 @@ function runFull(seed) {
       ' nodes=' + sol.nodes + ' ' + fmtMs(elapsed));
   }
 
-  /* difficultyScore 全域归一（min-max across 50 levels） */
+  /* difficultyScore 全域归一（min-max across 60 levels——Δ13 扩容后全域） */
   var domains = { minMoves: [Infinity, -Infinity], solutionCount: [Infinity, -Infinity], dockPeak: [Infinity, -Infinity], tiles: [Infinity, -Infinity], suits: [Infinity, -Infinity] };
   var suitsOf = {};
   for (i = 0; i < levels.length; i++) {
@@ -848,7 +848,7 @@ function runFull(seed) {
     }
   }
 
-  /* 曲线门（Δ11 波浪架构: 章均值单调 + 全章 minMoves 斜率 + 7/7/8 波浪锯齿） */
+  /* 曲线门（Δ13 波浪架构: 章均值单调 + 全章 minMoves 斜率 + 7/7/8 波浪锯齿——60 关/3 大阶段口径） */
   var cg = curveGates(embedded);
   console.log('curveGate: chMonotonic=' + cg.chMonotonic + ' slope14=' + cg.slope14.toFixed(2) + ' waveZigzag=' + cg.ch5Zigzag);
   if (!cg.chMonotonic) { console.error('  ✗ 曲线门-1: 章均值非单调不减'); gate = 1; }

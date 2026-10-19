@@ -590,13 +590,19 @@ function serializeLevel(L, isLast) {
   return out;
 }
 
-function writeLevelsJs(levels, outPath, seed) {
+function writeLevelsJs(levels, outPath, seed, opts) {
+  /* opts.attribution（Δ13）: 增量拼接工具传入——头部生成行改为拼接溯源（原关 100% 保留） */
+  var attribution = opts && opts.attribution;
   var fs = require('fs');
   var lines = [];
   lines.push('/* =========================================================');
   lines.push(' * Slide & Triple — 关卡数据（M3 量产生成物）');
   lines.push(' * UMD 双导出（D-02）：浏览器挂 STM.LEVELS / Node module.exports');
-  lines.push(' * 由 tools/generator.js --seed ' + seed + ' 生成（FR-031：此后禁止手改）');
+  if (attribution) {
+    lines.push(' * 由 ' + attribution + '（seed ' + seed + '；FR-031：此后禁止手改）');
+  } else {
+    lines.push(' * 由 tools/generator.js --seed ' + seed + ' 生成（FR-031：此后禁止手改）');
+  }
   lines.push(' * Schema 契约: specs/001-slide-triple-match-core/contracts/level-data.md');
   lines.push(' *');
   lines.push(' * 显式保证（生成器不变量 + 三重验证 D-10）:');
