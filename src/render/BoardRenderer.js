@@ -1,32 +1,124 @@
 /* =========================================================
  * Slide & Triple — BoardRenderer（Canvas 2D 渲染）
  * classic script；向 window.STM 挂载（D-01）
- * rAF 脏检查主循环（60fps 目标）；花色颜色+图形双编码（无障碍）
+ * rAF 脏检查主循环（60fps 目标）
  *
- * M1.5 视觉升级（零外部资源，纯程序化绘制——宪章 III）：
- *   · 立体奶油麻将牌面：#FFFDF9 渐变 + 深色厚度底座 + 花色描边高光
- *   · 8 种鲜艳水果/麻将花色（贝塞尔 + 径向渐变 + 高光点）
- *   · 胶囊形方向箭头徽章（花色深色底 + 白色人字箭头）
- *   · Δ7 多层堆叠：底座随层数加厚 + 左上角层角标 + reveal 上浮动画
+ * Δ14/T052b《万物出发！》（M3.5 表现层——FR-034）:
+ *   · 3D 奶油白正方体底座（底部 #CBD5E1 立体厚度 + #FFFFFF→#F4F7FB
+ *     微渐变面板 + 纯白内高光描边）——替代暖棕厚度底座
+ *   · 多层金字塔投影（向左上阶梯偏移 + 层间柔和投影）——
+ *     彻底移除左上角圆圈层高指示器（drawStackBadge 下线）
+ *   · 彻底移除牌面中心半透明圆圈箭头（drawArrowBadge 下线）——
+ *     方向改为朝向侧边缘内嵌流光胶囊角标（四向微色相区分 +
+ *     白色双箭头纹，程序化渐变流光动画）
+ *   · 图案居中完整展示零遮挡（Bestiary Sprite 消费 T052a）
+ *   · 花色→图鉴渲染层映射（FR-033 §3——suit 整数仍为逻辑口径）
+ *   · 离屏 Sprite 预渲染缓存（按 suit+尺寸档绘制一次会话内复用——
+ *     8×8×5 层满载 105 滑块 60fps 预算）
  * ========================================================= */
 (function (global) {
   'use strict';
 
   var STM = global.STM = global.STM || {};
   var RE = STM.RulesEngine;
+  var Bestiary = STM.Bestiary; /* Δ14: 装载序保证先于 BoardRenderer */
 
-  /* ---------- 花色表（game-session.md §4 双编码契约；M1.5 水果主题）
-   * fill=粒子/角标主色 deep=徽章深色 shape=绘制键 ---------- */
+  /* ---------- 花色表（兼容兜底：Bestiary 缺失时纯色回退——契约健壮性）
+   * 逻辑 suit 值不再限 0~7: 渲染层经 mappingForLevel 映射至图鉴 id */
   var SUITS = [
-    { name: '草莓',   fill: '#FF4D6D', deep: '#B01739', shape: 'strawberry' },
-    { name: '甜橙',   fill: '#FF8A00', deep: '#B35A00', shape: 'orange' },
-    { name: '菠萝',   fill: '#FFC531', deep: '#A87A00', shape: 'pineapple' },
-    { name: '奇异果', fill: '#7CB342', deep: '#4E7526', shape: 'kiwi' },
-    { name: '蓝莓',   fill: '#4A6CF7', deep: '#2438A0', shape: 'blueberry' },
-    { name: '葡萄',   fill: '#9B4DE0', deep: '#5F22A0', shape: 'grape' },
-    { name: '蜜桃心', fill: '#FF7EAB', deep: '#C74B78', shape: 'peach' },
-    { name: '翡翠竹', fill: '#00A878', deep: '#00674B', shape: 'jade' }
+    { name: '跳跳蛙', fill: '#7CC24B', deep: '#59922F' },
+    { name: '小黄鸡', fill: '#FFD93B', deep: '#E8B41F' },
+    { name: '小绵羊', fill: '#F0EDE6', deep: '#C9BEB0' },
+    { name: '小奶牛', fill: '#F7F3EC', deep: '#CFC5B8' },
+    { name: '三花猫', fill: '#F2A65A', deep: '#D2833B' },
+    { name: '柴犬',   fill: '#F5B778', deep: '#D69552' },
+    { name: '大熊猫', fill: '#E8E8E0', deep: '#2E2E34' },
+    { name: '小狐狸', fill: '#F98E48', deep: '#D66E2A' }
   ];
+
+  /* =========================================================
+   * Δ14: 花色→图鉴视觉解析（渲染层映射——FR-033 §3）
+   * suitOf(levelId, suit) → 图鉴条目（含 theme/draw/绘制函数）
+   * 无 level 上下文时（旧自测关卡兜底）suit 直接索引前 8 图鉴
+   * ========================================================= */
+  var currentLevelId = null;   /* 主循环切换关时设置（main.js 经 setLevelId） */
+  var currentMapping = {};     /* 会话级: suit → bestiaryId */
+
+  function setSuitLevel(level) {
+    currentLevelId = level ? level.id : null;
+    currentMapping = (Bestiary && level) ? Bestiary.mappingForLevel(level) : {};
+  }
+
+  /* suit → {fill,deep,entry} 视觉解析（图案主色 + 图鉴条目） */
+  function suitVisual(suit) {
+    var bid = currentMapping[suit];
+    if (bid != null && Bestiary) {
+      var e = Bestiary.entry(bid);
+      return { fill: e.theme, deep: shade(e.theme, -60), entry: e, bid: bid };
+    }
+    var s = SUITS[suit] || SUITS[suit % SUITS.length];
+    return { fill: s.fill, deep: s.deep, entry: null, bid: null };
+  }
+
+  /* 颜色明度调节（hex ±amount——底晕/徽章深色派生） */
+  function shade(hex, amt) {
+    var h = hex.replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var r = Math.max(0, Math.min(255, parseInt(h.slice(0, 2), 16) + amt));
+    var g = Math.max(0, Math.min(255, parseInt(h.slice(2, 4), 16) + amt));
+    var b = Math.max(0, Math.min(255, parseInt(h.slice(4, 6), 16) + amt));
+    return '#' + (r < 16 ? '0' : '') + r.toString(16) + (g < 16 ? '0' : '') + g.toString(16) + (b < 16 ? '0' : '') + b.toString(16);
+  }
+
+  /* =========================================================
+   * Δ14/T052a: 离屏 Sprite 预渲染缓存
+   * 键 = bestiaryId × 尺寸档（2px 步进量化——尺寸档收敛缓存数）
+   * 值 = offscreen canvas（径向柔光底晕 + 图鉴图案 + 浮雕阴影）
+   * 每档绘制一次、会话内复用（105 滑块满载 60fps 预算）
+   * ========================================================= */
+  var spriteCache = {};
+  var SPRITE_PAD = 1.55; /* 相对 R 的画布内边距（容纳底晕+阴影） */
+
+  function getSprite(bid, sizePx) {
+    if (!Bestiary || bid == null) return null;
+    var band = Math.max(8, Math.round(sizePx / 2) * 2); /* 2px 档量化 */
+    var key = bid + '×' + band;
+    var hit = spriteCache[key];
+    if (hit) return hit;
+    if (typeof document === 'undefined') return null; /* Node 自测无 DOM——直绘路径 */
+    var cv = document.createElement('canvas');
+    var w = Math.ceil(band * SPRITE_PAD);
+    cv.width = w; cv.height = w;
+    var c2 = cv.getContext('2d');
+    var R = band * 0.5;
+    var e = Bestiary.entry(bid);
+    /* 1. 径向柔光底晕（主题色 18% → 透明） */
+    var g = c2.createRadialGradient(w / 2, w / 2, R * 0.2, w / 2, w / 2, R * 1.3);
+    g.addColorStop(0, 'rgba(255,255,255,0.35)');
+    g.addColorStop(0.45, hexA(e.theme, 0.30));
+    g.addColorStop(1, hexA(e.theme, 0));
+    c2.fillStyle = g;
+    c2.beginPath(); c2.arc(w / 2, w / 2, R * 1.3, 0, Math.PI * 2); c2.fill();
+    /* 2. 浮雕 Drop Shadow（下右偏移柔和投影） */
+    c2.save();
+    c2.shadowColor = 'rgba(80, 96, 115, 0.38)';
+    c2.shadowBlur = R * 0.22;
+    c2.shadowOffsetX = R * 0.07;
+    c2.shadowOffsetY = R * 0.1;
+    /* 3. 图鉴图案主体 */
+    try { Bestiary.DRAW[e.draw](c2, w / 2, w / 2, R * 0.88); } catch (err) { /* 图案异常不杀渲染 */ }
+    c2.restore();
+    spriteCache[key] = cv;
+    return cv;
+  }
+
+  /* hex → rgba 透明度混合 */
+  function hexA(hex, a) {
+    var h = hex.replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  }
   var BG = '#1B2430';
   var GRID_LINE = '#26313E';
 
@@ -61,219 +153,146 @@
   }
 
   /* =========================================================
-   * 水果/麻将花色绘制器（纯 Canvas path，每个精炼 10~15 行）
-   * ========================================================= */
-  function drawFruit(ctx, shape, x, y, R) {
-    if (shape === 'strawberry') {
-      /* 草莓：倒心形果身 + 叶冠 + 白籽 */
-      ctx.beginPath();
-      ctx.moveTo(x, y - R * 0.7);
-      ctx.bezierCurveTo(x + R * 0.6, y - R * 0.8, x + R * 0.75, y - R * 0.1, x, y + R * 0.8);
-      ctx.bezierCurveTo(x - R * 0.75, y - R * 0.1, x - R * 0.6, y - R * 0.8, x, y - R * 0.7);
-      ctx.fillStyle = rg(ctx, x - R * 0.25, y - R * 0.3, R * 0.1, R, [0, '#FF8FA8', 0.55, '#FF4D6D', 1, '#D92B4E']);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(x - R * 0.45, y - R * 0.6);
-      ctx.lineTo(x, y - R * 0.95);
-      ctx.lineTo(x + R * 0.45, y - R * 0.6);
-      ctx.lineTo(x + R * 0.18, y - R * 0.55);
-      ctx.lineTo(x, y - R * 0.38);
-      ctx.lineTo(x - R * 0.18, y - R * 0.55);
-      ctx.closePath();
-      ctx.fillStyle = '#3E9B4F';
-      ctx.fill();
-      ctx.fillStyle = '#FFF3E0';
-      var seeds = [[-0.3, -0.1], [0.3, -0.1], [0, 0.25], [-0.25, 0.45], [0.25, 0.45]];
-      for (var s = 0; s < seeds.length; s++) {
-        ctx.beginPath();
-        ctx.arc(x + R * seeds[s][0], y + R * seeds[s][1], R * 0.05, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    } else if (shape === 'orange') {
-      /* 甜橙：圆果身 + 高光 + 小叶 */
-      ctx.beginPath();
-      ctx.arc(x, y + R * 0.06, R * 0.78, 0, Math.PI * 2);
-      ctx.fillStyle = rg(ctx, x - R * 0.3, y - R * 0.25, R * 0.1, R * 0.9, [0, '#FFC37E', 0.55, '#FF8A00', 1, '#E06D00']);
-      ctx.fill();
-      ctx.fillStyle = '#3E9B4F';
-      ctx.beginPath();
-      ctx.moveTo(x, y - R * 0.68);
-      ctx.quadraticCurveTo(x + R * 0.4, y - R * 0.95, x + R * 0.55, y - R * 0.6);
-      ctx.quadraticCurveTo(x + R * 0.2, y - R * 0.6, x, y - R * 0.68);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.5)';
-      ctx.beginPath();
-      ctx.ellipse(x - R * 0.3, y - R * 0.25, R * 0.2, R * 0.11, -0.5, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (shape === 'pineapple') {
-      /* 菠萝：椭圆网纹果身 + 放射冠叶 */
-      ctx.beginPath();
-      ctx.ellipse(x, y + R * 0.25, R * 0.6, R * 0.68, 0, 0, Math.PI * 2);
-      ctx.fillStyle = rg(ctx, x, y + R * 0.25, R * 0.1, R * 0.8, [0, '#FFDD66', 0.6, '#FFC531', 1, '#DFA000']);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(168,122,0,0.5)';
-      ctx.lineWidth = Math.max(1, R * 0.05);
-      ctx.beginPath();
-      for (var pl = -2; pl <= 2; pl++) {
-        ctx.moveTo(x - R * 0.6, y + R * 0.25 + pl * R * 0.26);
-        ctx.quadraticCurveTo(x, y + R * 0.25 + pl * R * 0.26 - R * 0.15, x + R * 0.6, y + R * 0.25 + pl * R * 0.26);
-      }
-      ctx.stroke();
-      ctx.fillStyle = '#3E9B4F';
-      ctx.beginPath();
-      ctx.moveTo(x - R * 0.4, y - R * 0.38);
-      ctx.lineTo(x - R * 0.08, y - R * 0.9);
-      ctx.lineTo(x - R * 0.2, y - R * 0.32);
-      ctx.lineTo(x + R * 0.06, y - R * 1.0);
-      ctx.lineTo(x + R * 0.12, y - R * 0.3);
-      ctx.lineTo(x + R * 0.4, y - R * 0.75);
-      ctx.lineTo(x + R * 0.28, y - R * 0.26);
-      ctx.closePath();
-      ctx.fill();
-    } else if (shape === 'kiwi') {
-      /* 奇异果：果肉 + 浅芯 + 放射黑籽 */
-      ctx.beginPath();
-      ctx.arc(x, y, R * 0.8, 0, Math.PI * 2);
-      ctx.fillStyle = rg(ctx, x, y, R * 0.1, R * 0.85, [0, '#D9E8B0', 0.4, '#8CC152', 1, '#5F8A2E']);
-      ctx.fill();
-      ctx.fillStyle = '#F2F7DC';
-      ctx.beginPath();
-      ctx.arc(x, y, R * 0.3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#2A1F0A';
-      for (var ks = 0; ks < 8; ks++) {
-        var ka = ks * Math.PI / 4 + 0.4;
-        ctx.beginPath();
-        ctx.ellipse(x + Math.cos(ka) * R * 0.45, y + Math.sin(ka) * R * 0.45, R * 0.07, R * 0.035, ka, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    } else if (shape === 'blueberry') {
-      /* 蓝莓：深蓝圆果 + 五瓣冠口 + 高光 */
-      ctx.beginPath();
-      ctx.arc(x, y + R * 0.08, R * 0.78, 0, Math.PI * 2);
-      ctx.fillStyle = rg(ctx, x - R * 0.3, y - R * 0.15, R * 0.1, R * 0.9, [0, '#8FA4FF', 0.5, '#4A6CF7', 1, '#2E45B8']);
-      ctx.fill();
-      ctx.fillStyle = '#1D2E80';
-      ctx.beginPath();
-      for (var bc = 0; bc < 5; bc++) {
-        var ba = -Math.PI / 2 + bc * 1.2566;
-        var px = x + Math.cos(ba) * R * 0.16, py = y - R * 0.5 + Math.sin(ba) * R * 0.16;
-        if (bc === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
-      ctx.beginPath();
-      ctx.ellipse(x - R * 0.3, y - R * 0.18, R * 0.2, R * 0.11, -0.6, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (shape === 'grape') {
-      /* 葡萄：三簇紫珠 + 茎 */
-      var dots = [[-0.32, -0.2], [0.32, -0.2], [0, -0.1], [-0.18, 0.22], [0.18, 0.22], [0, 0.52]];
-      for (var gd = 0; gd < dots.length; gd++) {
-        var gx = x + R * dots[gd][0], gy = y + R * dots[gd][1];
-        ctx.beginPath();
-        ctx.arc(gx, gy, R * 0.3, 0, Math.PI * 2);
-        ctx.fillStyle = rg(ctx, gx - R * 0.09, gy - R * 0.1, R * 0.03, R * 0.32, [0, '#C79BF0', 0.55, '#9B4DE0', 1, '#7135A8']);
-        ctx.fill();
-      }
-      ctx.strokeStyle = '#5F8A2E';
-      ctx.lineWidth = Math.max(1.5, R * 0.08);
-      ctx.beginPath();
-      ctx.moveTo(x, y - R * 0.42);
-      ctx.lineTo(x, y - R * 0.75);
-      ctx.stroke();
-    } else if (shape === 'peach') {
-      /* 蜜桃心：心形粉果 + 对缝线 + 小叶 */
-      ctx.beginPath();
-      ctx.moveTo(x, y + R * 0.75);
-      ctx.bezierCurveTo(x - R * 0.95, y + R * 0.1, x - R * 0.6, y - R * 0.75, x, y - R * 0.25);
-      ctx.bezierCurveTo(x + R * 0.6, y - R * 0.75, x + R * 0.95, y + R * 0.1, x, y + R * 0.75);
-      ctx.fillStyle = rg(ctx, x - R * 0.2, y - R * 0.3, R * 0.1, R, [0, '#FFC9DC', 0.55, '#FF7EAB', 1, '#E5578C']);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(199,75,120,0.7)';
-      ctx.lineWidth = Math.max(1, R * 0.05);
-      ctx.beginPath();
-      ctx.moveTo(x, y - R * 0.26);
-      ctx.quadraticCurveTo(x + R * 0.12, y + R * 0.2, x, y + R * 0.7);
-      ctx.stroke();
-      ctx.fillStyle = '#3E9B4F';
-      ctx.beginPath();
-      ctx.ellipse(x - R * 0.28, y - R * 0.52, R * 0.25, R * 0.11, -0.6, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (shape === 'jade') {
-      /* 翡翠麻将牌：渐变底 + 三段白竹节 */
-      roundRect(ctx, x - R * 0.66, y - R * 0.66, R * 1.32, R * 1.32, R * 0.2);
-      var jg = ctx.createLinearGradient(x - R * 0.6, y - R * 0.6, x + R * 0.6, y + R * 0.6);
-      jg.addColorStop(0, '#39C792');
-      jg.addColorStop(0.6, '#00A878');
-      jg.addColorStop(1, '#007A57');
-      ctx.fillStyle = jg;
-      ctx.fill();
-      ctx.strokeStyle = '#00543C';
-      ctx.lineWidth = Math.max(1, R * 0.06);
-      ctx.stroke();
-      ctx.fillStyle = '#F0FBF4';
-      for (var js = 0; js < 3; js++) {
-        roundRect(ctx, x - R * 0.32, y - R * 0.36 + js * R * 0.32, R * 0.64, R * 0.24, R * 0.07);
-        ctx.fill();
-      }
-    }
-  }
-
   /* =========================================================
-   * 立体奶油牌块（M1.5 核心：牌面 + 厚度底座 + 高光描边 + 箭头/层角标）
-   * px,py 牌中心；layerOff = Δ7 堆叠错层偏移
-   * Δ11 大棋盘适配: 底座厚度按 n 分级收紧（8×8 小格防越界）
+   * Δ14/T052b: 1:1 奶油白 3D 正方体滑块（FR-034）
+   * 底部 #CBD5E1 立体厚度边 + #FFFFFF→#F4F7FB 微渐变面板 +
+   * 纯白内高光描边；多层堆叠 z 阶梯偏移(-3px,-3px/层) + 层间柔和投影
+   * 图案居中完整展示零遮挡（Sprite 消费——T052a）
+   * 方向 = 朝向侧边缘内嵌流光胶囊角标（drawWingBadge——FR-034 §3）
+   * px,py 牌中心；layerOff = Δ7 堆叠错层偏移（金字塔式）
    * ========================================================= */
-  function drawTileBody(ctx, cell, px, py, t, scale, alpha, layerOff) {
-    var suit = SUITS[t.s] || SUITS[0];
+  function drawTileBody(ctx, cell, px, py, t, scale, alpha, layerOff, nowMs) {
+    var sv = suitVisual(t.s);
     scale = scale || 1;
     alpha = alpha == null ? 1 : alpha;
     layerOff = layerOff || 0;
-    var depth = Math.max(1, t.stackDepth || 1);
     var w = cell * 0.84 * scale;
     var x = px - w / 2 + layerOff;
     var y = py - w / 2 + layerOff;
-    /* Δ11: 厚度随层数 + 网格尺寸双维缩放（8×8×5 层不越界: ≤ cell*0.235） */
-    var thickK = cell < 58 ? 0.032 : 0.04; /* 小格收紧厚度系数 */
-    var thick = cell * (thickK * depth + 0.035);
+    var depth = Math.max(1, t.stackDepth || 1);
+    /* Δ11/Δ14: 厚度随格宽分级收紧（8×8×5 层不越界） */
+    var thickK = cell < 58 ? 0.028 : 0.035;
+    var thick = cell * (thickK * depth + 0.03);
     ctx.globalAlpha = alpha;
-    /* 1. 厚度底座（深→浅两级暖棕——立体麻将质感） */
-    roundRect(ctx, x, y + cell * 0.028, w, w, cell * 0.14);
-    ctx.fillStyle = '#8A6B4F';
+    /* 1. 立体厚度边（#CBD5E1——底部 5px 级立体厚度投影） */
+    var side = cell * 0.055;
+    roundRect(ctx, x, y + side * 0.4, w, w, cell * 0.15);
+    ctx.fillStyle = '#B8C4D4';
     ctx.fill();
-    roundRect(ctx, x, y + cell * 0.028 - thick * 0.4, w, w, cell * 0.14);
-    ctx.fillStyle = '#A8845F';
+    roundRect(ctx, x, y + side * 0.4 - thick * 0.55, w, w, cell * 0.15);
+    ctx.fillStyle = '#CBD5E1';
     ctx.fill();
-    /* 2. 奶油牌面（上亮下微暖灰） */
+    /* 2. 奶油白面板（#FFFFFF → #F4F7FB 微渐变） */
     var fz = y - thick * 0.85;
     var fg = ctx.createLinearGradient(x, fz, x, fz + w);
-    fg.addColorStop(0, '#FFFEFB');
-    fg.addColorStop(0.65, '#FFFDF9');
-    fg.addColorStop(1, '#F1E8DA');
-    roundRect(ctx, x, fz, w, w, cell * 0.14);
+    fg.addColorStop(0, '#FFFFFF');
+    fg.addColorStop(0.62, '#FBFCFE');
+    fg.addColorStop(1, '#F4F7FB');
+    roundRect(ctx, x, fz, w, w, cell * 0.15);
     ctx.fillStyle = fg;
     ctx.fill();
-    /* 3. 花色描边 + 内侧高光 */
-    ctx.strokeStyle = suit.fill;
+    /* 3. 纯白高光内倒角描边 + 主题色细边 */
+    ctx.strokeStyle = hexA(sv.fill, 0.55);
     ctx.lineWidth = Math.max(1.5, dprSafe(1.8));
+    roundRect(ctx, x, fz, w, w, cell * 0.15);
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-    ctx.lineWidth = Math.max(1, dprSafe(1));
-    roundRect(ctx, x + dprSafe(1.5), fz + dprSafe(1.5), w - dprSafe(3), w - dprSafe(3), cell * 0.12);
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = Math.max(1, dprSafe(1.1));
+    roundRect(ctx, x + dprSafe(1.5), fz + dprSafe(1.5), w - dprSafe(3), w - dprSafe(3), cell * 0.13);
     ctx.stroke();
-    /* 4. 花色水果图形（中心偏上） */
-    drawFruit(ctx, suit.shape, x + w / 2, fz + w * 0.42, cell * 0.29 * scale);
-    /* 5. 胶囊方向箭头徽章（牌面中心偏 d 侧） */
-    drawArrowBadge(ctx, t.d, x + w / 2, fz + w / 2, cell, suit, scale);
+    /* 4. 图鉴图案（居中完整展示——零遮挡；Sprite 缓存加速） */
+    drawBestiaryIcon(ctx, sv, x + w / 2, fz + w / 2, cell * 0.31 * scale);
+    /* 5. 边缘嵌入式流光方向角标（朝向侧边正中——替代面部箭头圆圈） */
+    drawWingBadge(ctx, t.d, x, fz, w, cell, sv, nowMs);
     /* 6. T034 机制角标: 齿轮(右上)/冰封(全牌覆层+厚度)/锁链(四角)/钥匙(左上) */
     if (t.m === 'g') drawGearBadge(ctx, x, fz, w, cell);
     else if (t.m === 'i') drawIceOverlay(ctx, x, fz, w, cell, t.ice != null ? t.ice : (t.x || 1)); /* Δ12: 运行态字段 ice（t.x 仅 TileSpec 原始字段） */
     else if (t.m === 'k') drawKeyBadge(ctx, x, fz, w, cell);
     else if (t.m === 'c') drawChainCorners(ctx, x, fz, w, cell);
-    /* 7. Δ7 多层堆叠左上角层角标（下层可见性预告） */
-    if (depth > 1) drawStackBadge(ctx, depth, x, fz, cell, scale);
+    /* Δ14: 左上角圆圈层高指示器已彻底移除（多层金字塔投影即层高视觉） */
     ctx.globalAlpha = 1;
+  }
+
+  /* 图鉴图案绘制：Sprite 命中即 drawImage；Node/无 DOM 或未命中走直绘 */
+  function drawBestiaryIcon(ctx, sv, cx, cy, R) {
+    if (sv.bid != null) {
+      var sp = getSprite(sv.bid, R * 2);
+      if (sp) {
+        var size = R * 2 * SPRITE_PAD;
+        ctx.drawImage(sp, cx - size / 2, cy - size / 2, size, size);
+        return;
+      }
+    }
+    if (sv.entry && Bestiary && Bestiary.DRAW[sv.entry.draw]) {
+      /* 直绘兜底（径向柔光底晕 + 图案） */
+      var g = ctx.createRadialGradient(cx, cy, R * 0.25, cx, cy, R * 1.35);
+      g.addColorStop(0, 'rgba(255,255,255,0.4)');
+      g.addColorStop(0.5, hexA(sv.entry.theme, 0.28));
+      g.addColorStop(1, hexA(sv.entry.theme, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(cx, cy, R * 1.35, 0, Math.PI * 2); ctx.fill();
+      try { Bestiary.DRAW[sv.entry.draw](ctx, cx, cy, R * 0.95); } catch (err) { /* 单图案异常不杀帧 */ }
+    } else {
+      /* 极端兜底：色相圆点（无 Bestiary 环境） */
+      ctx.fillStyle = sv.fill;
+      ctx.beginPath(); ctx.arc(cx, cy, R * 0.6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath(); ctx.arc(cx - R * 0.2, cy - R * 0.2, R * 0.18, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  /* =========================================================
+   * Δ14/T052b: 边缘嵌入式流光方向角标（FR-034 §3）
+   * 朝向侧边缘内侧正中: 高对比胶囊形 + 四向微色相区分 +
+   * 白色双箭头纹 + 程序化渐变流光动画（sin 相位随 time）
+   * 图案脸面零遮挡（角标贴边缘——图案居中反方向让位已由布局保证）
+   * ========================================================= */
+  var WING_HUE = ['#5FA8E8', '#E8635F', '#E89B2A', '#5FB87A']; /* U/R/D/L 微色相区分 */
+  function drawWingBadge(ctx, d, x, fz, w, cell, sv, nowMs) {
+    var v = RE.DIR_VEC[d];
+    var hue = WING_HUE[d] || '#5B8FC4';
+    var cx = x + w / 2 + v.dc * (w / 2 - cell * 0.085); /* 朝向侧边缘内侧正中 */
+    var cy = fz + w / 2 + v.dr * (w / 2 - cell * 0.085);
+    var horiz = v.dc !== 0; /* 横向（R/L）角标横置；纵向（U/D）竖置 */
+    var bw = horiz ? cell * 0.30 : cell * 0.15;  /* 胶囊长轴 */
+    var bh = horiz ? cell * 0.15 : cell * 0.30;
+    var r = Math.min(bw, bh) / 2;
+    /* 1. 胶囊底（深色底 + 主题描边） */
+    roundRect(ctx, cx - bw / 2, cy - bh / 2, bw, bh, r);
+    ctx.fillStyle = 'rgba(35,45,60,0.88)';
+    ctx.fill();
+    ctx.strokeStyle = hue;
+    ctx.lineWidth = Math.max(1, dprSafe(1.1));
+    ctx.stroke();
+    /* 2. 程序化流光渐变（sin 相位沿角标长轴流动——零状态纯函数） */
+    var phase = ((nowMs || 0) / 700) % 1;
+    var lg = horiz
+      ? ctx.createLinearGradient(cx - bw / 2, cy, cx + bw / 2, cy)
+      : ctx.createLinearGradient(cx, cy - bh / 2, cx, cy + bh / 2);
+    var sh = 0.5 + 0.5 * Math.sin((nowMs || 0) / 350);
+    lg.addColorStop(0, hexA(hue, 0.35));
+    lg.addColorStop(Math.max(0.02, Math.min(0.98, phase)), hexA(hue, 0.95));
+    lg.addColorStop(1, hexA(hue, 0.35));
+    roundRect(ctx, cx - bw / 2 + dprSafe(1), cy - bh / 2 + dprSafe(1), bw - dprSafe(2), bh - dprSafe(2), r * 0.8);
+    ctx.fillStyle = lg;
+    ctx.fill();
+    /* 3. 白色双箭头纹（指 d 方向——两条人字形箭头串联） */
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(d * Math.PI / 2);
+    ctx.fillStyle = '#FFFFFF';
+    var aLen = Math.min(bw, bh) * 0.78;
+    for (var k = 0; k < 2; k++) {
+      var off = (k === 0 ? -aLen * 0.28 : aLen * 0.24);
+      ctx.beginPath();
+      ctx.moveTo(off - aLen * 0.14, -aLen * 0.2);
+      ctx.lineTo(off + aLen * 0.1, 0);
+      ctx.lineTo(off - aLen * 0.14, aLen * 0.2);
+      ctx.lineTo(off - aLen * 0.2, 0);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   /* T034 齿轮角标: 右上小齿轮图形 + 深色描边底（FR-014 旋转机制可视化） */
@@ -388,65 +407,6 @@
     ctx.stroke();
   }
 
-  /* 胶囊箭头徽章：花色深色胶囊底 + 白色人字箭头（指 d） */
-  function drawArrowBadge(ctx, d, cx, cy, cell, suit, scale) {
-    var v = RE.DIR_VEC[d];
-    var r = cell * 0.15 * (scale || 1);
-    var bx = cx + v.dc * cell * 0.27;
-    var by = cy + v.dr * cell * 0.27;
-    ctx.beginPath();
-    ctx.arc(bx - v.dc * r * 0.5, by - v.dr * r * 0.5, r, 0, Math.PI * 2);
-    ctx.arc(bx + v.dc * r * 0.5, by + v.dr * r * 0.5, r, 0, Math.PI * 2);
-    ctx.fillStyle = suit.deep;
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-    ctx.lineWidth = Math.max(1, dprSafe(1));
-    ctx.stroke();
-    ctx.save();
-    ctx.translate(bx, by);
-    ctx.rotate(d * Math.PI / 2);
-    ctx.beginPath();
-    ctx.moveTo(0, -r * 0.6);
-    ctx.lineTo(r * 0.5, r * 0.3);
-    ctx.lineTo(0, r * 0.02);
-    ctx.lineTo(-r * 0.5, r * 0.3);
-    ctx.closePath();
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fill();
-    ctx.restore();
-  }
-
-  /* Δ7/Δ11 左上角堆叠角标: 每层一点（白=顶层）
-   * 深度 >4 时改用数字角标（5 层 5 点在小格上越界——8×8×5 层适配） */
-  function drawStackBadge(ctx, depth, x, y, cell, scale) {
-    var sc = scale || 1;
-    if (depth > 4) {
-      ctx.beginPath();
-      ctx.arc(x + cell * 0.12, y + cell * 0.12, cell * 0.095 * sc, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(35,45,60,0.85)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-      ctx.lineWidth = Math.max(1, dprSafe(0.8));
-      ctx.stroke();
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold ' + Math.max(8, Math.floor(cell * 0.16)) + 'px system-ui,sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(String(depth), x + cell * 0.12, y + cell * 0.125);
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      return;
-    }
-    for (var i = 0; i < depth; i++) {
-      ctx.beginPath();
-      ctx.arc(x + cell * 0.1, y + cell * 0.1 + i * cell * 0.11, cell * 0.042 * sc, 0, Math.PI * 2);
-      ctx.fillStyle = i === depth - 1 ? '#FFFFFF' : 'rgba(255,255,255,0.45)';
-      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-      ctx.lineWidth = Math.max(1, dprSafe(0.8));
-      ctx.fill();
-      ctx.stroke();
-    }
-  }
 
   /* =========================================================
    * Renderer 工厂
@@ -530,9 +490,9 @@
       return active;
     }
 
-    /* 三消粒子：花色色 12~20 个（单帧 ≤200） */
+    /* 三消粒子：Δ14 图鉴主题色 12~20 个（单帧 ≤200） */
     function spawnParticles(a, now) {
-      var suit = SUITS[a.suit] || SUITS[0];
+      var sv = suitVisual(a.suit);
       var count = 12 + Math.floor(Math.random() * 9);
       if (particles.length + count > 200) count = Math.max(0, 200 - particles.length);
       for (var i = 0; i < count; i++) {
@@ -541,10 +501,31 @@
           vx: (Math.random() - 0.5) * 5 * dpr,
           vy: (Math.random() - 0.9) * 5 * dpr,
           life: PARTICLE_LIFE * (0.6 + Math.random() * 0.6),
-          color: suit.fill,
+          color: sv.fill,
           size: (2 + Math.random() * 3) * dpr
         });
       }
+    }
+
+    /* Δ14: 飞出白色推进云朵粒子（3 团柔白圆——沿路径尾部拖尾） */
+    function drawFlyPuff(a, prog) {
+      var seg = pathPos(a.path, Math.max(0, prog - 0.12));
+      if (!seg) return;
+      var px = (seg.c + 0.5) * cell;
+      var py = (seg.r + 0.5) * cell;
+      var fade = 1 - prog;
+      var puffR = cell * (0.16 + 0.1 * (1 - fade));
+      for (var i = 0; i < 3; i++) {
+        var ang = i * 2.1 + prog * 4;
+        var ox = Math.cos(ang) * cell * 0.1 * i;
+        var oy = Math.sin(ang) * cell * 0.1 * i;
+        ctx.globalAlpha = 0.32 * fade * (1 - i * 0.22);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(px + ox, py + oy, puffR * (1 - i * 0.18), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
     }
 
     /* ---------- 主绘制 ---------- */
@@ -599,7 +580,7 @@
       for (i = 0; i < anims.length; i++) {
         var a = anims[i];
         if (a.kind === 'reveal') continue;
-        drawAnim(a, Math.min(1, (now - a.t0) / a.dur));
+        drawAnim(a, Math.min(1, (now - a.t0) / a.dur), now);
       }
 
       /* 粒子 */
@@ -649,8 +630,8 @@
       }
     }
 
-    /* 棋盘滑块：堆叠错层 + Δ7 reveal 上浮
-     * Δ11: 错层偏移按格宽分级收紧（8×8 大棋盘 5 层不越界） */
+    /* 棋盘滑块：Δ14 多层金字塔投影（向左上阶梯偏移 + 层间柔和投影）
+     *     + Δ7 reveal 上浮；Δ11: 偏移系数按格宽分级收紧（8×8×5 层不越界） */
     function drawBoardTile(t, now) {
       var px = (t.c + 0.5) * cell;
       var py = (t.r + 0.5) * cell;
@@ -669,11 +650,23 @@
           lift = (1 - ease) * cell * 0.45;
         }
       }
-      drawTileBody(ctx, cell, px + layerOff, py + lift, t, 1, 1, layerOff);
+      /* Δ14: 多层堆叠层间柔和投影（下层在右上投出淡影——金字塔立体厚度） */
+      if (stackN > 1) {
+        var aboveN = Math.max(0, stackN - 1 - (t.z || 0));
+        if (aboveN > 0) {
+          ctx.globalAlpha = 0.16 * aboveN;
+          var w = cell * 0.84;
+          roundRect(ctx, px + layerOff + cell * 0.05, py + lift + layerOff + cell * 0.05, w, w, cell * 0.15);
+          ctx.fillStyle = 'rgba(90,105,125,0.55)';
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+      }
+      drawTileBody(ctx, cell, px + layerOff, py + lift, t, 1, 1, layerOff, now);
     }
 
     /* ---------- 动画绘制 ---------- */
-    function drawAnim(a, prog) {
+    function drawAnim(a, prog, now) {
       var t = tileById(a.tileId);
       if (!t) return;
       if (a.kind === 'fly') {
@@ -692,20 +685,22 @@
           ctx.fill();
           ctx.globalAlpha = 1;
         }
-        drawTileBody(ctx, cell, (seg.c + 0.5) * cell, (seg.r + 0.5) * cell - lift, t, sc, alpha, 0);
+        /* Δ14: 白色推进云朵粒子（轻盈拖尾——随飞出迸发） */
+        drawFlyPuff(a, prog);
+        drawTileBody(ctx, cell, (seg.c + 0.5) * cell, (seg.r + 0.5) * cell - lift, t, sc, alpha, 0, now);
       } else if (a.kind === 'block') {
         var p = prog < 0.55 ? (prog / 0.55) : (1 - (prog - 0.55) / 0.45);
         var dir = RE.DIR_VEC[t.d];
         var zB = t.z || 0;
         drawTileBody(ctx, cell,
           (t.c + dir.dc * 0.38 * p + 0.5) * cell,
-          (t.r + dir.dr * 0.38 * p + 0.5) * cell - zB * cell * 0.22, t, 1, 1, 0);
+          (t.r + dir.dr * 0.38 * p + 0.5) * cell - zB * cell * 0.22, t, 1, 1, 0, now);
       } else if (a.kind === 'match') {
-        drawTileBody(ctx, cell, a.x, a.y, t, 1 + 0.6 * prog, 1 - prog, 0);
+        drawTileBody(ctx, cell, a.x, a.y, t, 1 + 0.6 * prog, 1 - prog, 0, now);
       } else if (a.kind === 'gear') {
         /* T034 齿轮旋转脉冲: 牌体原地放大回弹 + 角标区高亮圈 */
         var gp = prog < 0.5 ? prog / 0.5 : (1 - (prog - 0.5) / 0.5);
-        drawTileBody(ctx, cell, (t.c + 0.5) * cell, (t.r + 0.5) * cell, t, 1 + 0.12 * gp, 1, 0);
+        drawTileBody(ctx, cell, (t.c + 0.5) * cell, (t.r + 0.5) * cell, t, 1 + 0.12 * gp, 1, 0, now);
         ctx.beginPath();
         ctx.arc((t.c + 0.5) * cell + cell * 0.34, (t.r + 0.5) * cell - cell * 0.34, cell * 0.14 * (1 + gp), 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(232,217,160,' + (1 - prog) + ')';
@@ -713,7 +708,7 @@
         ctx.stroke();
       } else if (a.kind === 'unlock') {
         /* T034 锁链断开: 牌面亮闪 */
-        drawTileBody(ctx, cell, (t.c + 0.5) * cell, (t.r + 0.5) * cell, t, 1, 1, 0);
+        drawTileBody(ctx, cell, (t.c + 0.5) * cell, (t.r + 0.5) * cell, t, 1, 1, 0, now);
         ctx.beginPath();
         roundRect(ctx, t.c * cell + dprSafe(2), t.r * cell + dprSafe(2), cell - dprSafe(4), cell - dprSafe(4), cell * 0.12);
         ctx.strokeStyle = 'rgba(255,200,80,' + (0.85 * (1 - prog)) + ')';
@@ -822,6 +817,9 @@
     /* ---------- 数据刷新（脏检查入口） ---------- */
     function refresh() {
       if (session) lastProbe = RE.renderProbe(session.engineState());
+      /* Δ14: 渲染层花色映射刷新——跳关/Undo 均以当前关 id 实时重算阶段
+       *（currentLevel 切换由 main.js 经 setSuitLevel 通知；此处兜底幂等） */
+      if (pendingLevel) setSuitLevel(pendingLevel);
       /* M1.6: 视觉缓存——未移除滑块全量绘制字段（removed 后 drawAnim 仍可用）
        * Δ12: 补 r/c/m/ice —— tileById 缓存优先命中时 block/gear/unlock/ice 动画
        * 读 t.c/t.r 曾为 undefined → NaN → createLinearGradient 抛错杀死 rAF 循环
@@ -865,34 +863,57 @@
       global.addEventListener('resize', function () { resize(); markDirty(); });
     }
 
+    /* Δ14: 关卡上下文注册（main.js loadLevel 时调用——花色映射/背景随 id 切换） */
+    var pendingLevel = null;
+    function setLevel(level) {
+      pendingLevel = level;
+      setSuitLevel(level);
+      markDirty();
+    }
+
     return {
       refresh: refresh,
       handleEvent: handleEvent,
       hitTest: hitTest,
       setHighlight: setHighlight,
+      setLevel: setLevel,
       SUITS: SUITS
     };
   }
 
-  /* DOM chip SVG（Dock/Staging——水果花色简化图形） */
-  function chipSVG(s) {
-    var suit = SUITS[s] || SUITS[0];
-    var shape = {
-      'strawberry': '<path d="M12 4 C17 3 20 7 19 12 C18 17 14 20 12 21 C10 20 6 17 5 12 C4 7 7 3 12 4 Z"/>',
-      'orange': '<circle cx="12" cy="13" r="8"/><path d="M12 5 Q16 2 18 5 Q15 6 12 5 Z" fill="#3E9B4F"/>',
-      'pineapple': '<ellipse cx="12" cy="14" rx="6.5" ry="8"/><path d="M9 6 L11 2 L12 6 L14 1 L15 6 L18 4 L16 7 Z" fill="#3E9B4F"/>',
-      'kiwi': '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" fill="#F2F7DC"/>',
-      'blueberry': '<circle cx="12" cy="13" r="8"/><path d="M12 5 L13.5 7 L12 9 L10.5 7 Z" fill="#1D2E80"/>',
-      'grape': '<circle cx="8" cy="9" r="4"/><circle cx="16" cy="9" r="4"/><circle cx="12" cy="13" r="4"/><circle cx="9" cy="17" r="4" fill="#7135A8"/><circle cx="15" cy="17" r="4"/>',
-      'peach': '<path d="M12 21 C4 17 5 8 12 7 C19 8 20 17 12 21 Z"/>',
-      'jade': '<rect x="4" y="4" width="16" height="16" rx="3"/><rect x="7.5" y="7" width="9" height="3" rx="1" fill="#F0FBF4"/><rect x="7.5" y="11" width="9" height="3" rx="1" fill="#F0FBF4"/><rect x="7.5" y="15" width="9" height="3" rx="1" fill="#F0FBF4"/>'
-    }[suit.shape];
-    return '<svg viewBox="0 0 24 24" fill="' + suit.fill + '" stroke="rgba(0,0,0,0.35)" stroke-width="0.8">' + shape + '</svg>';
+  /* DOM chip SVG（Dock 槽图标——Δ14 与棋盘图鉴口径一致）
+   * 有图鉴映射时渲染主题色双圈 chip（底晕 + 图案色圆点），
+   * 无映射兜底旧色彩圆点。SVG 内联零外部资源（宪章 III）。 */
+  function chipSVG(s, level) {
+    var bid = null;
+    if (Bestiary && level) {
+      var m = Bestiary.mappingForLevel(level);
+      bid = m[s] != null ? m[s] : null;
+    } else if (Bestiary && currentLevelId != null) {
+      bid = currentMapping[s] != null ? currentMapping[s] : null;
+    }
+    var fill, deep;
+    if (bid != null) {
+      var e = Bestiary.entry(bid);
+      fill = e.theme;
+      deep = shade(e.theme, -60);
+    } else {
+      var suit = SUITS[s] || SUITS[s % SUITS.length];
+      fill = suit.fill;
+      deep = suit.deep;
+    }
+    /* 图鉴 chip: 柔光底晕圈 + 主体色圆 + 高光点（与棋盘 Sprite 视觉同源） */
+    return '<svg viewBox="0 0 24 24" fill="' + fill + '" stroke="rgba(0,0,0,0.3)" stroke-width="0.8">' +
+      '<circle cx="12" cy="12" r="10.5" fill="rgba(255,255,255,0.55)"/>' +
+      '<circle cx="12" cy="12" r="8.5"/>' +
+      '<ellipse cx="9" cy="8.5" rx="2.6" ry="1.4" fill="rgba(255,255,255,0.6)" stroke="none"/>' +
+      '</svg>';
   }
 
   STM.createBoardRenderer = createBoardRenderer;
   STM.SUITS = SUITS;
   STM.chipSVG = chipSVG;
+  STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite };
 
 
 })(typeof window !== 'undefined' ? window : globalThis);

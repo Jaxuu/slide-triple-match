@@ -176,6 +176,7 @@
     renderer = STM.createBoardRenderer(els.board, session, {
       onShake: shakeBoard
     });
+    renderer.setLevel(currentLevel); /* Δ14: 渲染层花色映射/背景随当前关 id 切换 */
     renderer.refresh();
 
     renderHud();
@@ -211,11 +212,11 @@
 
   function renderDock() {
     var s = session.state();
-    /* Dock 7 格 */
+    /* Dock 7 格（Δ14: chipSVG 消费当前关花色映射——与棋盘图鉴口径一致） */
     var html = '';
     for (var i = 0; i < 7; i++) {
       if (i < s.dock.length) {
-        html += '<div class="slot has-tile" data-idx="' + i + '">' + STM.chipSVG(s.dock[i].s) + '</div>';
+        html += '<div class="slot has-tile" data-idx="' + i + '">' + STM.chipSVG(s.dock[i].s, currentLevel) + '</div>';
       } else {
         html += '<div class="slot empty"></div>';
       }
