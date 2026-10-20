@@ -377,3 +377,52 @@ html, body {
   transition: opacity .2s;
 }
 #toast.show { opacity: 1; }
+
+/* ---------- Δ14/T052e: 挑战关激励横幅（FR-036——绿金卷轴动效） ---------- */
+#challenge-banner {
+  position: absolute;
+  top: 34%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(.7);
+  max-width: 82%;
+  padding: 14px 26px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #2E5E3E 0%, #3E7A52 45%, #2E5E3E 100%);
+  border: 2px solid #FFC53D;
+  box-shadow:
+    0 0 0 4px rgba(76, 195, 138, .25),
+    0 12px 36px rgba(0, 0, 0, .45),
+    inset 0 1px 0 rgba(255, 255, 255, .18);
+  color: #FFEEB0;
+  font-size: clamp(14px, 4cqw, 19px);
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: .5px;
+  pointer-events: none; /* 非模态: 不阻塞输入与 rAF（Edge Case「横幅与开局输入竞态」） */
+  z-index: 25;
+  opacity: 0;
+}
+#challenge-banner::before,
+#challenge-banner::after { /* 金色卷轴端饰 */
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 46px;
+  transform: translateY(-50%);
+  border-radius: 5px;
+  background: linear-gradient(180deg, #FFD93B, #E8A81F);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+}
+#challenge-banner::before { left: -7px; }
+#challenge-banner::after { right: -7px; }
+#challenge-banner.show {
+  animation: challenge-in 1.6s ease-out forwards;
+}
+@keyframes challenge-in {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(.7); }
+  12%  { opacity: 1; transform: translate(-50%, -50%) scale(1.06); }
+  20%  { transform: translate(-50%, -50%) scale(1); }
+  78%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -52%) scale(.96); }
+}

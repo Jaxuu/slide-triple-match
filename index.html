@@ -60,10 +60,12 @@
   </div>
 </div>
 
-<!-- 固定 classic script 加载序（D-01）：levels → RulesEngine → GameState → BoardRenderer → SoundManager → main -->
+<!-- 固定 classic script 加载序（D-01）：levels → RulesEngine → GameState → bestiary(Δ14) → backdrops(Δ14) → BoardRenderer → SoundManager → main -->
 <script defer src="src/data/levels.js"></script>
 <script defer src="src/core/RulesEngine.js"></script>
 <script defer src="src/core/GameState.js"></script>
+<script defer src="src/render/bestiary.js"></script>
+<script defer src="src/render/backdrops.js"></script>
 <script defer src="src/render/BoardRenderer.js"></script>
 <script defer src="src/audio/SoundManager.js"></script>
 <script defer src="src/main.js"></script>

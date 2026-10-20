@@ -84,8 +84,13 @@
     sound = STM.createSoundManager({});
     if (sound.setMuted && progress.muted) sound.setMuted(progress.muted);
 
-    /* 首次 pointerdown 惰性解锁 AudioContext（autoplay 政策） */
+    /* 首次 pointerdown 惰性解锁 AudioContext（autoplay 政策）
+     * Δ14/T052f: unlock() 内首交互自动开启治愈系 BGM（FR-037 §2） */
     global.document.addEventListener('pointerdown', function onFirst() {
+      if (sound) sound.unlock();
+    }, { capture: true });
+    /* Δ14: keydown 同样视为首次交互（键盘玩家 BGM 合规解锁） */
+    global.document.addEventListener('keydown', function onFirstKey() {
       if (sound) sound.unlock();
     }, { capture: true });
 
@@ -176,6 +181,7 @@
     renderer = STM.createBoardRenderer(els.board, session, {
       onShake: shakeBoard
     });
+    renderer.setLevel(currentLevel); /* Δ14: 渲染层花色映射/背景随当前关 id 切换 */
     renderer.refresh();
 
     renderHud();
@@ -184,6 +190,53 @@
     bindBoardInput();
     bindItemInput(); /* T035: 道具栏 + 暂存区输入绑定 */
     exitWrenchMode();
+
+    showChallengeBanner(); /* Δ14/T052e: 挑战位关开局 1.6s 激励横幅（FR-036） */
+  }
+
+  /* =========================================================
+   * Δ14/T052e: 困难关挑战横幅（FR-036）
+   * 挑战位集合 = L3 ∪ (id-4)%3==2 位（L6/L9/…/L60，共 20 关——
+   * 每个三关循环各含 1 难关；内嵌精确集合，勿只取 (id-4)%3==2 漏 L3）
+   * 非模态: pointer-events:none + 不冻结 rAF/判定；1.6s 自动消散
+   * ========================================================= */
+  function isChallengeLevel(id) {
+    return id === 3 || (id - 4) % 3 === 2;
+  }
+
+  /* XX% = 关卡难度指标确定性函数（同关恒定——FR-036 §1）
+   * difficultyScore 单调映射至 49%~12% 值域（线性递减——挑战语气真实感） */
+  function challengePercent(id) {
+    var lv = STM.LEVELS[id - 1];
+    var score = lv && lv.metrics ? (lv.metrics.difficultyScore || 0) : 0;
+    var pct = 49 - Math.round(score * 37 / 100); /* score 0~100 → 49%~12% */
+    return Math.max(12, Math.min(49, pct));
+  }
+
+  var bannerTimer = null;
+  function showChallengeBanner() {
+    if (!isChallengeLevel(currentId)) return;
+    if (bannerTimer) { clearTimeout(bannerTimer); bannerTimer = null; }
+    var el = ensureBannerEl();
+    el.textContent = '🔥 挑战关卡！只有 ' + challengePercent(currentId) + '% 的玩家能一次通过这一关';
+    el.classList.remove('show');
+    void el.offsetWidth; /* 重启动画 */
+    el.classList.add('show');
+    bannerTimer = setTimeout(function () {
+      el.classList.remove('show');
+      bannerTimer = null;
+    }, 1600);
+  }
+
+  function ensureBannerEl() {
+    var d = global.document;
+    var b = d.getElementById('challenge-banner');
+    if (!b) {
+      b = d.createElement('div');
+      b.id = 'challenge-banner';
+      d.getElementById('app').appendChild(b);
+    }
+    return b;
   }
 
   /* =========================================================
@@ -211,11 +264,11 @@
 
   function renderDock() {
     var s = session.state();
-    /* Dock 7 格 */
+    /* Dock 7 格（Δ14: chipSVG 消费当前关花色映射——与棋盘图鉴口径一致） */
     var html = '';
     for (var i = 0; i < 7; i++) {
       if (i < s.dock.length) {
-        html += '<div class="slot has-tile" data-idx="' + i + '">' + STM.chipSVG(s.dock[i].s) + '</div>';
+        html += '<div class="slot has-tile" data-idx="' + i + '">' + STM.chipSVG(s.dock[i].s, currentLevel) + '</div>';
       } else {
         html += '<div class="slot empty"></div>';
       }
@@ -421,6 +474,7 @@
     renderDock();
     renderItems();
     renderHud();
+    showChallengeBanner(); /* Δ14/T052e: 重开本关挑战横幅可再弹（FR-036 §3） */
   }
 
   function onNextDown() {

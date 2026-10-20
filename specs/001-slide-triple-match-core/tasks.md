@@ -4,18 +4,20 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 
 # Tasks: Slide & Triple（滑块三消）— 完整 H5 游戏与 60 关递进关卡系统（Δ13 扩容后）
 
+> **Propagated**: 2026-10-20 — Δ14（US5《万物出发！》）refine 传播：插入 Phase 5.5 / Milestone 3.5（T052a~T052f 表现层任务组）+ 门禁表/依赖图/故事映射同步；**已勾选的 Phase 1~Phase 5（T001~T052）任务零改动**，Phase 6（T053~T059）与 Phase 7 顺延保留在后。原 refine 指令的 Δ7~Δ10 编号与实现期变更记录冲突，编入 Δ14a~Δ14d（见 plan.md 传播注记）。
+
 **Input**: Design documents from `/specs/001-slide-triple-match-core/`
 
-**Prerequisites**: plan.md（四阶段里程碑策略 + Δ1~Δ6 架构增量）、spec.md（US1~US4 + Edge Cases）、research.md（D-01~D-15）、data-model.md（实体/不变量/状态机）、contracts/×4（rules-engine / level-data / game-session / level-pipeline）、quickstart.md（分里程碑验收场景 + 红线审计）
+**Prerequisites**: plan.md（「四阶段 + 表现层」里程碑策略 + Δ1~Δ6 架构增量 + Δ14a~Δ14d 表现层增量）、spec.md（US1~US5 + Edge Cases）、research.md（D-01~D-15）、data-model.md（实体/不变量/状态机）、contracts/×4（rules-engine / level-data / game-session / level-pipeline）、quickstart.md（分里程碑验收场景 + 红线审计）
 
 **Tests**: 本项目采用零测试框架三层验证（D-14，勿引入 jest/vitest 等任何 npm 依赖）：① `node tools/solver.js` 全量可解性门禁（exit code 机判）② `node tools/solver.js --engine-selftest` 规则不变量断言 ③ quickstart.md 人工验收场景。此类验证任务**非可选**——它们是 FR-030/031/SC-001 的交付物，已按里程碑融入任务清单。
 
-**Organization**: 任务按 **plan.md 四阶段里程碑**（M1→M2→M3→M4）组织；用户故事标签映射进各里程碑：**M1=US1（核心循环）、M2=US3+US4 道具（机制/道具+规则冻结）、M3=US2（60 关量产——Δ13 扩容后，原 50 关基准批次）、M4=US4 面板（调试面板/Bot/扩容）**。里程碑间为**冻结门**关系：上一 Checkpoint 未全过，禁止开始下一阶段任务——尤其 M3 大批量量产严禁在 M1/M2 未验证前提前执行。
+**Organization**: 任务按 **plan.md「四阶段 + 表现层」里程碑**（M1→M2→M3→M3.5→M4）组织；用户故事标签映射进各里程碑：**M1=US1（核心循环）、M2=US3+US4 道具（机制/道具+规则冻结）、M3=US2（60 关量产——Δ13 扩容后，原 50 关基准批次）、M3.5=US5（万物出发表现层——45 图鉴/20 景背景/横幅/BGM，纯渲染与音频层）、M4=US4 面板（调试面板/Bot/扩容）**。里程碑间为**冻结门**关系：上一 Checkpoint 未全过，禁止开始下一阶段任务——尤其 M3 大批量量产严禁在 M1/M2 未验证前提前执行。
 
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: 可并行（不同文件、无未完成任务依赖；**里程碑门禁优先于一切 [P]**）
-- **[Story]**: 用户故事（US1/US2/US3/US4；Setup/Foundational/Polish 阶段无标签）
+- **[Story]**: 用户故事（US1/US2/US3/US4/US5；Setup/Foundational/Polish 阶段无标签）
 - 任务描述内嵌契约关键数值，便于直接执行；与契约冲突时以 contracts/ 四文档为唯一真源
 
 ## Path Conventions（零构建静态 H5 + Node 离线工具）
@@ -25,7 +27,7 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 - 生成工件（随仓库交付）: `src/data/levels.js`（M3 起整体再生成）, `tools/solver-report.json`
 - 仓库**不得出现** package.json / node_modules / 构建配置（宪章 II / level-pipeline.md §4）
 
-## 架构增量 Δ1~Δ6 落点追溯表
+## 架构增量 Δ1~Δ6 + Δ14a~Δ14d 落点追溯表
 
 | 增量 | 口径摘要 | 落点任务 |
 |---|---|---|
@@ -35,6 +37,10 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 | Δ4 LEVELS.length 动态化 | 深链/进度钳制/自动进关/跳关下拉/终局判定全部动态读取，扩容零前端改动 | T020, T050, T051, T054, T059 |
 | Δ5 参数表驱动生成 | `CHAPTERS` 可扩展数组，追加条目即新增章节 | T040, T059 |
 | Δ6 solutionMoves 预计算 | Solver 最优解内嵌 levels.js，Hint/Bot 零延迟回放 | T049, T055, T056 |
+| Δ14a 45 种图鉴池与三阶段抽样 | 渲染层阶段映射表（按 level.id 区间 L1~21/22~42/43~60，**严禁读 level.chapter**）+ 确定性抽样；levels.js suit 字段/花色数 K 零改写 | T052a, T052c |
+| Δ14b 3D 奶油白底座 + 边缘流光角标 + Sprite 缓存 | 移除圆圈指示器与面部箭头圆圈；朝向侧边缘流光胶囊角标；45 图案离屏 Sprite 预渲染 | T052b |
+| Δ14c 20 景生态背景池 | cycleIndex=floor((id-1)/3) 严格绑定，同循环 3 关共享；棋盘蒙版保可读性 | T052d |
+| Δ14d 治愈系 BGM + 困难关横幅 | 五声音阶循环合成器 + 开关/可见性联动；挑战位集合 L3 ∪ (id-4)%3==2 共 20 关 1.6s 绿金横幅 | T052e, T052f |
 
 ## 里程碑门禁总览（执行纪律）
 
@@ -42,8 +48,9 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 |---|---|---|---|
 | M1 验收门 | T022 | US1-AC1~AC5 + quickstart Q1.1~Q1.7 + file:// 零控制台报错 | 开始 M2 |
 | **M2 冻结门（FREEZE）** | T039 | US3-AC1~7、US4-AC1~3 + Edge Cases 复现 + `--engine-selftest` 全绿 | **开始 M3 量产（严禁提前生成大批量关卡）** |
-| M3 量产门 | T052 | SC-001 60/60（Δ13 扩容后）+ SC-004 曲线门 + US2-AC1~AC5 | 开始 M4 |
-| M4 交付门 | T058 + T062/T063 | SC-002/003/006 + 宪章红线零违规 | 交付 |
+| M3 量产门 | T052 | SC-001 60/60（Δ13 扩容后）+ SC-004 曲线门 + US2-AC1~AC5 | 开始 M3.5 |
+| M3.5 表现层门 | T052f 验收 | SC-007/SC-008 + US5-AC1~AC8 + render-selftest Δ14 断言全绿 + engine-selftest 回归零漂移 + levels.js git diff 为空 | 开始 M4 |
+| M4 交付门 | T058 + T062/T063 | SC-002/003/006/007/008 + 宪章红线零违规 | 交付 |
 
 ---
 
@@ -220,6 +227,26 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 
 ---
 
+## Phase 5.5: Milestone 3.5 — 万物出发：题材、视觉、背景与 BGM 全面升级（User Story 5，Priority: P2）✨ 表现层
+
+⚠️ **GATE**: 依赖 T052（M3 量产门）通过。**纯渲染与音频层**——RulesEngine 规则语义、Solver 口径、levels.js 关卡数据（suit/花色数/坐标/solutionMoves）**零变更**（FR-032/FR-031/Δ13 保留铁律不破；FR-033 §3 渲染层映射消解口径）；US5 题材化经用户裁定记录于 spec 假设区（宪章 I 叙事包装禁项零触碰、宪章 III 程序化红线零突破）。
+
+**Goal**: 45 种动态生灵/载具图鉴、3D 奶油白底座与流光方向角标、20 景生态背景、挑战关激励横幅、程序化治愈系 BGM（FR-033~FR-037、SC-007/SC-008）
+
+**Independent Test**: 逐关抽查图案来自对应阶段图鉴池（同花色恒同图案）；20 景背景与 cycleIndex 严格对应；挑战位关开局 1.6s 横幅；首次交互后 BGM 自动播放且开关同步静音；`git diff src/data/levels.js` 为空 + engine-selftest 全绿回归。
+
+**验证**: render-selftest.js 扩展 Δ14 断言组（纯渲染层机判，Node 零依赖——延续 D-14 三层验证体系）+ engine-selftest 回归 + quickstart 人工场景
+
+- [x] T052a [P] [US5] 编写 45 种生灵与载具全彩矢量图鉴定义及离屏 Sprite 预渲染缓存（Δ14a/FR-033）in `src/render/bestiary.js`（新增）+ `src/render/BoardRenderer.js`: 图鉴三阶段各 15 种（Suit 0~14 陆地萌宠 / 15~29 碧海飞羽 / 30~44 奇幻远航，名称与清单严格照抄 spec FR-033 §1~§3）；每图案独立 Canvas 绘制函数（贝塞尔/径向渐变/高光点语汇，纯代码零图片——宪章 III）；**离屏 Sprite 缓存**——按 (suit, 渲染尺寸档) 绘制一次缓存为 offscreenCanvas 会话内复用（8×8×5 层满载 105 滑块 60fps 预算）；导出 `STM.Bestiary`（classic script，加载序插 BoardRenderer 前）；阶段花色映射表：按 level.id 区间（1~21/22~42/43~60，**严禁读 level.chapter——chapter 分段 1-20/21-40/41-60 与图鉴阶段不重合，L21/L41/L42 错位**）+ 确定性抽样（seed = f(level.id, 阶段号)，xorshift 类 PRNG 禁 Math.random——D-08）将关卡实际花色数 K（3~8 不变）映射至池内 K 个图案，同关内 suit→图案唯一且可复现（SC-007）；图案仅是视觉标识，三消/求解/死局判定恒以 suit 整数为准（FR-032 铁律）
+- [x] T052b [P] [US5] 重构 3D 奶油白正方体滑块、多层金字塔投影与边缘流光方向角标，移除旧圆圈指示器（Δ14b/FR-034）in `src/render/BoardRenderer.js`: ①底座 = 1:1 奶油白 3D 圆角正方体（底部立体厚度阴影 + 纯白高光内倒角——替代 T-M15.3 牌面+暖棕厚度底座）；②多层堆叠（1~5 层）向左上角微量阶梯偏移 + 层间阴影（金字塔式空间立体感，替代原左上角层角标与错层偏移）；③**彻底移除左上角圆圈指示器与覆盖图案面部的半透明箭头圆圈**；④方向 = 朝向侧边缘内嵌「流光胶囊」角标（程序化渐变流光动画，指 d 方向；方向语义与 FR-001/FR-002 命中判定完全一致——纯视觉替换）；⑤图案居中完整展示零遮挡（Bestiary Sprite 消费 T052a）；⑥机制标记（齿轮/冰封/锁链/钥匙/棱镜——T034 视觉）位置与新底座兼容互不遮挡；⑦hitTest/动画路径（fly/block/gear/unlock/ice/prism）坐标口径同步新底座几何（防 Δ12 类 NaN 崩溃回归——render-selftest 覆盖）；⑧8×8/5 层厚度与偏移按格宽分级缩放（沿用 Δ11 适配策略）
+- [x] T052c [US5] 编写 60 关花色重映射逻辑，在不破坏现有坐标与 solutionMoves 的前提下映射至 45 种动态图鉴（Δ14a/FR-033 §3/§4）in `src/render/bestiary.js`（映射表本体）+ `tools/render-selftest.js`（断言）: 60 关逐关计算「关卡花色数 K → 阶段池 K 图案」映射并缓存映射结果（会话级）；**不写回 levels.js**（git diff 恒空——Δ13 保留铁律，SC-007 验收口径）；不触碰 tiles 坐标/solutionMoves 有效性（Hint/Bot 回放照常——Δ6 解序列与渲染层解耦）；render-selftest 新增断言组：60 关映射确定性（同 seed 二次计算结果一致）、同关同 suit 恒同图案、阶段边界正确（L21∈阶段一、L22∈阶段二、L42∈阶段三、L43∈阶段三——按 id 区间非 chapter）、K≤池大小恒真、跳关/Undo 后以当前关 id 重算阶段（Edge Case「阶段边界换装」）；engine-selftest 全量回归零漂移（证明映射纯渲染层）【实现注: 原文「L42∈阶段三」为笔误——spec FR-033 阶段二 = L22~L42（含 42）且 21+21+18=60 自洽，断言按 spec 口径 L42∈阶段二执行；引擎 suit 校验仅 %3 守恒无上限，天然兼容 Suit 0~44（无引擎改动需求）】
+- [x] T052d [P] [US5] 绘制 20 套阳光治愈系生态风景背景池，并绑定至 20 个三关循环（Δ14c/FR-035）in `src/render/BoardRenderer.js` + `css/style.css`: 20 景 Canvas/内联 SVG 多层风景（每景天空/远景/中景/近景 ≥3 层 + 渐变；题材分布 Cycle 1~7 陆地（阳光牧场/花海/麦田等）/ 8~14 蔚蓝（海滩/珊瑚湾/彩虹谷/云海等）/ 15~20 远航（热气球晨光/海港/星河/云海金顶等）——具体构图清单实现期定）；绑定 `cycleIndex = Math.floor((level.id - 1) / 3)`（0~19 严格一一对应，同循环 3 关共享——跳关/Undo 均以当前关 id 实时计算）；背景层与滑块层分离渲染（背景静态化或低速重绘，滑块层 60fps 不降帧）；棋盘层半透明蒙版/暗角过渡（滑块/角标/机制标记对比度 ≥ 黑底基准——Edge Case「背景可读性」）；零外部图片（宪章 III）
+- [x] T052e [P] [US5] 实现困难关（Cycle 第 3 关）开局 1.6 秒挑战横幅动效（Δ14d/FR-036）in `src/main.js` + `css/style.css`: 挑战位集合 = L3 ∪ (id-4)%3==2 位（L6/L9/…/L60，**合计 20 关 = 20 个三关循环各含 1 难关——内嵌精确集合，勿只取 (id-4)%3==2 漏 L3**）；开局（createSession 后）屏幕中央弹出 1.6s 绿金横幅「🔥 挑战关卡！只有 XX% 的玩家能一次通过这一关」；XX% = 关卡难度指标（metrics）确定性函数（同关恒定——minMoves/difficultyScore 单调映射至如 5%~95% 值域，具体函数实现期定）；**非模态**（不阻塞 PointerEvents、不冻结 rAF 与判定——Edge Case「横幅与开局输入竞态」）；1.6s 自动消散（CSS 动画 + setTimeout 清理），重开本关可再弹
+- [ ] T052f [US5] 实现 Web Audio API 舒缓治愈系循环 BGM 合成器与静音联动（Δ14d/FR-037）in `src/audio/SoundManager.js`: 大调五声音阶（C D E G A）柔和木琴音色（短促衰减正弦/三角波敲击 + 低通滤波）与柔和和弦 pad 循环（4~8 小节调度表驱动——Web Audio 前瞻调度，主线程零负担）；**首次交互（PointerEvent/keydown 任一）后自动播放**（autoplay 政策合规——首次交互前 MUST NOT 发声，Edge Case「BGM 自动播放策略」）；音效开关同步静音联动（setMuted(true) → BGM gain 归零——与既有 SFX mute 语义一致）；visibilitychange→hidden 暂停/恢复续播；BGM 专用 gain 节点与 SFX 链路隔离（互不串音）；纯代码实时合成零音频文件（宪章 III）
+- [x] T052g [US5] **Checkpoint M3.5（表现层门 → M4）**: SC-007（图鉴渲染一致性——45 图案可渲染、同关同图案、跨阶段池切换仅在换章边界、levels.js git diff 为空）；SC-008（20 景 cycleIndex 对应 0 遗漏 0 冲突 + 横幅触发 20/20 + BGM autoplay 合规静音联动）；US5-AC1~AC8 逐条人工验收（quickstart Δ14 场景组）；`node tools/render-selftest.js` Δ14 断言全绿 + `node tools/solver.js --engine-selftest` 回归全绿（FR-031 不触发——levels.js/level-config/RulesEngine git diff 全空佐证）；8×8×5 层满载关卡 60fps 抽查（中端手机档）；宪章红线复核（零二进制文件、零外部资源）。**未全过不得进入 M4**
+
+---
+
 ## Phase 6: Milestone 4 — 调试面板、Auto-Play Bot 与无缝扩容（User Story 4 面板部分，P3）
 
 **Goal**: 评审效率层（FR-027/028）+ 扩容能力实证（Δ4/Δ6）
@@ -251,7 +278,7 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 
 ### 里程碑门禁（硬顺序，覆盖一切并行）
 
-Phase 1 → Phase 2 → **M1（T022 验收门）** → **M2（T039 冻结门 FREEZE）** → **M3（T052 量产门）** → **M4（T058 功能门 + T059 扩容钻探）** → Phase 7（T063 交付门）
+Phase 1 → Phase 2 → **M1（T022 验收门）** → **M2（T039 冻结门 FREEZE）** → **M3（T052 量产门）** → **M3.5（T052g 表现层门）** → **M4（T058 功能门 + T059 扩容钻探）** → Phase 7（T063 交付门）
 
 - **⛔ 核心纪律**: M2 冻结门前**禁止**执行 T045 及之后的量产任务——Generator/Solver 与前端共用同一 RulesEngine 物理文件（D-02/FR-032），规则未冻结即量产 = 口径漂移 → 按 FR-031 全量重跑重验
 - M1/M2 手工测试关（T019/T037）允许在门内先行（小规模、schema 与最终契约一致、M3 起被流水线整体替换）
@@ -263,7 +290,7 @@ Phase 1 → Phase 2 → **M1（T022 验收门）** → **M2（T039 冻结门 FRE
 - **M1（Phase 3）**: 依赖 Phase 2 完成
 - **M2（Phase 4）**: 依赖 T022（M1 验收门）
 - **M3（Phase 5）**: 依赖 T039（M2 冻结门）；性能预算=Solver 单关 2M 节点、全量 60 关 <5 分钟
-- **M4（Phase 6）**: 依赖 T052（M3 量产门——Hint/Bot 依赖 levels.js 内嵌 solutionMoves，Δ6）
+- **M4（Phase 6）**: 依赖 T052g（M3.5 表现层门——面板与横幅/BGM/背景 UI 层互不干扰基线就绪）；Hint/Bot 依赖 levels.js 内嵌 solutionMoves，Δ6
 - **Polish（Phase 7）**: 依赖 T058/T059 完成
 
 ### User Story Mapping
@@ -272,7 +299,8 @@ Phase 1 → Phase 2 → **M1（T022 验收门）** → **M2（T039 冻结门 FRE
 - **US2（P1 60 关系统）** → M3: T040~T052
 - **US3（P2 四大机制）** → M2: T023~T029, T033, T034, T036~T038（+T039 共享）
 - **US4（P3 道具+调试面板）** → M2 道具: T030~T032, T035（+T039 共享）；M4 面板: T053~T059
-- 故事并行性受里程碑门约束（US2 依赖 US3 规则冻结——**玩法机制先于量产**，Core-First Levels-Later）
+- **US5（P2 万物出发表现层）** → M3.5: T052a~T052g（FR-033→T052a/T052c、FR-034→T052b、FR-035→T052d、FR-036→T052e、FR-037→T052f、SC-007/008→T052g）
+- 故事并行性受里程碑门约束（US2 依赖 US3 规则冻结——**玩法机制先于量产**，Core-First Levels-Later；US5 表现层后置于量产完成——Presentation-Last）
 
 ### Within Each Milestone
 
@@ -286,6 +314,7 @@ Phase 1 → Phase 2 → **M1（T022 验收门）** → **M2（T039 冻结门 FRE
 - M1: T016（花色表/Canvas 基建）、T018（音效）、T019（烟雾关数据）与引擎链 T008~T013 并行
 - M2: T034（机关视觉）、T035（暂存 UI）、T036（机制音效）、T037（测试关）与引擎链并行
 - M3: T040（参数表）与 Solver 链 T041~T044 并行；T050/T051（前端）与 tools/ 并行
+- M3.5: T052a/T052b/T052d/T052e/T052f 五任务并行（不同文件/不同关注点——bestiary.js 新文件、BoardRenderer 底座、BoardRenderer+CSS 背景、main.js+CSS 横幅、SoundManager BGM；T052b 消费 T052a 的 Sprite 接口可先行契约开发）；T052c（映射断言）依赖 T052a 完成后收口
 - M4: T053（面板容器）与 main.js 链并行
 - Phase 7: T060 / T061 / T062 并行
 
@@ -317,12 +346,13 @@ T014/T015 GameState（依赖引擎 API）→ T020/T021 main.js 集成 → T022 M
 2. M1 全部任务 → T022 验收 → **可玩 MVP**（US1 完整核心循环 + 烟雾关通关）
 3. **STOP and VALIDATE**: 此时即可部署/演示核心玩法
 
-### 里程碑增量交付（严格门禁，Core-First Levels-Later）
+### 里程碑增量交付（严格门禁，Core-First Levels-Later, Presentation-Last）
 
 1. M1 核心循环 → 验证 → M2 四机制+道具 → `--engine-selftest` 全绿 → **⛔ 规则冻结**
-2. **冻结后** M3 流水线量产 50 关 → Solver 门禁 50/50 + 曲线门 → 完整关卡系统交付
-3. M4 调试面板/Bot → SC-002 评审效率实证 → Q8 扩容钻探 → 回滚恢复 50 关
-4. Phase 7 红线审计 + 全量 SC 勾验 → 终交付
+2. **冻结后** M3 流水线量产 50→60 关 → Solver 门禁 60/60 + 曲线门 → 完整关卡系统交付
+3. M3.5 万物出发表现层（45 图鉴/底座/20 景背景/横幅/BGM）→ render-selftest + 表现层门 → 视听体验升级交付（levels.js 恒不变）
+4. M4 调试面板/Bot → SC-002 评审效率实证 → Q8 扩容钻探 → 回滚恢复 60 关
+5. Phase 7 红线审计 + 全量 SC 勾验 → 终交付
 
 ### 返工规则（FR-031 变更协议）
 
