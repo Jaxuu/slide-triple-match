@@ -359,12 +359,115 @@ function scenarioEcoBackdrop() {
   check('每个挑战位关归属其三关循环', perCycleOk);
 }
 
+/* ---- 场景 F: Δ15b/T052i 精灵图集切片与渲染级联断言（Node 桩环境） ---- */
+function scenarioSpriteSheets() {
+  console.log('场景 F: 精灵图集切片/白键控/渲染级联（Δ15b——贴图>单张>Emoji 兜底）');
+  var IA = STM.IconAssets;
+  var B = STM.Bestiary;
+  check('IconAssets 挂载于 STM（BoardRenderer 导出）', !!IA && typeof IA.ensureLoaded === 'function');
+
+  /* Emoji 码点表: 45 条全覆盖且无重复（FR-033 §6 兜底渲染源） */
+  check('Emoji 码点表 45 条全覆盖', Array.isArray(B.EMOJI) && B.EMOJI.length === 45);
+  var emSet = {};
+  var emUniq = true;
+  for (var ei = 0; ei < 45; ei++) {
+    if (!B.EMOJI[ei] || typeof B.EMOJI[ei] !== 'string' || B.EMOJI[ei].length < 1) emUniq = false;
+    if (emSet[B.EMOJI[ei]]) emUniq = false;
+    emSet[B.EMOJI[ei]] = true;
+  }
+  check('Emoji 码点无重复且均为非空字符串', emUniq);
+
+  /* Node 无 DOM/无 Image → ensureLoaded 空转不抛（file:// 之外环境安全） */
+  var loadOk = true;
+  try { IA.ensureLoaded(); } catch (err) { loadOk = false; }
+  check('Node 无 Image 环境下 ensureLoaded 安全空转', loadOk);
+  check('Node 环境无贴图状态（sheetCount=0——Emoji 兜底路径）', IA.sheetCount() === 0);
+
+  /* 兜底链确定性: Sprite 生成走 Emoji 路径（无 DOM → getSprite null → 直绘分支可达） */
+  var RT = STM.rendererTest;
+  var sp = RT.getSprite(0, 40); /* Node 无 DOM → null（直绘路径） */
+  check('getSprite Node 无 DOM 返回 null（直绘/Emoji 分支保留）', sp === null);
+
+  /* 贴图切片单元（浏览器白键控逻辑桩测——canvas 桩对象驱动 registerSheet） */
+  /* 构造 4×4 canvas 桩: getImageData/putImageData/drawImage 全记录 */
+  function makeSliceCtx() {
+    var calls = { getImageData: 0, putImageData: 0, drawImage: 0, fill: 0 };
+    var ctx = makeCtx();
+    ctx.drawImage = function () { calls.drawImage++; };
+    ctx.getImageData = function (x, y, w, h) {
+      calls.getImageData++;
+      if (!(w === 128 && h === 128)) throw new Error('切片分辨率非 128×128: ' + w + '×' + h);
+      /* 128×128 RGBA: 四角纯白(255) 中心主体色(200,180,150) */
+      var data = new Uint8ClampedArray(128 * 128 * 4);
+      for (var i = 0; i < 128 * 128; i++) {
+        var px = i % 128, py = (i / 128) | 0;
+        var edge = px < 4 || px > 123 || py < 4 || py > 123;
+        if (edge) { data[i * 4] = 255; data[i * 4 + 1] = 255; data[i * 4 + 2] = 255; }
+        else { data[i * 4] = 200; data[i * 4 + 1] = 180; data[i * 4 + 2] = 150; }
+        data[i * 4 + 3] = 255;
+      }
+      return { data: data, width: w, height: h };
+    };
+    ctx.putImageData = function (d) {
+      calls.putImageData++;
+      /* 白键控断言: 四角 alpha=0（纯白 → 透明）、中心 alpha>0 */
+      var corner = d.data[3];
+      var center = d.data[(64 * 128 + 64) * 4 + 3];
+      if (!(corner === 0 && center > 0)) throw new Error('白键控失效: corner=' + corner + ' center=' + center);
+    };
+    ctx._calls = calls;
+    return ctx;
+  }
+
+  /* 离屏 canvas 桩（createElement('canvas') 返回带切片 ctx 桩） */
+  var origCreate = globalThis.document && globalThis.document.createElement;
+  var docStub = {
+    createElement: function (tag) {
+      if (tag !== 'canvas') return null;
+      return { width: 0, height: 0, getContext: function () { return makeSliceCtx(); } };
+    }
+  };
+  /* registerSheet 走 document.createElement → 需临时注入 document 桩 */
+  globalThis.document = docStub;
+  var sliceOk = true, sliceMsg = '';
+  try {
+    var fakeImg = { width: 2048, height: 2048 };
+    var T = IA._test;
+    T.registerSheet(fakeImg, 0);
+    /* 断言: 15 格注册、第 16 格（index 15）未注册（跳过右下角水印格） */
+    var n = 0;
+    for (var bi = 0; bi < 16; bi++) if (T.slices[bi]) n++;
+    if (n !== 15) { sliceOk = false; sliceMsg = '注册格数=' + n + '（应 15——跳过第 16 格）'; }
+    if (T.slices[15]) { sliceOk = false; sliceMsg = '第 16 格（水印格）被误注册'; }
+  } catch (err) {
+    sliceOk = false; sliceMsg = err.message;
+  } finally {
+    if (origCreate !== undefined && origCreate !== null) globalThis.document = origCreate && globalThis.document;
+    else delete globalThis.document;
+  }
+  check('sheet 切片: 15 格注册 + 第 16 格（row3,col3 水印格）跳过', sliceOk && sliceMsg === '');
+  if (sliceMsg) console.log('    [' + sliceMsg + ']');
+
+  /* sheet 定义: 3 张 × 15 格 = 45 覆盖 + 基址 0/15/30 */
+  var sheetsOk = IA.SHEETS.length === 3 &&
+    IA.SHEETS[0].base === 0 && IA.SHEETS[1].base === 15 && IA.SHEETS[2].base === 30 &&
+    IA.SHEETS.every(function (sh) { return sh.count === 15; });
+  check('SHEETS 配置: 3 张 × 基址 0/15/30 × 15 格（45 全覆盖）', sheetsOk);
+  var pathsOk = IA.SHEETS.every(function (sh) { return sh.file.indexOf('assets/icons/sheet') === 0; });
+  check('sheet 路径约定 assets/icons/sheet{1..3}.png（相对路径）', pathsOk);
+
+  /* statusOf 兜底链: 未注册 bid → 'emoji'（贴图缺失降级口径） */
+  var stOk = IA.statusOf(0) === 'emoji' || IA.statusOf(0) === 'sheet';
+  check('statusOf 未加载态回退 emoji（贴图缺失降级）', IA.statusOf(999) === 'emoji');
+}
+
 /* ---- 主入口 ---- */
 scenarioBlocked();
 scenarioMechAnims();
 scenarioPrismBlocked();
 scenarioSuitMapping();
 scenarioEcoBackdrop();
+scenarioSpriteSheets();
 
 console.log('');
 if (failures.length) {

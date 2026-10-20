@@ -15,6 +15,19 @@
  *   · 花色→图鉴渲染层映射（FR-033 §3——suit 整数仍为逻辑口径）
  *   · 离屏 Sprite 预渲染缓存（按 suit+尺寸档绘制一次会话内复用——
  *     8×8×5 层满载 105 滑块 60fps 预算）
+ *
+ * Δ15b/T052i 精灵图集支持（宪章 III v2.0.0——FR-033 §6）:
+ *   · assets/icons/sheet{1..3}.png 4×4 合集大图（2048×2048——每格
+ *     512×512）离屏切片: 每张仅取前 15 格（index 0~14 按行列序），
+ *     跳过 row=3,col=3 第 16 格（右下角平台水印）
+ *   · 单元格四周内缩 4% padding 防切到邻格阴影 → 绘制到独立
+ *     128×128 缓存 Canvas → getImageData 白底 Alpha Keying
+ *     （R>242&&G>242&&B>242 近纯白 → alpha 平滑过渡 0），
+ *     贴图白底与奶油白 3D 牌面自然融合
+ *   · 兼容单张 assets/icons/{0..44}.png；某张 sheet 缺失时对应阶段
+ *     整体回退（单张 → Emoji 直渲染——bestiary.js EMOJI 码点表）
+ *   · 渲染优先级: sheet 切片 > 单张 PNG > Emoji 字体直渲染
+ *   · Dock 7 格收集槽 chip 同步消费切片后的 Sprite DataURL
  * ========================================================= */
 (function (global) {
   'use strict';
@@ -78,6 +91,7 @@
    * ========================================================= */
   var spriteCache = {};
   var SPRITE_PAD = 1.55; /* 相对 R 的画布内边距（容纳底晕+阴影） */
+  var dockIconCache = {}; /* Δ15: Dock chip DataURL 缓存（贴图就绪 bump 失效） */
 
   function getSprite(bid, sizePx) {
     if (!Bestiary || bid == null) return null;
@@ -92,6 +106,28 @@
     var c2 = cv.getContext('2d');
     var R = band * 0.5;
     var e = Bestiary.entry(bid);
+    /* Δ15b/T052i: 贴图切片优先（sheet/single 白键控 128×128——高清放大至 band） */
+    var src = IconAssets.sliceCanvasOf(bid);
+    if (src) {
+      var sz = band * 0.96; /* 切片近满幅（圆角遮罩内） */
+      var off = (w - sz) / 2;
+      c2.drawImage(src, off, off, sz, sz);
+      spriteCache[key] = cv;
+      return cv;
+    }
+    /* Emoji 兜底（bestiary.js EMOJI 码点表——ctx.fillText 原生全彩直渲染；
+     * 严禁 ctx.arc 手绘圆球——宪章 III v2.0.0 红线） */
+    if (Bestiary.EMOJI && Bestiary.EMOJI.length === 45) {
+      var ch = Bestiary.emojiOf(bid);
+      var fs = Math.round(band * 0.92);
+      c2.font = 'bold ' + fs + "px 'Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif";
+      c2.textAlign = 'center';
+      c2.textBaseline = 'middle';
+      try { c2.fillText(ch, w / 2, w / 2 + fs * 0.06); } catch (err) { /* 字体缺失不杀帧 */ }
+      spriteCache[key] = cv;
+      return cv;
+    }
+    /* 程序化绘制最后兜底（Δ14 产出——贴图与 Emoji 均不可用时） */
     /* 1. 径向柔光底晕（主题色 18% → 透明） */
     var g = c2.createRadialGradient(w / 2, w / 2, R * 0.2, w / 2, w / 2, R * 1.3);
     g.addColorStop(0, 'rgba(255,255,255,0.35)');
@@ -119,6 +155,195 @@
     var r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
     return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
   }
+
+  /* =========================================================
+   * Δ15b/T052i: IconAssets — 精灵图集加载 / 离屏切片 / 白底柔化
+   * 优先级: sheet{1..3}.png 切片 > 单张 {suit}.png > Emoji 兜底
+   * 全部 Image 相对路径 + onerror 降级（file:// 与静态服务一致）
+   * ========================================================= */
+  var IconAssets = (function () {
+    /* 渲染来源状态: bid → 'sheet' | 'single' | 'emoji'
+     * 'pending' 未就绪（Emoji 先行渲染、就绪后惰性换装——FR-033 §6 不闪烁） */
+    var source = {};      /* bestiaryId → 'pending'|'sheet'|'single'|'emoji' */
+    var slices = {};      /* bestiaryId → 128×128 白底柔化切片 Canvas */
+    var sheetCount = 0;   /* 已就绪 sheet 张数（0~3） */
+    var sheetLoadStarted = false;
+
+    var SHEETS = [
+      { file: 'assets/icons/sheet1.png', base: 0,  count: 15 },
+      { file: 'assets/icons/sheet2.png', base: 15, count: 15 },
+      { file: 'assets/icons/sheet3.png', base: 30, count: 15 }
+    ];
+
+    function hasDOM() { return typeof document !== 'undefined' && typeof Image !== 'undefined'; }
+
+    /* ---- 白底 Alpha Keying（getImageData 像素处理）----
+     * 近纯白（R>242&&G>242&&B>242）→ alpha 平滑过渡为 0:
+     *   亮度越接近 242 → alpha 线性降（242~252 柔化带），
+     *   >252 纯白 → alpha 归 0；同时羽化带做 alpha 预乘防白边
+     * 切片后贴图与奶油白牌面乘性自然融合（无矩形白底残留） */
+    function whiteKeySlice(img, cellIndex) {
+      var CELL = img.width / 4;          /* 4×4 网格边长（2048→512） */
+      var PAD = Math.round(CELL * 0.04); /* 4% 内缩——避开邻格阴影 */
+      var row = Math.floor(cellIndex / 4);
+      var col = cellIndex % 4;
+      var sx = col * CELL + PAD;
+      var sy = row * CELL + PAD;
+      var sw = CELL - PAD * 2;
+      /* 切片分辨率 128×128（Dock/棋盘双层消费——drawImage 硬件缩放） */
+      var cv = document.createElement('canvas');
+      cv.width = 128; cv.height = 128;
+      var c2 = cv.getContext('2d');
+      c2.drawImage(img, sx, sy, sw, sw, 0, 0, 128, 128);
+      /* 圆角遮罩（软边——融入奶油白 3D 牌面） */
+      maskRounded(c2, 128);
+      try {
+        var d = c2.getImageData(0, 0, 128, 128);
+        var px = d.data;
+        for (var i = 0; i < px.length; i += 4) {
+          var lum = (px[i] + px[i + 1] + px[i + 2]) / 3;
+          if (px[i] > 242 && px[i + 1] > 242 && px[i + 2] > 242) {
+            /* 柔化带: 242~246 线性衰减; ≥246 全透明（主体高光≠纯白免误杀） */
+            var t = (248 - Math.max(px[i], px[i + 1], px[i + 2])) / 6;
+            var a = Math.max(0, Math.min(1, t));
+            px[i + 3] = Math.round(px[i + 3] * a * a); /* 平方——边缘过渡更利落 */
+          } else if (lum > 238 && px[i] > 235 && px[i + 1] > 235 && px[i + 2] > 235) {
+            /* 次亮羽化带: 轻微降 alpha 消白边 */
+            px[i + 3] = Math.round(px[i + 3] * 0.45);
+          }
+        }
+        c2.putImageData(d, 0, 0);
+      } catch (err) { /* getImageData 安全异常（本地文件极罕见）——切片照用不杀加载 */ }
+      return cv;
+    }
+
+    /* 圆角软遮罩: destination-in 圆角矩形（清除四角硬边） */
+    function maskRounded(c2, size) {
+      c2.globalCompositeOperation = 'destination-in';
+      var r = size * 0.12;
+      c2.beginPath();
+      c2.moveTo(r, 0);
+      c2.arcTo(size, 0, size, size, r);
+      c2.arcTo(size, size, 0, size, r);
+      c2.arcTo(0, size, 0, 0, r);
+      c2.arcTo(0, 0, size, 0, r);
+      c2.closePath();
+      c2.fill();
+      c2.globalCompositeOperation = 'source-over';
+    }
+
+    /* sheet 加载成功 → 逐格切片 15 枚 + 注册来源 */
+    function registerSheet(img, base) {
+      for (var i = 0; i < 15; i++) {
+        try {
+          slices[base + i] = whiteKeySlice(img, i);
+          source[base + i] = 'sheet';
+        } catch (err) { /* 单格失败不杀整张 */ }
+      }
+    }
+
+    function statusOf(bid) {
+      var s = source[bid];
+      return s || 'emoji';
+    }
+
+    function sliceCanvasOf(bid) {
+      return slices[bid] || null;
+    }
+
+    /* 惰性加载入口: 首帧绘制前调用（浏览器环境一次；Node 自测直接空转） */
+    function ensureLoaded() {
+      if (sheetLoadStarted || !hasDOM()) return;
+      sheetLoadStarted = true;
+      for (var s = 0; s < SHEETS.length; s++) {
+        loadSheet(SHEETS[s]);
+      }
+    }
+
+    function loadSheet(cfg) {
+      var img = new Image();
+      img.onload = function () {
+        if (img.naturalWidth >= 64) { /* 有效性下限（防御空图/损坏图） */
+          registerSheet(img, cfg.base);
+          sheetCount++;
+          bumpSprites();
+        }
+      };
+      img.onerror = function () { /* sheet 缺失 → 对应阶段回退单张/Emoji */ };
+      img.src = cfg.file;
+    }
+
+    /* 单张 PNG 兜底加载（sheet 缺失阶段）——按需惰性: 仅无贴图来源的条目
+     * 逐条目独立探测（singleTried 会话级防重——不闪烁纪律） */
+    function ensureSinglesFor(bids) {
+      if (!hasDOM()) return;
+      for (var i = 0; i < bids.length; i++) {
+        (function (bid) {
+          if (source[bid] === 'sheet' || source[bid] === 'single') return; /* 已有更优来源 */
+          if (singleTried[bid]) return;
+          singleTried[bid] = true;
+          var img = new Image();
+          img.onload = function () {
+            if (img.naturalWidth >= 16) {
+              slices[bid] = whiteKeySliceSq(img);
+              source[bid] = 'single';
+              bumpSprites();
+            }
+          };
+          img.onerror = function () { source[bid] = 'emoji'; };
+          img.src = 'assets/icons/' + bid + '.png';
+        })(bids[i]);
+      }
+    }
+
+    /* 单张整图切片（无网格切分——直接 4% 内缩 + 白键控） */
+    function whiteKeySliceSq(img) {
+      var S = Math.min(img.naturalWidth, img.naturalHeight);
+      var PAD = Math.round(S * 0.04);
+      var cv = document.createElement('canvas');
+      cv.width = 128; cv.height = 128;
+      var c2 = cv.getContext('2d');
+      c2.drawImage(img, PAD, PAD, S - PAD * 2, S - PAD * 2, 0, 0, 128, 128);
+      maskRounded(c2, 128);
+      try {
+        var d = c2.getImageData(0, 0, 128, 128);
+        var px = d.data;
+        for (var i = 0; i < px.length; i += 4) {
+          if (px[i] > 242 && px[i + 1] > 242 && px[i + 2] > 242) {
+            var t = (248 - Math.max(px[i], px[i + 1], px[i + 2])) / 6;
+            var a = Math.max(0, Math.min(1, t));
+            px[i + 3] = Math.round(px[i + 3] * a * a);
+          }
+        }
+        c2.putImageData(d, 0, 0);
+      } catch (err) { /* 同 sheet——切片照用 */ }
+      return cv;
+    }
+
+    var singleTried = {};
+
+    /* 贴图就绪 → Sprite 缓存失效 + 通知注册的渲染器重绘（惰性换装——本关内生效） */
+    var listeners = [];
+    function bumpSprites() {
+      for (var k in spriteCache) delete spriteCache[k];
+      dockIconCache = {};
+      for (var i = 0; i < listeners.length; i++) {
+        try { listeners[i](); } catch (err) { /* 单监听异常不杀加载 */ }
+      }
+    }
+
+    return {
+      ensureLoaded: ensureLoaded,
+      ensureSinglesFor: ensureSinglesFor,
+      statusOf: statusOf,
+      sliceCanvasOf: sliceCanvasOf,
+      sheetCount: function () { return sheetCount; },
+      SHEETS: SHEETS,
+      onSpritesReady: function (cb) { if (typeof cb === 'function') listeners.push(cb); },
+      _test: { source: source, slices: slices, registerSheet: registerSheet, whiteKeySlice: whiteKeySlice }
+    };
+  })();
+
   var BG = '#1B2430';
   var GRID_LINE = '#26313E';
 
@@ -213,9 +438,14 @@
     ctx.globalAlpha = 1;
   }
 
-  /* 图鉴图案绘制：Sprite 命中即 drawImage；Node/无 DOM 或未命中走直绘 */
+  /* 图鉴图案绘制：Sprite 命中即 drawImage；Node/无 DOM 或未命中走直绘
+   * Δ15b: Sprite 内部已含贴图切片/Emoji/程序化三源级联（getSprite） */
   function drawBestiaryIcon(ctx, sv, cx, cy, R) {
     if (sv.bid != null) {
+      IconAssets.ensureLoaded(); /* 惰性启动贴图加载（首绘触发） */
+      if (!IconAssets.sliceCanvasOf(sv.bid)) {
+        IconAssets.ensureSinglesFor([sv.bid]); /* sheet 未覆盖 → 单张按需探测 */
+      }
       var sp = getSprite(sv.bid, R * 2);
       if (sp) {
         var size = R * 2 * SPRITE_PAD;
@@ -897,6 +1127,15 @@
       global.addEventListener('resize', function () { resize(); markDirty(); });
     }
 
+    /* Δ15b/T052i: 贴图就绪 → 惰性换装重绘（Emoji 先渲、贴图后到不闪烁）
+     * bumpSprites 已清空 spriteCache/dockIconCache——此处仅重绘棋盘;
+     * Dock chip 由 main.js 渲染（棋盘重绘同帧经 renderDock 事件驱动——
+     * 贴图就绪即 bump 通知,后续 dock/match 事件自然消费新切片） */
+    IconAssets.ensureLoaded();
+    IconAssets.onSpritesReady(function () {
+      markDirty();
+    });
+
     /* Δ14: 关卡上下文注册（main.js loadLevel 时调用——花色映射/背景随 id 切换） */
     var pendingLevel = null; /* 工厂作用域 var 提升——drawEcoBackdrop/refresh 均可读 */
     function setLevel(level) {
@@ -916,9 +1155,10 @@
     };
   }
 
-  /* DOM chip SVG（Dock 槽图标——Δ14 与棋盘图鉴口径一致）
-   * 有图鉴映射时渲染主题色双圈 chip（底晕 + 图案色圆点），
-   * 无映射兜底旧色彩圆点。SVG 内联零外部资源（宪章 III）。 */
+  /* DOM chip（Dock 槽图标——Δ14 与棋盘图鉴口径一致 / Δ15 贴图切片优先）
+   * 贴图切片就绪 → 输出 <img src="DataURL">（128×128 白键控切片）；
+   * 未就绪 → Emoji 字符 chip（贴图缺失或加载中）；
+   * 无 Bestiary 映射 → 旧 SVG 双圈 chip 兜底。内联零外部资源（宪章 III） */
   function chipSVG(s, level) {
     var bid = null;
     if (Bestiary && level) {
@@ -926,6 +1166,29 @@
       bid = m[s] != null ? m[s] : null;
     } else if (Bestiary && currentLevelId != null) {
       bid = currentMapping[s] != null ? currentMapping[s] : null;
+    }
+    if (bid != null) {
+      IconAssets.ensureLoaded();
+      var slice = IconAssets.sliceCanvasOf(bid);
+      if (!slice) {
+        /* sheet 未覆盖该条目 → 按需探测单张 {bid}.png（逐条目独立） */
+        IconAssets.ensureSinglesFor([bid]);
+      } else {
+        /* DataURL 缓存（贴图 bump 失效——不闪烁纪律） */
+        var url = dockIconCache[bid];
+        if (!url) {
+          try { url = slice.toDataURL('image/png'); dockIconCache[bid] = url; }
+          catch (err) { url = null; }
+        }
+        if (url) {
+          return '<img class="chip-icon-canvas" src="' + url + '" alt="' +
+            (Bestiary.entry(bid).name || '') + '" draggable="false"/>';
+        }
+      }
+      /* Emoji chip（原生全彩 Emoji 直渲染——无 ctx.arc 手绘） */
+      if (Bestiary.EMOJI && Bestiary.EMOJI.length === 45) {
+        return '<span class="chip-icon-emoji">' + Bestiary.emojiOf(bid) + '</span>';
+      }
     }
     var fill, deep;
     if (bid != null) {
@@ -948,7 +1211,8 @@
   STM.createBoardRenderer = createBoardRenderer;
   STM.SUITS = SUITS;
   STM.chipSVG = chipSVG;
-  STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite };
+  STM.IconAssets = IconAssets;
+  STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets };
 
 
 })(typeof window !== 'undefined' ? window : globalThis);

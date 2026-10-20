@@ -184,6 +184,14 @@
     renderer.setLevel(currentLevel); /* Δ14: 渲染层花色映射/背景随当前关 id 切换 */
     renderer.refresh();
 
+    /* Δ15b/T052i: 贴图就绪惰性换装——Dock chip 同步刷新（棋盘由渲染器
+     * markDirty 重绘；贴图后到不闪烁——同关内同 suit 恒同来源） */
+    if (STM.IconAssets && STM.IconAssets.onSpritesReady) {
+      STM.IconAssets.onSpritesReady(function () {
+        if (session && els.dock) renderDock();
+      });
+    }
+
     renderHud();
     renderDock();
     renderItems();
