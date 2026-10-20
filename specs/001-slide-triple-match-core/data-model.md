@@ -1,5 +1,7 @@
 # Data Model: Slide & Triple（滑块三消）
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5 新增实体 Bestiary Entry / Eco Background / Stage Suit Mapping——FR-033~037)。Run `/speckit.refine.propagate` to update this document.
+
 **Feature**: `001-slide-triple-match-core` | **Phase**: 1 | **Date**: 2026-10-17
 
 **来源**: [spec.md](spec.md) Key Entities + [plan.md](plan.md) 架构决策（Δ1~Δ6、D-02/07/11/12/15）。字段命名遵循 [level-data.md](contracts/level-data.md) 的持久化 schema（紧凑名）；本文档用全称注释。

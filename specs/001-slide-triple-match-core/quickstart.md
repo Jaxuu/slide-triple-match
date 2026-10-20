@@ -1,5 +1,7 @@
 # Quickstart: Slide & Triple（滑块三消）验收指南
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5 新增验收场景需求——FR-033~037、SC-007/008)。Run `/speckit.refine.propagate` to update this document.
+
 **Feature**: `001-slide-triple-match-core` | **Date**: 2026-10-17
 
 **用途**: 端到端可运行验证场景（按里程碑分档）+ 宪章红线审计。每场景给出操作、命令与预期结果——通过即证明对应 spec 验收标准成立。实现细节见 [plan.md](plan.md)、契约 [level-data.md](contracts/level-data.md) / [rules-engine.md](contracts/rules-engine.md) / [game-session.md](contracts/game-session.md) / [level-pipeline.md](contracts/level-pipeline.md)。

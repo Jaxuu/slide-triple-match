@@ -1,5 +1,7 @@
 # Contract: RulesEngine（前后端共用纯函数规则引擎）
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——图鉴/背景/横幅/BGM 均为渲染与音频层，FR-033 §5 明确 RulesEngine 以 suit 整数为准、口径不变；预期无接口变更，propagate 时复核)。Run `/speckit.refine.propagate` to update this document.
+
 **Feature**: `001-slide-triple-match-core` | **文件**: `src/core/RulesEngine.js` | **加载方**: 浏览器（classic script → `STM.RulesEngine`）+ Node（`require`，UMD 双导出，D-02）
 
 **定位**: 本项目唯一规则语义源（FR-032）。前端游玩、Hint 有界搜索、Auto-Play Bot、离线 Solver 全部调用本模块同一实现。**纯函数、无 DOM / 无音频 / 无存储依赖**——Node 可 require 是硬约束。

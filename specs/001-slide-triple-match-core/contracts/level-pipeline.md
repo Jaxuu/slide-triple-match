@@ -1,5 +1,7 @@
 # Contract: Level Pipeline（离线关卡流水线）
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——FR-033 §3 明确图鉴为纯渲染层映射、levels.js 不变更，流水线无重生成需求；预期无接口变更，propagate 时复核)。Run `/speckit.refine.propagate` to update this document.
+
 **Feature**: `001-slide-triple-match-core` | **文件**: `tools/level-config.js`, `tools/generator.js`, `tools/solver.js` | **运行环境**: Node ≥ 18（CommonJS，零 npm 依赖——宪章 II：Node 仅限此二工具 + 配置）
 
 **流水线**: `level-config.js`（参数）→ `generator.js`（逆向构造）→ `solver.js`（验证门禁）→ 导出 `src/data/levels.js` + `tools/solver-report.json`。**规则口径**：Solver 直接 `require('../src/core/RulesEngine.js')`（D-02 双导出）——与前端游玩 100% 同源（FR-032）。

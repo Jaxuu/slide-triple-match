@@ -1,5 +1,24 @@
 installed:
 - bug
+- refine
 settings:
   auto_execute_hooks: true
-hooks: {}
+hooks:
+  after_specify:
+  - extension: refine
+    command: speckit.refine.status
+    enabled: true
+    optional: true
+    priority: 10
+    prompt: Check artifact sync status after specification?
+    description: Show sync status after spec generation
+    condition: null
+  after_plan:
+  - extension: refine
+    command: speckit.refine.status
+    enabled: true
+    optional: true
+    priority: 10
+    prompt: Check artifact sync status after planning?
+    description: Show sync status after plan generation
+    condition: null
