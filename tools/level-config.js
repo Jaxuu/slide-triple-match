@@ -95,6 +95,42 @@ var SCORE_WEIGHTS = {
   suits: 0.7
 };
 
+/* =========================================================
+ * Δ15a/FR-029 §1~§4: 同花色空间聚散度三档曲线档位
+ * 邻接定义（§1）: 两同花色滑块曼哈顿距离 1 或同格相邻层 = 连坐;
+ *   三连簇 = 三元组内 ≥2 对连坐（连通紧挨）; 双连坐 = 恰 1 对连坐;
+ *   完全分散 = 两两曼哈顿 ≥2
+ * 档位（trip = 三连簇占比上限; pair = 双连坐目标占比带;
+ *   minPairMin/minPairMax = 同花色三元组两两最小曼哈顿距离达标下限——
+ *   L22~L60 恒 ≥2、8×8 关优先 ≥3）
+ * ========================================================= */
+var DISPERSION_TIERS = [
+  { from: 1,  to: 6,   tripMax: 0.15, pairMin: 0.20, pairMax: 0.50, minPairMin: 1, minPairMax: 2 },
+  { from: 7,  to: 21,  tripMax: 0.05, tripMaxPerLevel: 1, pairMin: 0.15, pairMax: 0.30, minPairMin: 2, minPairMax: 3 },
+  { from: 22, to: 60,  tripMax: 0,    pairMin: 0.00, pairMax: 0.15, minPairMin: 2, minPairMax: 3 }
+];
+
+/* Δ15a/FR-029 §5: 聚散度档位结构极限白名单（可解性不降级铁律优先）——
+ * 花色重打散（仅重排同花色落位，不改网格/总数/堆叠/机制）在下列关的
+ * 几何结构下经 200 种子全扫描证明档位不可达，受控降级（分项最优）+ 报告
+ * 记录，不触发回炉（回炉须改结构参数，违反 §6 迁移边界）:
+ *   L1: 5×5 盘 30 块，suit0 占 60%（6/10 组）——小盘高占比下 trip≤15%（≤1 组）
+ *       几何不可达（200 种子最优 3 组）
+ *   L2: 6×6 盘 45 块满格占用（36/36，9 格双层），suit0=21 块——满盘密度下
+ *       pair≤50% 不可达（200 种子恒 53.3% = 8/15 组，几何常数）
+ *   L41: 尾 12 位格位仅 7 格（5 对同格堆叠），前段 quota 耗尽后尾段仅
+ *       {suit2:9, suit4:3}——12 块 7 格鸽笼原理 ≥1 组 2 对连坐（trip>0
+ *       不可达; 200 种子最优 1 簇 = 1/24 = 4.2%） */
+var DISPERSION_STRUCTURAL_LIMITS = [1, 2, 41];
+
+/* Δ15a: 按 levelId 取聚散度档位（L1~L6 / L7~L21 / L22~L60） */
+function dispersionTierOf(levelId) {
+  for (var i = 0; i < DISPERSION_TIERS.length; i++) {
+    if (levelId >= DISPERSION_TIERS[i].from && levelId <= DISPERSION_TIERS[i].to) return DISPERSION_TIERS[i];
+  }
+  return DISPERSION_TIERS[DISPERSION_TIERS.length - 1];
+}
+
 /* Solver 默认预算（章级可覆盖，见 CHAPTERS[i].budget） */
 var BUDGET = { nodes: 2000000, ms: 60000 };
 
@@ -298,6 +334,9 @@ module.exports = {
   CHAPTERS: CHAPTERS,
   SCORE_WEIGHTS: SCORE_WEIGHTS,
   BUDGET: BUDGET,
+  DISPERSION_TIERS: DISPERSION_TIERS,
+  DISPERSION_STRUCTURAL_LIMITS: DISPERSION_STRUCTURAL_LIMITS,
+  dispersionTierOf: dispersionTierOf,
   validateChapters: validateChapters,
   levelParams: levelParams,
   waveGrid: waveGrid,

@@ -225,6 +225,10 @@ function scenarioSuitMapping() {
   var stage1Ok = true, stage2Ok = true, stage3Ok = true;
   var uniqueOk = true, kOk = true, detOk = true, sameSuitOk = true;
   var inPoolOk = true;
+  /* 纯只读快照（Δ15 注: L1 花 Δ15a 重打散后首块 suit 非必 0——只读断言
+   * 须取映射前后快照对照，不得断言迁移前的具体花色值） */
+  var snapBefore = JSON.stringify(LEVELS[0].tiles);
+  var snapMovesBefore = JSON.stringify(LEVELS[0].solutionMoves);
   for (i = 0; i < LEVELS.length; i++) {
     lv = LEVELS[i];
     map = B.mappingForLevel(lv);
@@ -292,9 +296,10 @@ function scenarioSuitMapping() {
   var seenCount = Object.keys(seenAll).length;
   check('60 关累计可见图鉴 ≥30 种（渐进解锁展示池）', seenCount >= 30);
 
-  /* 不触碰 tiles 坐标/solutionMoves 有效性（映射纯只读——levels.js git diff 恒空由验收核对） */
-  check('映射不修改关卡 tiles（纯只读）', LEVELS[0].tiles[0].s === 0 && LEVELS[0].tiles.length === 30);
-  check('solutionMoves 照常存在（Hint/Bot 回放不受影响）', Array.isArray(LEVELS[0].solutionMoves));
+  /* 不触碰 tiles 坐标/solutionMoves 有效性（映射纯只读——Δ15a 迁移后快照对照） */
+  check('映射不修改关卡 tiles（纯只读）', JSON.stringify(LEVELS[0].tiles) === snapBefore);
+  check('映射不修改 solutionMoves（纯只读）', JSON.stringify(LEVELS[0].solutionMoves) === snapMovesBefore);
+  check('solutionMoves 照常存在（Hint/Bot 回放不受影响）', Array.isArray(LEVELS[0].solutionMoves) && LEVELS[0].solutionMoves.length === LEVELS[0].tiles.length);
 }
 
 /* ---- 场景 E: Δ14/T052d 背景层集成（真实关卡 × 20 循环全覆盖 + 8×8 满载） ---- */

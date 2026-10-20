@@ -172,6 +172,21 @@ function solveLevel(levelDef, opts) {
   var result = 'dead';
   var i;
 
+  /* Δ15a: 构造解引导（hintPath）——redisperse 后花色排列使盲目 DFS 搜索树
+   * 指数爆炸（75 层深 × 几十动作/层，seen 剪枝救不回）。回放已证
+   * solutionMoves 是合法必胜序列 → DFS 每层把它"下一步 tile"提到展开首位
+   * （纯展开顺序启发——不改变解集/计数/minMoves 语义，命中即得 foundMoves，
+   * 之后继续全展开照常计 solutions） */
+  var hintPath = opts.hintPath || null;
+  var hintSet = null;
+  if (hintPath && anchorLen === hintPath.length) {
+    hintSet = {};
+    for (var hp = 0; hp < hintPath.length; hp++) {
+      var hmv = hintPath[hp];
+      hintSet[hmv.t + '_' + hp] = true;
+    }
+  }
+
   /* Δ11 口径修正: openSuitsMax = **最优解路径上**的最大开放花色数（FR-029/门 ③
    * 原实现为「搜索全程」——搜索中途试探态（非解路径）在大棋盘 8 花色下必然
    * 峰值更高，指标语义与契约「最优路径开放花色 ≤5」不符。改为首解路径回放统计） */
@@ -236,6 +251,21 @@ function solveLevel(levelDef, opts) {
     if (depth >= upperLimit) return 'limit';
 
     var acts = expandActions(st);
+    /* 构造解引导: hint 序列在本深度对应 tile 置顶（若仍可动） */
+    if (hintSet && depth < hintPath.length) {
+      var hkey = hintPath[depth].t + '_' + depth;
+      if (hintSet[hkey]) {
+        for (var hi = 0; hi < acts.length; hi++) {
+          if (acts[hi].t === hintPath[depth].t) {
+            if (hi !== 0) {
+              var hv = acts.splice(hi, 1)[0];
+              acts.unshift(hv);
+            }
+            break;
+          }
+        }
+      }
+    }
     for (var ai = 0; ai < acts.length; ai++) {
       if (budget.tick()) return 'budget'; /* 预算按动作边计（每边 = 一次快照+克隆——OOM 防护） */
       var a = acts[ai];
@@ -402,6 +432,85 @@ function curveGates(levelsWithMetrics) {
   return { chMonotonic: chMonotonic, slope14: slope14, ch5Zigzag: ch5Zigzag };
 }
 
+
+/* =========================================================
+ * Δ15a/FR-029 §1 / FR-030: 空间聚散度核验（三档曲线档位判定）
+ * 邻接定义: 曼哈顿距离 1 或同格相邻层（|Δr|+|Δc|==0）= 连坐;
+ *   三连簇 = 三元组 ≥2 对连坐; 双连坐 = 恰 1 对; 完全分散 = 两两 ≥2
+ * 口径: 三元组按 solutionMoves 消除序划分（第 3k+1..3k+3 个同花色滑块为一组——
+ *   Dock 按 3 计数清空，第 3 次到达即整组消除; FR-005 同口径）
+ * ========================================================= */
+function dispersionOf(levelDef) {
+  var tiles = levelDef.tiles || [];
+  var seq = (levelDef.solutionMoves || []).map(function (m) { return tiles[m.t]; });
+  var bySuit = {};
+  var i;
+  for (i = 0; i < seq.length; i++) {
+    var t = seq[i];
+    if (!t) continue;
+    (bySuit[t.s] = bySuit[t.s] || []).push(t);
+  }
+  var tripleClusters = 0, pairClusters = 0, dispersed = 0, total = 0;
+  var minPairDist = null; /* 全关所有三元组两两最小距离的全局最小 */
+  var tripletsBelow2 = 0, tripletsBelow3 = 0;
+  var s, list;
+  for (s in bySuit) {
+    list = bySuit[s];
+    for (i = 0; i + 2 < list.length; i += 3) {
+      var tri = [list[i], list[i + 1], list[i + 2]];
+      var adj = 0, minD = null;
+      for (var a = 0; a < 3; a++) {
+        for (var b = a + 1; b < 3; b++) {
+          var d = Math.abs(tri[a].r - tri[b].r) + Math.abs(tri[a].c - tri[b].c);
+          if (d === 0) d = 1; /* 同格相邻层 = 连坐（邻接口径 §1） */
+          if (d <= 1) adj++;
+          if (minD == null || d < minD) minD = d;
+        }
+      }
+      total++;
+      if (adj >= 2) tripleClusters++;
+      else if (adj === 1) pairClusters++;
+      else dispersed++;
+      if (minD < 2) tripletsBelow2++;
+      if (minD < 3) tripletsBelow3++;
+      if (minPairDist == null || minD < minPairDist) minPairDist = minD;
+    }
+  }
+  var is8x8 = levelDef.n === 8;
+  var tier = CFG.dispersionTierOf(levelDef.id);
+  var triplePct = total ? tripleClusters / total : 0;
+  var pairPct = total ? pairClusters / total : 0;
+  var dispPct = total ? dispersed / total : 0;
+  /* 档位达标判定: 三连簇以「每关 ≤1 组」（tripMaxPerLevel）为主门——
+   * spec FR-029 §3 原文「三连簇严格 ≤ 5%（每关最多 1 组三连）」:
+   * 小关卡 1 组即 >5%（18 组关 5.6%）→ 组数口径优先，百分比作报告值;
+   * t1/t3 无 perLevel → 用百分比门。双连坐在目标带内;
+   * 完全分散（两两 ≥2）占比 ≥ 1-三连簇上限-双连坐上限（FR-029 §4「绝大多数」
+   * 口径——与双连坐带解耦: 双连坐组定义上 minD=1，minPairDist 全局最小仅作
+   * 报告指标，8×8 关 ≥3 为优先目标（tripletsBelow3 反推达标率），不作硬门） */
+  var okTrip = tier.tripMaxPerLevel != null
+    ? tripleClusters <= tier.tripMaxPerLevel
+    : triplePct <= tier.tripMax + 1e-9;
+  var okPair = pairPct >= tier.pairMin - 1e-9 && pairPct <= tier.pairMax + 1e-9;
+  var okDist = total === 0 || dispPct >= 1 - tier.tripMax - tier.pairMax - 1e-9;
+  return {
+    tripleClusters: tripleClusters,
+    pairClusters: pairClusters,
+    dispersed: dispersed,
+    triplets: total,
+    triplePct: Math.round(triplePct * 1000) / 10,
+    pairPct: Math.round(pairPct * 1000) / 10,
+    dispersedPct: Math.round(dispPct * 1000) / 10,
+    minPairDist: minPairDist,
+    tripletsBelow2: tripletsBelow2,
+    tripletsBelow3: tripletsBelow3,
+    distPreferred: is8x8 ? tier.minPairMax : tier.minPairMin,
+    tierOk: okTrip && okPair && okDist,
+    tierOkTrip: okTrip,
+    tierOkPair: okPair,
+    tierOkDist: okDist
+  };
+}
 
 /* =========================================================
  * T038: --engine-selftest 规则不变量断言（rules-engine.md §9）
@@ -747,7 +856,10 @@ function runFull(seed) {
       records.push({ id: L.id, solvable: false, error: 'validateLevel: ' + v.errors.join('; '), elapsedMs: 0 });
       continue;
     }
-    var sol = solveLevel(L, { budget: CFG.BUDGET });
+    /* Δ15a: hintUpper/hintPath 与 redisperse-60 同口径（内嵌 solutionMoves
+     * 是逆向生成的构造解——重打散后 DFS 盲搜指数爆炸，构造解引导保证
+     * 门禁与迁移工具的 metrics 完全一致; 解集/计数/minMoves 语义不变） */
+    var sol = solveLevel(L, { budget: CFG.BUDGET, hintUpper: L.solutionMoves.length, hintPath: L.solutionMoves });
     var elapsed = Date.now() - t1;
     if (!sol.solvable) {
       console.error('  ✗ L' + L.id + ' 不可解（nodes=' + sol.nodes + (sol.exhausted ? ' [预算耗尽]' : '') + '）');
@@ -846,6 +958,24 @@ function runFull(seed) {
         gate = 1;
       }
     }
+
+    /* Δ15a/FR-030: 聚散度指标逐关核验（三档曲线档位门禁）
+     * 结构极限白名单（DISPERSION_STRUCTURAL_LIMITS）: 花色重打散几何不可达
+     * 的关（§5 可解性不降级铁律优先——见 level-config 逐关证明注释）→
+     * 降级为警告 + 报告记录（不置 gate）; 白名单外不达标仍硬门禁 */
+    var disp = dispersionOf(L3);
+    rec2.dispersion = disp;
+    if (!disp.tierOk) {
+      if ((CFG.DISPERSION_STRUCTURAL_LIMITS || []).indexOf(L3.id) >= 0) {
+        console.warn('  ⚠ L' + L3.id + ' 聚散度档位结构极限受控降级: trip=' + disp.triplePct + '%(簇' + disp.tripleClusters + ') pair=' + disp.pairPct +
+          '% minD=' + disp.minPairDist + '（几何不可达证明见 level-config DISPERSION_STRUCTURAL_LIMITS）');
+        rec2.dispersion.structuralLimit = true;
+      } else {
+        console.error('  ✗ L' + L3.id + ' 聚散度档位不达标: trip=' + disp.triplePct + '%(簇' + disp.tripleClusters + ') pair=' + disp.pairPct +
+          '% minD=' + disp.minPairDist + '（档位: ' + JSON.stringify(CFG.dispersionTierOf(L3.id)) + '）');
+        gate = 1;
+      }
+    }
   }
 
   /* 曲线门（Δ13 波浪架构: 章均值单调 + 全章 minMoves 斜率 + 7/7/8 波浪锯齿——60 关/3 大阶段口径） */
@@ -857,7 +987,7 @@ function runFull(seed) {
 
   /* 报告写盘 */
   var report = {
-    schemaVersion: 1,
+    schemaVersion: 2, /* Δ15: +dispersion 字段组（向后兼容旧报告读取） */
     generatedAt: new Date().toISOString(),
     seed: seed == null ? null : seed,
     nodeBudget: CFG.BUDGET,
@@ -866,7 +996,25 @@ function runFull(seed) {
       total: levels.length,
       solvable: records.filter(function (r) { return r.solvable; }).length,
       failedIds: failedIds,
-      curveGate: cg
+      curveGate: cg,
+      dispersion: (function () { /* Δ15a: 三档曲线汇总（档位达标率） */
+        var tiers = { t1: [0, 0], t2: [0, 0], t3: [0, 0] }; /* [ok, total] */
+        var agg = { t1: [0, 0, 0, 0], t2: [0, 0, 0, 0], t3: [0, 0, 0, 0] }; /* [trip, pair, disp, T] */
+        for (var ri = 0; ri < records.length; ri++) {
+          var r2 = records[ri];
+          if (!r2.dispersion) continue;
+          var g = r2.id <= 6 ? 't1' : (r2.id <= 21 ? 't2' : 't3');
+          tiers[g][1]++;
+          if (r2.dispersion.tierOk) tiers[g][0]++;
+          agg[g][0] += r2.dispersion.tripleClusters; agg[g][1] += r2.dispersion.pairClusters;
+          agg[g][2] += r2.dispersion.dispersed; agg[g][3] += r2.dispersion.triplets;
+        }
+        function fmt(a) { return a[3] ? { triplePct: Math.round(a[0] / a[3] * 1000) / 10, pairPct: Math.round(a[1] / a[3] * 1000) / 10, dispersedPct: Math.round(a[2] / a[3] * 1000) / 10 } : null; }
+        return {
+          tierPass: { L1_6: tiers.t1[0] + '/' + tiers.t1[1], L7_21: tiers.t2[0] + '/' + tiers.t2[1], L22_60: tiers.t3[0] + '/' + tiers.t3[1] },
+          aggregate: { L1_6: fmt(agg.t1), L7_21: fmt(agg.t2), L22_60: fmt(agg.t3) }
+        };
+      })()
     }
   };
   var fs = require('fs');
@@ -884,7 +1032,7 @@ function runSingle(levelId) {
   var v = RE.validateLevel(L);
   if (!v.ok) { console.error('validateLevel FAIL: ' + v.errors.join('; ')); process.exit(1); }
   var t0 = Date.now();
-  var sol = solveLevel(L, { budget: CFG.BUDGET });
+  var sol = solveLevel(L, { budget: CFG.BUDGET, hintUpper: L.solutionMoves.length, hintPath: L.solutionMoves }); /* Δ15a 同口径构造解引导 */
   console.log('L' + L.id + ' solvable=' + sol.solvable + ' minMoves=' + sol.minMoves + ' dockPeak=' + sol.dockPeak +
     ' openSuits=' + sol.openSuitsMax + ' solCount=' + sol.solutionCount + ' nodes=' + sol.nodes + ' ' + fmtMs(Date.now() - t0));
   process.exit(sol.solvable ? 0 : 1);
@@ -917,5 +1065,6 @@ module.exports = {
   undoTap: undoTap,
   mechCountOf: mechCountOf,
   difficultyScoreOf: difficultyScoreOf,
-  curveGates: curveGates
+  curveGates: curveGates,
+  dispersionOf: dispersionOf
 };
