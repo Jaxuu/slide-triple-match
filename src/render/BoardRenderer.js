@@ -344,7 +344,6 @@
     };
   })();
 
-  var BG = '#1B2430';
   var GRID_LINE = '#26313E';
 
   /* ---------- 动效参数 ---------- */
@@ -637,42 +636,6 @@
     var lastProbe = null;
     var tileInfo = {};     /* M1.6: id → {s,d,z,stackDepth} 视觉缓存（滑块移除后动画仍可绘制） */
     var revealAt = {};     /* Δ7: tileId → 上浮起始时刻（含延迟） */
-    var bgCanvas = null;   /* Δ14: 生态背景缓存层（cycleIndex/尺寸变化才重绘——60fps 预算） */
-    var bgCycle = -1;      /* 当前背景 cycleIndex（-1 = 未绘制） */
-    var bgDim = 0;         /* 当前背景缓存尺寸 */
-
-    /* Δ14/T052d: 生态背景绘制（缓存 offscreen——滑块层每帧仅 drawImage） */
-    function drawEcoBackdrop() {
-      var bd = STM.Backdrops;
-      if (!bd) { ctx.fillStyle = BG; ctx.fillRect(0, 0, boardPx, boardPx); return; }
-      var ci = bd.cycleIndexOf(pendingLevel ? pendingLevel.id : currentLevelId);
-      if (!bgCanvas || bgCycle !== ci || bgDim !== boardPx) {
-        bgCycle = ci; bgDim = boardPx;
-        if (typeof document !== 'undefined') {
-          bgCanvas = document.createElement('canvas');
-          bgCanvas.width = boardPx; bgCanvas.height = boardPx;
-          var bctx = bgCanvas.getContext('2d');
-          try { bd.drawBackdrop(bctx, (pendingLevel ? pendingLevel.id : currentLevelId) || 1, boardPx, boardPx); } catch (err) { /* 兜底 */ }
-        } else {
-          bgCanvas = null;
-        }
-      }
-      if (bgCanvas) {
-        ctx.drawImage(bgCanvas, 0, 0);
-      } else {
-        /* Node 无 DOM: 直接绘制到主 ctx（自测路径） */
-        try { bd.drawBackdrop(ctx, (pendingLevel ? pendingLevel.id : currentLevelId) || 1, boardPx, boardPx); } catch (err) { /* 兜底 */ }
-      }
-    }
-
-    /* Δ15b/T052j: 背景贴图就绪惰性换装——失效缓存层（bgCycle 置 -1 使
-     * 下一帧以贴图重绘; 程序化底已铺——换装无闪烁） */
-    if (STM.Backdrops && typeof STM.Backdrops.onBgReady === 'function') {
-      STM.Backdrops.onBgReady(function () {
-        bgCycle = -1; bgDim = 0; /* 强制重绘（保留 bgCanvas 旧帧至重绘完成） */
-        markDirty();
-      });
-    }
 
     function nowMs() {
       return global.performance ? global.performance.now() : Date.now();
@@ -781,20 +744,15 @@
       var now = nowMs();
       var n = lastProbe.n;
 
-      /* Δ14/T052d: 生态背景层（cycleIndex 绑定当前关 id——低频重绘） */
-      drawEcoBackdrop();
+      /* Δ15b3: 背景层已移出棋盘画布（STM.BackdropStage 全视口 #bg-canvas）——
+       * 画布保持透明以透出背后高清风景图；可读性由下述磨砂暖白层保证 */
 
-      /* Δ15b/T052j: 飘落粒子动态层（色温主题随循环段落——14 粒纯函数，
-       * 每帧叠加于静态背景之上、滑块层之下——不占背景重绘预算） */
-      if (STM.Backdrops && STM.Backdrops.drawBackdropAnim) {
-        try { STM.Backdrops.drawBackdropAnim(ctx, (pendingLevel ? pendingLevel.id : currentLevelId) || 1, boardPx, boardPx, now); } catch (errPA) { /* 粒子层异常静默（静态背景不降级） */ }
-      }
-
-      /* Δ14: 毛玻璃暗角蒙版（半透明暖白透底——滑块/角标对比度红线） */
-      var veil = ctx.createRadialGradient(boardPx / 2, boardPx / 2, boardPx * 0.22, boardPx / 2, boardPx / 2, boardPx * 0.74);
-      veil.addColorStop(0, 'rgba(240,244,248,0.20)');
-      veil.addColorStop(0.62, 'rgba(228,234,240,0.34)');
-      veil.addColorStop(1, 'rgba(205,214,224,0.55)');
+      /* Δ15b3: 磨砂暖白可读性层（半透明——与 CSS 底板 0.22 叠加后
+       * 仍透出背景；滑块对比度由其自身 3D 投影 + CSS backdrop-blur 保证） */
+      var veil = ctx.createRadialGradient(boardPx / 2, boardPx / 2, boardPx * 0.20, boardPx / 2, boardPx / 2, boardPx * 0.76);
+      veil.addColorStop(0, 'rgba(255,252,246,0.10)');
+      veil.addColorStop(0.60, 'rgba(252,246,236,0.13)');
+      veil.addColorStop(1, 'rgba(240,232,220,0.18)');
       ctx.fillStyle = veil;
       ctx.fillRect(0, 0, boardPx, boardPx);
 
@@ -1131,12 +1089,11 @@
       markDirty();
     });
 
-    /* Δ14: 关卡上下文注册（main.js loadLevel 时调用——花色映射/背景随 id 切换） */
-    var pendingLevel = null; /* 工厂作用域 var 提升——drawEcoBackdrop/refresh 均可读 */
+    /* Δ14: 关卡上下文注册（main.js loadLevel 时调用——花色映射随 id 切换） */
+    var pendingLevel = null; /* 工厂作用域 var 提升——refresh 可读 */
     function setLevel(level) {
       pendingLevel = level;
       setSuitLevel(level);
-      bgCycle = -1; /* 换关强制背景重绘（跳关/Undo 均以当前 id 实时计算） */
       markDirty();
     }
 
@@ -1203,10 +1160,341 @@
       '</svg>';
   }
 
+  /* =========================================================
+   * Δ15b3: BackdropStage — 全视口背景舞台（贴图 + 氛围滤镜 + 前景粒子）
+   * · 贴图: assets/bg/bg{1..6}.{png|jpg|jpeg|webp} 逐扩展探测，
+   *   Image 相对路径（file:// 双击与静态服务一致——宪章 II/III）
+   * · 映射: cycleIndex = floor((level.id-1)/3)（0~19）→
+   *   0~3→bg1 / 4~6→bg2 / 7~10→bg3 / 11~13→bg4 / 14~16→bg5 / 17~19→bg6
+   * · 氛围: 20 循环逐环 20 档微调色温/明度（同图不同循环互异——
+   *   每过 3 关一换气氛），叠在贴图之上、粒子之下
+   * · 粒子: 4 族前景环境粒子（meadow 绒毛+光斑 / sea 水泡+波光 /
+   *   petal 樱瓣 / star 星尘+流星）——纯函数动画（相位由 (i,t) 决定，
+   *   零状态污染），低透明度低密度不干扰操作视线
+   * · 兜底: 某张未加载成功 → 复用 bg1；全失败 → Canvas 渐变底色
+   * ========================================================= */
+  var BackdropStage = (function () {
+    var BG_INDEX = [1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6];
+    var EXT_ORDER = ['png', 'jpg', 'jpeg', 'webp'];
+    var imgCache = {};   /* bg 序号 → { state:'loading'|'ready'|'failed', img } */
+    var readyFns = [];   /* 贴图就绪回调（惰性换装——换装无闪烁） */
+
+    function bgIndexOf(ci) {
+      return BG_INDEX[Math.min(19, Math.max(0, ci))];
+    }
+
+    /* 逐扩展探测一张底图（会话级缓存——同图不重复探测） */
+    function probe(bgNo) {
+      var rec = imgCache[bgNo];
+      if (rec) return rec;
+      rec = imgCache[bgNo] = { state: 'loading', img: null };
+      if (typeof Image !== 'function') { rec.state = 'failed'; return rec; }
+      var seq = 0;
+      function next() {
+        if (seq >= EXT_ORDER.length) { rec.state = 'failed'; return; }
+        var ext = EXT_ORDER[seq++];
+        var img = new Image();
+        img.onload = function () {
+          rec.state = 'ready'; rec.img = img;
+          for (var i = 0; i < readyFns.length; i++) {
+            try { readyFns[i](bgNo); } catch (err) { /* 监听器异常隔离 */ }
+          }
+        };
+        img.onerror = next; /* 扩展序逐个探测 */
+        img.src = 'assets/bg/bg' + bgNo + '.' + ext;
+      }
+      next();
+      return rec;
+    }
+
+    function onReady(fn) {
+      if (typeof fn === 'function') readyFns.push(fn);
+    }
+
+    /* =========================================================
+     * Δ15b3: 20 循环 × 20 档氛围光影（FR-035 §4 派生）
+     * 同一张底图在负责的 3~4 个循环中呈现不同气氛——每过 3 关
+     * 一次视觉新鲜感。字段:
+     *   top/bot  垂直渐变叠加色（低透明度——保滑块对比度）
+     *   tint     全局色温罩（着色/柔化）
+     *   veil     暗角强度（0 = 无暗角——明亮场景不加暗）
+     *   lift     提亮（晨光/月光等透亮气氛）
+     *   warm     暖色偏移（午后/粉霞）
+     * ========================================================= */
+    var ATMOS = [
+      /* Cycle 0~3 —— bg1 雪山城堡花海（陆地萌宠前段） */
+      { name: '清透晨光', top: 'rgba(255,246,214,0.10)', bot: 'rgba(214,238,255,0.12)', tint: 'rgba(255,250,235,0.05)', veil: 0.10, lift: 0.05, warm: 0.00 },
+      { name: '暖金午后', top: 'rgba(255,222,150,0.13)', bot: 'rgba(255,190,110,0.15)', tint: 'rgba(255,214,150,0.07)', veil: 0.14, lift: 0.02, warm: 0.06 },
+      { name: '微醺粉霞', top: 'rgba(255,196,206,0.13)', bot: 'rgba(226,158,190,0.15)', tint: 'rgba(255,196,204,0.07)', veil: 0.15, lift: 0.01, warm: 0.05 },
+      { name: '清凉月光', top: 'rgba(190,214,255,0.14)', bot: 'rgba(146,176,236,0.16)', tint: 'rgba(186,208,255,0.08)', veil: 0.18, lift: 0.00, warm: 0.00 },
+      /* Cycle 4~6 —— bg2 金色麦田风车（陆地萌宠后段） */
+      { name: '晴空麦浪', top: 'rgba(255,244,200,0.10)', bot: 'rgba(244,214,140,0.13)', tint: 'rgba(255,240,200,0.05)', veil: 0.11, lift: 0.05, warm: 0.02 },
+      { name: '正午暖阳', top: 'rgba(255,230,160,0.14)', bot: 'rgba(255,196,100,0.16)', tint: 'rgba(255,220,150,0.08)', veil: 0.15, lift: 0.03, warm: 0.07 },
+      { name: '金色黄昏', top: 'rgba(255,206,138,0.14)', bot: 'rgba(238,146,92,0.17)', tint: 'rgba(255,196,130,0.08)', veil: 0.17, lift: 0.00, warm: 0.08 },
+      /* Cycle 7~10 —— bg3 黄金椰林海滩（碧海飞羽前段） */
+      { name: '碧海晨汐', top: 'rgba(214,246,255,0.12)', bot: 'rgba(150,214,238,0.14)', tint: 'rgba(206,240,255,0.07)', veil: 0.10, lift: 0.05, warm: 0.00 },
+      { name: '澄澈正午', top: 'rgba(190,238,255,0.13)', bot: 'rgba(110,196,236,0.15)', tint: 'rgba(186,234,255,0.07)', veil: 0.12, lift: 0.04, warm: 0.00 },
+      { name: '珊瑚霞光', top: 'rgba(255,206,182,0.13)', bot: 'rgba(246,160,140,0.15)', tint: 'rgba(255,198,176,0.07)', veil: 0.15, lift: 0.01, warm: 0.05 },
+      { name: '静谧月夜', top: 'rgba(178,204,255,0.14)', bot: 'rgba(122,152,220,0.17)', tint: 'rgba(176,200,255,0.09)', veil: 0.19, lift: 0.00, warm: 0.00 },
+      /* Cycle 11~13 —— bg4 樱花飞舞湖畔（碧海飞羽后段） */
+      { name: '樱映晨光', top: 'rgba(255,236,240,0.12)', bot: 'rgba(246,206,226,0.14)', tint: 'rgba(255,232,238,0.07)', veil: 0.10, lift: 0.05, warm: 0.02 },
+      { name: '午后暖樱', top: 'rgba(255,224,226,0.14)', bot: 'rgba(240,170,200,0.16)', tint: 'rgba(255,216,222,0.08)', veil: 0.14, lift: 0.02, warm: 0.06 },
+      { name: '暮色紫霞', top: 'rgba(216,196,255,0.14)', bot: 'rgba(170,146,224,0.17)', tint: 'rgba(212,190,255,0.08)', veil: 0.18, lift: 0.00, warm: 0.02 },
+      /* Cycle 14~16 —— bg5 漫天彩色热气球（奇幻远航前段） */
+      { name: '气球晨光', top: 'rgba(255,240,206,0.11)', bot: 'rgba(224,214,255,0.14)', tint: 'rgba(255,238,214,0.06)', veil: 0.11, lift: 0.05, warm: 0.01 },
+      { name: '云端暖阳', top: 'rgba(255,232,186,0.13)', bot: 'rgba(206,196,246,0.15)', tint: 'rgba(255,228,190,0.07)', veil: 0.13, lift: 0.03, warm: 0.05 },
+      { name: '彩霞满天', top: 'rgba(255,204,196,0.14)', bot: 'rgba(190,160,236,0.17)', tint: 'rgba(252,200,200,0.08)', veil: 0.16, lift: 0.01, warm: 0.05 },
+      /* Cycle 17~19 —— bg6 奇幻星辰云海（奇幻远航终局） */
+      { name: '银河初现', top: 'rgba(196,214,255,0.13)', bot: 'rgba(120,140,230,0.16)', tint: 'rgba(190,206,255,0.08)', veil: 0.17, lift: 0.02, warm: 0.00 },
+      { name: '星海流光', top: 'rgba(170,196,255,0.14)', bot: 'rgba(96,116,214,0.18)', tint: 'rgba(168,192,255,0.09)', veil: 0.20, lift: 0.00, warm: 0.00 },
+      { name: '终局星辉', top: 'rgba(196,186,255,0.15)', bot: 'rgba(110,96,206,0.19)', tint: 'rgba(188,176,255,0.10)', veil: 0.22, lift: 0.00, warm: 0.02 }
+    ];
+
+    function atmosOf(ci) {
+      return ATMOS[Math.min(19, Math.max(0, ci))];
+    }
+
+    /* =========================================================
+     * Δ15b3: 前景环境粒子（4 族——按底图主题）
+     * meadow  bg1/bg2: 蒲公英绒毛（飘散）+ 柔和阳光光斑
+     * sea     bg3:    晶莹水泡（上升）+ 海面波光（横向亮带）
+     * petal   bg4:    粉色樱花瓣（缓缓飘落）
+     * star    bg5/bg6: 流光星尘（闪烁）+ 微光流星（划过）
+     * 纪律: 低透明度（≤0.22）、低密度（≤24 粒）、分布于边缘与
+     * 上/下半区（避开棋盘中心操作区——不干扰操作视线）
+     * ========================================================= */
+    function familyOf(ci) {
+      var no = bgIndexOf(ci);
+      if (no <= 2) return 'meadow';
+      if (no === 3) return 'sea';
+      if (no === 4) return 'petal';
+      return 'star';
+    }
+
+    function drawParticles(ctx, family, W, H, tMs, dpr) {
+      var t = (tMs || 0) / 1000;
+      var s = (W / 400) * (dpr || 1); /* 尺度基准（400px 宽） */
+      ctx.save();
+      if (family === 'meadow') {
+        /* 蒲公英绒毛: 缓慢飘散 + 自转（8 粒） */
+        for (var i = 0; i < 8; i++) {
+          var ph = i * 0.786;
+          var fx = (0.08 + (i % 4) * 0.28 + Math.sin(t * 0.28 + ph) * 0.06) * W;
+          var fy = ((t * 0.018 + ph * 0.31) % 1) * H;
+          var fr = (1.6 + (i % 3) * 0.7) * s;
+          ctx.globalAlpha = 0.16 + 0.10 * Math.sin(t * 0.9 + ph * 3);
+          ctx.fillStyle = 'rgba(255,253,245,1)';
+          /* 绒球: 中心点 + 放射细丝 */
+          ctx.beginPath(); ctx.arc(fx, fy, fr * 0.35, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = 'rgba(255,253,245,0.75)';
+          ctx.lineWidth = Math.max(0.5, 0.6 * s);
+          for (var k = 0; k < 5; k++) {
+            var ang = t * 0.5 + ph * 6 + k * (Math.PI * 2 / 5);
+            ctx.beginPath();
+            ctx.moveTo(fx, fy);
+            ctx.lineTo(fx + Math.cos(ang) * fr * 2.1, fy + Math.sin(ang) * fr * 2.1);
+            ctx.stroke();
+          }
+        }
+        /* 柔和阳光光斑: 上浮柔光圆（6 粒） */
+        for (var j = 0; j < 6; j++) {
+          var ph2 = j * 0.642;
+          var gx = (0.14 + (j % 3) * 0.33 + Math.sin(t * 0.32 + ph2) * 0.05) * W;
+          var gy = (1 - ((t * 0.028 + ph2 * 0.27) % 1)) * H;
+          var gr = (3.2 + (j % 3) * 1.6) * s;
+          var ga = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+          ga.addColorStop(0, 'rgba(255,248,214,0.20)');
+          ga.addColorStop(1, 'rgba(255,248,214,0)');
+          ctx.globalAlpha = 0.7 + 0.3 * Math.sin(t * 0.6 + ph2 * 4);
+          ctx.fillStyle = ga;
+          ctx.beginPath(); ctx.arc(gx, gy, gr, 0, Math.PI * 2); ctx.fill();
+        }
+      } else if (family === 'sea') {
+        /* 晶莹水泡: 上升 + 轻微横摆（10 粒） */
+        for (var b = 0; b < 10; b++) {
+          var pb = b * 0.573;
+          var bx = (0.10 + (b % 5) * 0.19 + Math.sin(t * 0.55 + pb) * 0.035) * W;
+          var by = (1 - ((t * (0.035 + (b % 4) * 0.010) + pb * 0.19) % 1)) * H;
+          var br = (1.3 + (b % 4) * 0.9) * s * (0.75 + (1 - by / H) * 0.55);
+          ctx.globalAlpha = 0.13 + 0.09 * Math.sin(t * 1.1 + pb * 5);
+          ctx.strokeStyle = 'rgba(226,250,255,1)';
+          ctx.lineWidth = Math.max(0.6, 0.7 * s);
+          ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.stroke();
+          /* 泡内高光点 */
+          ctx.fillStyle = 'rgba(255,255,255,0.85)';
+          ctx.beginPath(); ctx.arc(bx - br * 0.34, by - br * 0.34, br * 0.22, 0, Math.PI * 2); ctx.fill();
+        }
+        /* 海面波光: 横向流动亮带（下半区 3 道） */
+        ctx.globalAlpha = 1;
+        for (var w = 0; w < 3; w++) {
+          var wy = (0.62 + w * 0.12) * H;
+          var phase = (t * 0.05 + w * 0.33) % 1;
+          var wg = ctx.createLinearGradient(0, 0, W, 0);
+          wg.addColorStop(0, 'rgba(255,255,255,0)');
+          wg.addColorStop(Math.max(0.01, Math.min(0.99, phase)), 'rgba(255,255,255,0.20)');
+          wg.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = wg;
+          ctx.fillRect(0, wy, W, Math.max(1, 1.2 * s));
+        }
+      } else if (family === 'petal') {
+        /* 粉色樱花瓣: 缓缓飘落 + 摇摆 + 自转（12 粒） */
+        for (var p = 0; p < 12; p++) {
+          var pp = p * 0.531;
+          var px2 = (0.07 + (p % 6) * 0.16 + Math.sin(t * 0.42 + pp * 2) * 0.05) * W;
+          var py2 = ((t * (0.028 + (p % 4) * 0.008) + pp * 0.23) % 1) * H;
+          var pr = (2.2 + (p % 3) * 0.6) * s;
+          ctx.globalAlpha = 0.18 + 0.10 * Math.sin(t * 0.8 + pp * 4);
+          ctx.save();
+          ctx.translate(px2, py2);
+          ctx.rotate(t * 0.9 + pp * 6);
+          ctx.fillStyle = p % 3 === 0 ? 'rgba(255,196,216,1)' : 'rgba(255,214,228,1)';
+          ctx.beginPath();
+          ctx.ellipse(0, 0, pr, pr * 0.56, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      } else {
+        /* 流光星尘: 闪烁微点（14 粒） */
+        for (var d = 0; d < 14; d++) {
+          var pd = d * 0.449;
+          var dx2 = (0.05 + (d % 7) * 0.14 + Math.sin(t * 0.3 + pd) * 0.025) * W;
+          var dy2 = ((t * (0.014 + (d % 5) * 0.005) + pd * 0.17) % 1) * H;
+          var dr2 = (0.7 + (d % 4) * 0.55) * s;
+          ctx.globalAlpha = 0.14 + 0.14 * Math.sin(t * 1.6 + pd * 7);
+          ctx.fillStyle = d % 4 === 0 ? 'rgba(255,240,205,1)' : 'rgba(214,228,255,1)';
+          ctx.beginPath(); ctx.arc(dx2, dy2, dr2, 0, Math.PI * 2); ctx.fill();
+        }
+        /* 微光流星: 划过天幕（2 道·周期错开） */
+        for (var m = 0; m < 2; m++) {
+          var cycle = 7.5 + m * 4.2; /* 每道流星周期（秒） */
+          var mt = (t + m * 3.1) % cycle;
+          if (mt > 1.5) continue; /* 窗口外不绘制 */
+          var prog = mt / 1.5;
+          var mx = (0.15 + m * 0.45 + prog * 0.5) * W;
+          var my = (0.08 + m * 0.10 + prog * 0.42) * H;
+          var mlen = (16 + m * 6) * s;
+          ctx.globalAlpha = Math.sin(prog * Math.PI) * 0.55;
+          var mg = ctx.createLinearGradient(mx, my, mx - mlen, my - mlen * 0.6);
+          mg.addColorStop(0, 'rgba(255,255,255,0.9)');
+          mg.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.strokeStyle = mg;
+          ctx.lineWidth = Math.max(1, 1.2 * s);
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(mx, my);
+          ctx.lineTo(mx - mlen, my - mlen * 0.6);
+          ctx.stroke();
+        }
+      }
+      ctx.restore(); /* globalAlpha 复位 */
+    }
+
+    /* 取当前应显示的底图（失败降级：bgN → bg1 → 程序化渐变） */
+    function resolveImage(ci) {
+      var no = bgIndexOf(ci);
+      var rec = probe(no);
+      if (rec.state === 'ready' && rec.img) return rec.img;
+      if (no !== 1) {
+        var r1 = probe(1);
+        if (r1.state === 'ready' && r1.img) return r1.img;
+      }
+      return null;
+    }
+
+    /* =========================================================
+     * Δ15b3: 全视口背景绘制（贴图优先 + 氛围滤镜 + 前景粒子）
+     * · 贴图: 9:16 源按 cover 等比铺满视口（短边铺满、居中——
+     *   同比例时无裁切；非 9:16 时短边溢出裁切，不拉伸变形）
+     * · 兜底: 贴图缺失 → Canvas 渐变底色（暖阳/海蓝/星夜三档）
+     * · 氛围: 20 档 ATMOS 叠加（渐变 + 色温罩 + 暗角）
+     * · 粒子: 4 族环境粒子（低密度低透明度——不干扰操作视线）
+     * ========================================================= */
+    function drawStage(ctx, levelId, W, H, tMs, dpr) {
+      var ci = Math.min(19, Math.max(0, Math.floor(((levelId || 1) - 1) / 3)));
+      var at = atmosOf(ci);
+
+      /* 1) 底图（贴图优先 → bg1 复用 → 渐变兜底） */
+      var img = resolveImage(ci);
+      if (img) {
+        try {
+          var iw = img.naturalWidth || img.width;
+          var ih = img.naturalHeight || img.height;
+          if (iw > 0 && ih > 0) {
+            var scale = Math.max(W / iw, H / ih); /* cover: 短边铺满 */
+            var dw = iw * scale, dh = ih * scale;
+            ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
+          }
+        } catch (err) { /* 绘制异常 → 落到渐变兜底 */ }
+      } else {
+        /* 渐变兜底底色（按主题族选取——非纯灰，避免白屏感） */
+        var fam = familyOf(ci);
+        var g = ctx.createLinearGradient(0, 0, 0, H);
+        if (fam === 'meadow') {
+          g.addColorStop(0, '#8ED0F5'); g.addColorStop(0.55, '#BEE8F7'); g.addColorStop(1, '#E4F4D8');
+        } else if (fam === 'sea') {
+          g.addColorStop(0, '#7FC8EE'); g.addColorStop(0.55, '#A8DDF2'); g.addColorStop(1, '#F2EBD2');
+        } else if (fam === 'petal') {
+          g.addColorStop(0, '#A8D4F0'); g.addColorStop(0.5, '#F0D6E4'); g.addColorStop(1, '#F8E8EE');
+        } else {
+          g.addColorStop(0, '#2A3568'); g.addColorStop(0.55, '#4A5AA0'); g.addColorStop(1, '#6E7FB8');
+        }
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      /* 2) 氛围光影层（20 档——同图不同循环互异） */
+      var lg = ctx.createLinearGradient(0, 0, 0, H);
+      lg.addColorStop(0, at.top);
+      lg.addColorStop(0.72, at.bot);
+      lg.addColorStop(1, at.bot);
+      ctx.fillStyle = lg;
+      ctx.fillRect(0, 0, W, H);
+      if (at.tint) {
+        ctx.fillStyle = at.tint;
+        ctx.fillRect(0, 0, W, H);
+      }
+      /* 暗角（veil=0 的明亮场景跳过——不压暗风景） */
+      if (at.veil > 0.01) {
+        var vg = ctx.createRadialGradient(W / 2, H * 0.46, Math.min(W, H) * 0.30, W / 2, H * 0.46, Math.max(W, H) * 0.78);
+        vg.addColorStop(0, 'rgba(30,38,52,0)');
+        vg.addColorStop(1, 'rgba(30,38,52,' + at.veil.toFixed(3) + ')');
+        ctx.fillStyle = vg;
+        ctx.fillRect(0, 0, W, H);
+      }
+      /* 提亮（清透/晨光气氛——压暗氛围的反向调节） */
+      if (at.lift > 0.001) {
+        ctx.fillStyle = 'rgba(255,252,242,' + at.lift.toFixed(3) + ')';
+        ctx.fillRect(0, 0, W, H);
+      }
+      /* 暖色偏移（午后/粉霞气氛——压向金橙调） */
+      if (at.warm > 0.001) {
+        ctx.fillStyle = 'rgba(255,168,86,' + at.warm.toFixed(3) + ')';
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      /* 3) 前景环境粒子 */
+      drawParticles(ctx, familyOf(ci), W, H, tMs, dpr);
+    }
+
+    STM.BackdropStage = {
+      bgIndexOf: bgIndexOf,
+      probe: probe,
+      onReady: onReady,
+      resolveImage: resolveImage,
+      atmosOf: atmosOf,
+      familyOf: familyOf,
+      drawParticles: drawParticles,
+      ATMOS: ATMOS,
+      drawStage: drawStage
+    };
+    return STM.BackdropStage;
+  })();
+
   STM.createBoardRenderer = createBoardRenderer;
   STM.SUITS = SUITS;
   STM.chipSVG = chipSVG;
   STM.IconAssets = IconAssets;
+  STM.BackdropStage = BackdropStage;
   STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets };
 
 
