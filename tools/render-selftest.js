@@ -362,6 +362,27 @@ function scenarioEcoBackdrop() {
     return cover[cyc] === 3; /* 难关属于恰含 3 关的循环 */
   });
   check('每个挑战位关归属其三关循环', perCycleOk);
+
+  /* Δ15b/T052j: 6 张贴图 → 20 循环映射断言（用户口径: 0~3→bg1 … 17~19→bg6） */
+  var bgMapOk = [0, 1, 2, 3].every(function (c) { return BD.bgImageIndexOf(c) === 1; }) &&
+    [4, 5, 6].every(function (c) { return BD.bgImageIndexOf(c) === 2; }) &&
+    [7, 8, 9, 10].every(function (c) { return BD.bgImageIndexOf(c) === 3; }) &&
+    [11, 12, 13].every(function (c) { return BD.bgImageIndexOf(c) === 4; }) &&
+    [14, 15, 16].every(function (c) { return BD.bgImageIndexOf(c) === 5; }) &&
+    [17, 18, 19].every(function (c) { return BD.bgImageIndexOf(c) === 6; });
+  check('bg 贴图映射（0~3→1 / 4~6→2 / 7~10→3 / 11~13→4 / 14~16→5 / 17~19→6）', bgMapOk);
+  /* 兜底确定性: Node 无 Image 环境探测直接 failed → drawBackdrop 走程序化路径 */
+  var probeRec = BD.probeBgImage(0);
+  check('贴图探测无 DOM 环境降级 failed（程序化兜底命中）', probeRec.state === 'failed');
+  var okFallbackPaint = true;
+  try { BD.drawBackdrop(makeCtx(90, 160), 1, 90, 160); } catch (errFB) { okFallbackPaint = false; }
+  check('兜底程序化绘制无异常（Image 桩失败路径）', okFallbackPaint);
+  /* 粒子层: drawBackdropAnim 纯函数（theme × 4 类全程无异常） */
+  var okAnim = true;
+  for (var tk = 0; tk < 4; tk++) {
+    try { BD.drawBackdropAnim(makeCtx(90, 160), 1 + tk * 7, 90, 160, tk * 1200 + 500); } catch (errAN) { okAnim = false; }
+  }
+  check('飘落粒子层 4 主题纯函数绘制无异常（sun/bubble/petal/stardust）', okAnim);
 }
 
 /* ---- 场景 F: Δ15b/T052i 精灵图集切片与渲染级联断言（Node 桩环境） ---- */

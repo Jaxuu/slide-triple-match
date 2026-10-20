@@ -472,56 +472,36 @@
   }
 
   /* =========================================================
-   * Δ14/T052b: 边缘嵌入式流光方向角标（FR-034 §3）
-   * 朝向侧边缘内侧正中: 高对比胶囊形 + 四向微色相区分 +
-   * 白色双箭头纹 + 程序化渐变流光动画（sin 相位随 time）
-   * 图案脸面零遮挡（角标贴边缘——图案居中反方向让位已由布局保证）
+   * Δ15c/T052i: 方向角标重做——单枚锐利宽翼实心三角箭头
+   * （替代 Δ14 流光胶囊「猪鼻子」造型: 胶囊椭圆底 + 双点/双三角纹全废）
+   * · 位置: 滑块朝向边缘内侧正中，距边缘 3px
+   * · 造型: 单枚宽翼实心三角（翼宽 ≈ 1.5× 高，锐角顶点指向 d）
+   * · 描边: 1.5px 纯白（深色底块上高对比）
+   * · 纯视觉替换——方向语义/hitTest/动画坐标零变化
    * ========================================================= */
-  var WING_HUE = ['#5FA8E8', '#E8635F', '#E89B2A', '#5FB87A']; /* U/R/D/L 微色相区分 */
   function drawWingBadge(ctx, d, x, fz, w, cell, sv, nowMs) {
     var v = RE.DIR_VEC[d];
-    var hue = WING_HUE[d] || '#5B8FC4';
-    var cx = x + w / 2 + v.dc * (w / 2 - cell * 0.085); /* 朝向侧边缘内侧正中 */
-    var cy = fz + w / 2 + v.dr * (w / 2 - cell * 0.085);
-    var horiz = v.dc !== 0; /* 横向（R/L）角标横置；纵向（U/D）竖置 */
-    var bw = horiz ? cell * 0.30 : cell * 0.15;  /* 胶囊长轴 */
-    var bh = horiz ? cell * 0.15 : cell * 0.30;
-    var r = Math.min(bw, bh) / 2;
-    /* 1. 胶囊底（深色底 + 主题描边） */
-    roundRect(ctx, cx - bw / 2, cy - bh / 2, bw, bh, r);
-    ctx.fillStyle = 'rgba(35,45,60,0.88)';
-    ctx.fill();
-    ctx.strokeStyle = hue;
-    ctx.lineWidth = Math.max(1, dprSafe(1.1));
-    ctx.stroke();
-    /* 2. 程序化流光渐变（sin 相位沿角标长轴流动——零状态纯函数） */
-    var phase = ((nowMs || 0) / 700) % 1;
-    var lg = horiz
-      ? ctx.createLinearGradient(cx - bw / 2, cy, cx + bw / 2, cy)
-      : ctx.createLinearGradient(cx, cy - bh / 2, cx, cy + bh / 2);
-    var sh = 0.5 + 0.5 * Math.sin((nowMs || 0) / 350);
-    lg.addColorStop(0, hexA(hue, 0.35));
-    lg.addColorStop(Math.max(0.02, Math.min(0.98, phase)), hexA(hue, 0.95));
-    lg.addColorStop(1, hexA(hue, 0.35));
-    roundRect(ctx, cx - bw / 2 + dprSafe(1), cy - bh / 2 + dprSafe(1), bw - dprSafe(2), bh - dprSafe(2), r * 0.8);
-    ctx.fillStyle = lg;
-    ctx.fill();
-    /* 3. 白色双箭头纹（指 d 方向——两条人字形箭头串联） */
+    var cx = x + w / 2 + v.dc * (w / 2 - dprSafe(3)); /* 朝向边缘内侧正中，距边 3px */
+    var cy = fz + w / 2 + v.dr * (w / 2 - dprSafe(3));
+    var hgt = Math.max(cell * 0.20, dprSafe(5)); /* 三角高（沿指向轴）——Δ11 分级下限 */
+    var wid = hgt * 1.6; /* 宽翼: 翼展 ≈ 1.6× 高 */
     ctx.save();
     ctx.translate(cx, cy);
+    /* 局部造型顶点朝 -y（北），rotate(d*90°) 映射到 DIR_VEC:
+     * d=0(U 北)→0° / d=1(R 东)→90°(顺时针) / d=2(D 南)→180° / d=3(L 西)→270°
+     * （canvas y 轴向下——顺时针为正） */
     ctx.rotate(d * Math.PI / 2);
+    ctx.beginPath();
+    ctx.moveTo(0, -hgt * 0.5);          /* 锐角顶点（指向边缘） */
+    ctx.lineTo(-wid / 2, hgt * 0.5);     /* 左翼根（宽翼张开） */
+    ctx.lineTo(0, hgt * 0.28);           /* 尾部内凹（锐利感） */
+    ctx.lineTo(wid / 2, hgt * 0.5);      /* 右翼根 */
+    ctx.closePath();
     ctx.fillStyle = '#FFFFFF';
-    var aLen = Math.min(bw, bh) * 0.78;
-    for (var k = 0; k < 2; k++) {
-      var off = (k === 0 ? -aLen * 0.28 : aLen * 0.24);
-      ctx.beginPath();
-      ctx.moveTo(off - aLen * 0.14, -aLen * 0.2);
-      ctx.lineTo(off + aLen * 0.1, 0);
-      ctx.lineTo(off - aLen * 0.14, aLen * 0.2);
-      ctx.lineTo(off - aLen * 0.2, 0);
-      ctx.closePath();
-      ctx.fill();
-    }
+    ctx.fill();
+    ctx.lineWidth = Math.max(dprSafe(1.5), 1);
+    ctx.strokeStyle = 'rgba(255,255,255,1)';
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -685,6 +665,15 @@
       }
     }
 
+    /* Δ15b/T052j: 背景贴图就绪惰性换装——失效缓存层（bgCycle 置 -1 使
+     * 下一帧以贴图重绘; 程序化底已铺——换装无闪烁） */
+    if (STM.Backdrops && typeof STM.Backdrops.onBgReady === 'function') {
+      STM.Backdrops.onBgReady(function () {
+        bgCycle = -1; bgDim = 0; /* 强制重绘（保留 bgCanvas 旧帧至重绘完成） */
+        markDirty();
+      });
+    }
+
     function nowMs() {
       return global.performance ? global.performance.now() : Date.now();
     }
@@ -794,6 +783,12 @@
 
       /* Δ14/T052d: 生态背景层（cycleIndex 绑定当前关 id——低频重绘） */
       drawEcoBackdrop();
+
+      /* Δ15b/T052j: 飘落粒子动态层（色温主题随循环段落——14 粒纯函数，
+       * 每帧叠加于静态背景之上、滑块层之下——不占背景重绘预算） */
+      if (STM.Backdrops && STM.Backdrops.drawBackdropAnim) {
+        try { STM.Backdrops.drawBackdropAnim(ctx, (pendingLevel ? pendingLevel.id : currentLevelId) || 1, boardPx, boardPx, now); } catch (errPA) { /* 粒子层异常静默（静态背景不降级） */ }
+      }
 
       /* Δ14: 毛玻璃暗角蒙版（半透明暖白透底——滑块/角标对比度红线） */
       var veil = ctx.createRadialGradient(boardPx / 2, boardPx / 2, boardPx * 0.22, boardPx / 2, boardPx / 2, boardPx * 0.74);
