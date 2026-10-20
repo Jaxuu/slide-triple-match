@@ -84,8 +84,13 @@
     sound = STM.createSoundManager({});
     if (sound.setMuted && progress.muted) sound.setMuted(progress.muted);
 
-    /* 首次 pointerdown 惰性解锁 AudioContext（autoplay 政策） */
+    /* 首次 pointerdown 惰性解锁 AudioContext（autoplay 政策）
+     * Δ14/T052f: unlock() 内首交互自动开启治愈系 BGM（FR-037 §2） */
     global.document.addEventListener('pointerdown', function onFirst() {
+      if (sound) sound.unlock();
+    }, { capture: true });
+    /* Δ14: keydown 同样视为首次交互（键盘玩家 BGM 合规解锁） */
+    global.document.addEventListener('keydown', function onFirstKey() {
       if (sound) sound.unlock();
     }, { capture: true });
 
@@ -469,6 +474,7 @@
     renderDock();
     renderItems();
     renderHud();
+    showChallengeBanner(); /* Δ14/T052e: 重开本关挑战横幅可再弹（FR-036 §3） */
   }
 
   function onNextDown() {

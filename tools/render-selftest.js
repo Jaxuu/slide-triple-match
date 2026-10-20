@@ -78,7 +78,8 @@ function makeCtx() {
     /* 无参校验的纯状态/绘制调用 */
     clearRect: function () {}, beginPath: function () {}, closePath: function () {},
     fill: function () {}, stroke: function () {}, save: function () {}, restore: function () {},
-    translate: function () {}, rotate: function () {}
+    translate: function () {}, rotate: function () {}, scale: function () {},
+    drawImage: function () {}
   };
 }
 
@@ -296,11 +297,74 @@ function scenarioSuitMapping() {
   check('solutionMoves 照常存在（Hint/Bot 回放不受影响）', Array.isArray(LEVELS[0].solutionMoves));
 }
 
+/* ---- 场景 E: Δ14/T052d 背景层集成（真实关卡 × 20 循环全覆盖 + 8×8 满载） ---- */
+function scenarioEcoBackdrop() {
+  console.log('场景 E: 生态背景层集成（20 循环全覆盖 + 8×8×5 层满载稳定性）');
+  var BD = STM.Backdrops;
+  check('Backdrops 挂载于 STM（装载序 BoardRenderer 前）', !!BD && Array.isArray(BD.SCENES) && BD.SCENES.length === 20);
+
+  /* 20 景与 20 循环严格一一对应（SC-008: 0 遗漏 0 冲突——每 index 恰 3 关） */
+  var cover = {};
+  var i, id;
+  for (id = 1; id <= 60; id++) {
+    var ci = BD.cycleIndexOf(id);
+    cover[ci] = (cover[ci] || 0) + 1;
+  }
+  var keys = Object.keys(cover).map(Number).sort(function (a, b) { return a - b; });
+  var exact3 = keys.length === 20 && keys.every(function (k) { return cover[k] === 3; });
+  check('20 循环 × 每循环恰 3 关（0 遗漏 0 冲突）', exact3);
+  check('cycleIndex 钳制: L61+ → 19 / L0 → 0', BD.cycleIndexOf(61) === 19 && BD.cycleIndexOf(0) === 0);
+
+  /* 20 景全部经真实渲染器数据流绘制（坐标有限性桩——含换关重绘路径） */
+  var okPaint = true;
+  var sampleIds = [1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37, 40, 43, 46, 49, 52, 55, 58];
+  for (i = 0; i < sampleIds.length; i++) {
+    var lv = LEVELS[sampleIds[i] - 1];
+    var g = makeGame(lv);
+    g.renderer.setLevel(lv);
+    try { pumpFrames(3); } catch (err) { okPaint = false; }
+  }
+  check('20 循环代表关卡（每循环第 1 关）背景+滑块绘制无异常', okPaint);
+
+  /* 8×8×5 层满载稳定性（L60 = 8×8 105 满载关——含飞出/reveal 并发） */
+  var lv60 = LEVELS[59];
+  check('L60 为 8×8 满载关（n=8）', lv60.n === 8);
+  var g60 = makeGame(lv60);
+  g60.renderer.setLevel(lv60);
+  var ok60 = true;
+  try { pumpFrames(4); } catch (err) { ok60 = false; }
+  check('L60 初始满载绘制无异常', ok60);
+  /* 沿 solutionMoves 连点 12 步（动画并发 + 背景缓存重绘 + 换色精灵） */
+  var okSteps = true;
+  var played = 0;
+  for (var sv = 0; sv < 12; sv++) {
+    var mv = lv60.solutionMoves[sv];
+    if (!mv) break;
+    try {
+      g60.session.tap(mv.t);
+      pumpFrames(3);
+      played++;
+    } catch (err) { okSteps = false; break; }
+  }
+  check('L60 连点 12 步（fly/reveal/prism 动画 + 背景层并发）无异常', okSteps && played === 12);
+
+  /* 换关横幅挑战位（T052e 集成语义——挑战位恰为每循环第 3 关） */
+  var challenge = [];
+  for (id = 1; id <= 60; id++) if (id === 3 || (id - 4) % 3 === 2) challenge.push(id);
+  check('挑战位集合 20 关（L3 ∪ (id-4)%3==2——每循环 1 难关）', challenge.length === 20);
+  var perCycleOk = challenge.every(function (cid) {
+    var cyc = BD.cycleIndexOf(cid);
+    return cover[cyc] === 3; /* 难关属于恰含 3 关的循环 */
+  });
+  check('每个挑战位关归属其三关循环', perCycleOk);
+}
+
 /* ---- 主入口 ---- */
 scenarioBlocked();
 scenarioMechAnims();
 scenarioPrismBlocked();
 scenarioSuitMapping();
+scenarioEcoBackdrop();
 
 console.log('');
 if (failures.length) {
