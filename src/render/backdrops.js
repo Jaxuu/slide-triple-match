@@ -636,29 +636,193 @@
   };
 
   /* =========================================================
-   * 背景渲染入口（BoardRenderer 消费）
-   * drawBackdrop(ctx, levelId, W, H) —— 静态一次性绘制
-   * cycleIndex = Math.floor((level.id - 1) / 3)（FR-035 §2 铁律）
+   * Δ15b/T052j: 贴图优先背景层（宪章 III v2.0.0——外部贴图 + 强制兜底）
+   * · 6 张去水印 9:16 背景图映射 20 循环（用户口径——覆盖 T052j 原文
+   *   bg{cycleIndex+1} 的 1~20 一一对应: 0~3→bg1, 4~6→bg2, 7~10→bg3,
+   *   11~13→bg4, 14~16→bg5, 17~19→bg6）
+   * · 逐景独立判定: Image onerror/未就绪 → 该景降级程序化绘制
+   *   （PAINT 函数为兜底渲染源——T052d 产出降格复用）
+   * · 会话级缓存: 探测结果缓存（同景不重复探测、不闪烁——三态:
+   *   loading/ready/failed）
+   * · Image 相对路径（file:// 双击与静态服务双形态一致）
    * ========================================================= */
+  var BG_EXT = ['png', 'jpg', 'jpeg', 'webp']; /* 兼容扩展序（逐个探测） */
+  var bgImageCache = {}; /* cycleIndex → { state, img, ext, tried } */
+  var bgReadyListeners = []; /* Δ15b: 贴图就绪惰性换装通知（loading→ready 一次性回调） */
+
+  function onBgReady(fn) {
+    if (typeof fn === 'function') bgReadyListeners.push(fn);
+  }
+
+  function bgImageIndexOf(ci) {
+    if (ci <= 3) return 1;
+    if (ci <= 6) return 2;
+    if (ci <= 10) return 3;
+    if (ci <= 13) return 4;
+    if (ci <= 16) return 5;
+    return 6;
+  }
+
+  function probeBgImage(ci) {
+    var rec = bgImageCache[ci];
+    if (rec && rec.tried) return rec; /* 会话级缓存——同景不重复探测 */
+    rec = bgImageCache[ci] = { state: 'loading', img: null, ext: null, tried: true };
+    if (typeof Image !== 'function') { rec.state = 'failed'; return rec; } /* 非 DOM 环境（selftest）直接兜底 */
+    var seq = 0;
+    function tryNext() {
+      if (seq >= BG_EXT.length) { rec.state = 'failed'; return; }
+      var ext = BG_EXT[seq++];
+      var img = new Image();
+      img.onload = function () {
+        rec.state = 'ready'; rec.img = img; rec.ext = ext;
+        /* Δ15b: 就绪通知（一次性——监听器换装重绘; BoardRenderer 失效
+         * 背景缓存层使下一帧以贴图重绘——不闪烁: 程序化底已铺） */
+        for (var ln = 0; ln < bgReadyListeners.length; ln++) {
+          try { bgReadyListeners[ln](); } catch (errL) { /* 监听器异常隔离 */ }
+        }
+      };
+      img.onerror = tryNext; /* 扩展序逐个探测 */
+      img.src = 'assets/bg/bg' + bgImageIndexOf(ci) + '.' + ext;
+    }
+    tryNext();
+    return rec;
+  }
   function cycleIndexOf(levelId) {
     /* 60 关闭环: >60 的 id 钳制回 19（Math.min 防越界——SC-008 0 遗漏 0 冲突） */
     return Math.min(19, Math.max(0, Math.floor(((levelId || 1) - 1) / 3)));
   }
 
+  /* =========================================================
+   * Δ15b/T052j: 色温光影 + 飘落粒子（贴图与程序化两来源同样叠加）
+   * · 色温: 按循环段落的题材基调（暖阳/清新/海洋/暮色/高空/星夜）
+   *   低透明度覆盖——保证滑块可读性（FR-035 §4 对两来源同样生效）
+   * · 粒子: 4 类主题飘落（阳光光斑/气泡浮升/樱花瓣/星尘）
+   *   ——纯函数动画（rAF 时间驱动，零状态污染——粒子相位由 (i, t) 决定）
+   * ========================================================= */
+  var TONE = [
+    { grad: 'rgba(255,214,140,0.10)', bot: 'rgba(255,180,90,0.14)',  kind: 'sun' },     /* bg1 牧场/花田/麦田——暖阳 */
+    { grad: 'rgba(190,235,170,0.10)', bot: 'rgba(140,210,160,0.13)', kind: 'sun' },     /* bg2 果园/湖畔/风车——清新 */
+    { grad: 'rgba(160,220,240,0.10)', bot: 'rgba(90,180,220,0.14)',  kind: 'bubble' },  /* bg3 海滩/珊瑚/群岛/彩虹 */
+    { grad: 'rgba(255,200,150,0.10)', bot: 'rgba(240,150,110,0.15)', kind: 'petal' },   /* bg4 灯塔/日出/飞鱼——暮彩 */
+    { grad: 'rgba(230,235,250,0.10)', bot: 'rgba(200,215,245,0.14)', kind: 'petal' },   /* bg5 气球/海港/金顶——高风云 */
+    { grad: 'rgba(140,160,255,0.10)', bot: 'rgba(80,100,220,0.16)',  kind: 'stardust' } /* bg6 极光/星河/远航——星夜 */
+  ];
+
+  function drawToneOverlay(ctx, ci, W, H) {
+    var t = TONE[Math.min(5, Math.max(0, (ci <= 3 ? 0 : ci <= 6 ? 1 : ci <= 10 ? 2 : ci <= 13 ? 3 : ci <= 16 ? 4 : 5)))];
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, t.grad);
+    g.addColorStop(0.72, t.bot);
+    g.addColorStop(1, t.bot);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    return t;
+  }
+
+  /* 飘落粒子（kind × 紮比相位——纯函数）; 每类 12~16 粒 */
+  function drawParticles(ctx, kind, W, H, tMs) {
+    var n = 14;
+    var t = (tMs || 0) / 1000;
+    ctx.save();
+    for (var i = 0; i < n; i++) {
+      var ph = i * 0.618; /* 黄金散布——伪随机相位 */
+      var cyc = (t * (0.06 + (i % 5) * 0.014) + ph) % 1;
+      if (kind === 'sun') {
+        /* 阳光光斑: 上浮微光点（左上光源方向漂移） */
+        var sx = (0.12 + (i % 7) * 0.12 + Math.sin(t * 0.7 + ph) * 0.03) * W;
+        var sy = (1 - cyc) * H;
+        var sr = (1.5 + (i % 4) * 0.8) * (W / 400);
+        ctx.globalAlpha = 0.10 + 0.08 * Math.sin(t * 1.3 + ph * 3);
+        ctx.fillStyle = 'rgba(255,238,180,1)';
+        ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+      } else if (kind === 'bubble') {
+        /* 气泡: 底部上浮（半径随高度涨大——解压感） */
+        var bx = (0.10 + (i % 6) * 0.16 + Math.sin(t * 0.9 + ph) * 0.02) * W;
+        var by = (1 - cyc) * H;
+        var br = (1.2 + (i % 5) * 0.7) * (W / 400) * (0.7 + cyc * 0.6);
+        ctx.globalAlpha = 0.09 + 0.07 * Math.sin(t * 1.6 + ph * 5);
+        ctx.strokeStyle = 'rgba(230,250,255,1)';
+        ctx.lineWidth = Math.max(1, W / 500);
+        ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.stroke();
+      } else if (kind === 'petal') {
+        /* 樱花瓣: 飘落 + 横向摆动（花瓣形椭圆旋转） */
+        var px = (0.08 + (i % 8) * 0.12 + Math.sin(t * 0.8 + ph * 2) * 0.05) * W;
+        var py = cyc * H;
+        ctx.globalAlpha = 0.12 + 0.08 * Math.sin(t * 1.1 + ph * 4);
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(t * 1.2 + ph * 6);
+        ctx.fillStyle = 'rgba(255,182,210,1)';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 2.6 * (W / 400), 1.5 * (W / 400), 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      } else {
+        /* 星尘: 缓降闪烁微光（夜空主题） */
+        var dx = (0.06 + (i % 9) * 0.11 + Math.sin(t * 0.5 + ph) * 0.02) * W;
+        var dy = cyc * H;
+        var dr = (0.8 + (i % 4) * 0.6) * (W / 400);
+        ctx.globalAlpha = 0.10 + 0.10 * Math.sin(t * 2.0 + ph * 7);
+        ctx.fillStyle = 'rgba(210,225,255,1)';
+        ctx.beginPath(); ctx.arc(dx, dy, dr, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore(); /* globalAlpha 复位 */
+  }
+
+  /* =========================================================
+   * 背景渲染入口（BoardRenderer 消费）—— Δ15b: 贴图优先 + 程序化兜底
+   * drawBackdrop(ctx, levelId, W, H) —— 静态一次性绘制
+   * cycleIndex = Math.floor((level.id - 1) / 3)（FR-035 §2 铁律）
+   * drawBackdropAnim(ctx, levelId, W, H, tMs) —— 粒子/光影动态层
+   *   （BoardRenderer 每帧调——低开销 14 粒纯函数）
+   * ========================================================= */
   function drawBackdrop(ctx, levelId, W, H) {
     var ci = cycleIndexOf(levelId);
     var scene = SCENES[Math.min(19, ci)];
-    var fn = PAINT[scene.kind];
-    if (fn) {
-      try { fn(ctx, W, H); } catch (err) { /* 单景异常兜底纯色 */ fillRect(ctx, '#C8E0F0', 0, 0, W, H); }
+    var rec = probeBgImage(ci);
+    if (rec.state === 'ready' && rec.img) {
+      /* 贴图 cover 满铺（9:16 源对 9:16 画布——同比例直接铺满无裁切;
+       * 异常比例走 cover 短边铺满裁切算法——宽高比失配角缩放） */
+      try {
+        var iw = rec.img.naturalWidth || rec.img.width;
+        var ih = rec.img.naturalHeight || rec.img.height;
+        var scale = Math.max(W / iw, H / ih); /* cover: 短边铺满 */
+        var dw = iw * scale, dh = ih * scale;
+        ctx.drawImage(rec.img, (W - dw) / 2, (H - dh) / 2, dw, dh);
+        drawToneOverlay(ctx, ci, W, H); /* FR-035 §4 可读性蒙版——两来源同样生效 */
+        return scene;
+      } catch (err) { rec.state = 'failed'; } /* 绘制异常 → 兜底 */
+    }
+    if (rec.state === 'loading') {
+      /* 探测期: 先程序化铺底（不闪烁）; 探测成功后下次绘制惰性换装 */
+      var fn = PAINT[scene.kind];
+      if (fn) {
+        try { fn(ctx, W, H); } catch (err2) { fillRect(ctx, '#C8E0F0', 0, 0, W, H); }
+      }
+      return scene;
+    }
+    var fn2 = PAINT[scene.kind];
+    if (fn2) {
+      try { fn2(ctx, W, H); } catch (err3) { fillRect(ctx, '#C8E0F0', 0, 0, W, H); }
     }
     return scene;
+  }
+
+  function drawBackdropAnim(ctx, levelId, W, H, tMs) {
+    var ci = cycleIndexOf(levelId);
+    var toneIdx = ci <= 3 ? 0 : ci <= 6 ? 1 : ci <= 10 ? 2 : ci <= 13 ? 3 : ci <= 16 ? 4 : 5;
+    drawParticles(ctx, TONE[toneIdx].kind, W, H, tMs);
   }
 
   STM.Backdrops = {
     SCENES: SCENES,
     cycleIndexOf: cycleIndexOf,
-    drawBackdrop: drawBackdrop
+    drawBackdrop: drawBackdrop,
+    drawBackdropAnim: drawBackdropAnim,
+    bgImageIndexOf: bgImageIndexOf,
+    probeBgImage: probeBgImage,
+    onBgReady: onBgReady
   };
 
 })(typeof window !== 'undefined' ? window : globalThis);

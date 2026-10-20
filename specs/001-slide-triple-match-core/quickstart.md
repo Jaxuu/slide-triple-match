@@ -1,6 +1,6 @@
 # Quickstart: Slide & Triple（滑块三消）验收指南
 
-> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5 新增验收场景需求——FR-033~037、SC-007/008)。Run `/speckit.refine.propagate` to update this document.
+> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5 新增验收场景需求——FR-033~037、SC-007/008；Δ15: SC-006 重定义为空 assets 目录完整可玩 + 双兜底验收、60 关聚散度核验命令、方向角标与 Emoji 渲染验收场景、宪章红线审计表 III 行更新)。Run `/speckit.refine.propagate` to update this document.
 
 **Feature**: `001-slide-triple-match-core` | **Date**: 2026-10-17
 

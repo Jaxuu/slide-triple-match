@@ -1,6 +1,6 @@
 # Contract: Level Pipeline（离线关卡流水线）
 
-> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——FR-033 §3 明确图鉴为纯渲染层映射、levels.js 不变更，流水线无重生成需求；预期无接口变更，propagate 时复核)。Run `/speckit.refine.propagate` to update this document.
+> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——FR-033 §3 明确图鉴为纯渲染层映射、levels.js 不变更，流水线无重生成需求；预期无接口变更，propagate 时复核)；Δ15: FR-029/FR-030 Generator 花色分配新增空间打散三档曲线与 Solver 聚散度核验指标、重打散迁移工具需求（对既有 60 关执行一次性迁移 + 全量重验证）。Run `/speckit.refine.propagate` to update this document.
 
 **Feature**: `001-slide-triple-match-core` | **文件**: `tools/level-config.js`, `tools/generator.js`, `tools/solver.js` | **运行环境**: Node ≥ 18（CommonJS，零 npm 依赖——宪章 II：Node 仅限此二工具 + 配置）
 
