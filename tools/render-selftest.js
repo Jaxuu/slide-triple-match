@@ -487,6 +487,84 @@ function scenarioSpriteSheets() {
   check('statusOf 未加载态回退 emoji（贴图缺失降级）', IA.statusOf(999) === 'emoji');
 }
 
+/* ---- 场景 G: Δ15b3 全视口背景舞台（贴图映射 / 20 档氛围 / 4 族粒子） ---- */
+function scenarioBackdropStage() {
+  console.log('场景 G: 全视口背景舞台（Δ15b3——6 图映射 20 循环 + 20 档氛围 + 4 族粒子）');
+  var BS = STM.BackdropStage;
+  check('BackdropStage 挂载于 STM（BoardRenderer 导出）', !!BS && typeof BS.drawStage === 'function');
+
+  /* 6 张底图 → 20 循环映射（用户口径: 0~3→bg1 / 4~6→bg2 / 7~10→bg3 /
+   * 11~13→bg4 / 14~16→bg5 / 17~19→bg6） */
+  var mapOk = [0, 1, 2, 3].every(function (c) { return BS.bgIndexOf(c) === 1; }) &&
+    [4, 5, 6].every(function (c) { return BS.bgIndexOf(c) === 2; }) &&
+    [7, 8, 9, 10].every(function (c) { return BS.bgIndexOf(c) === 3; }) &&
+    [11, 12, 13].every(function (c) { return BS.bgIndexOf(c) === 4; }) &&
+    [14, 15, 16].every(function (c) { return BS.bgIndexOf(c) === 5; }) &&
+    [17, 18, 19].every(function (c) { return BS.bgIndexOf(c) === 6; });
+  check('6 图 → 20 循环映射（0~3→1 / 4~6→2 / 7~10→3 / 11~13→4 / 14~16→5 / 17~19→6）', mapOk);
+  check('bgIndexOf 越界钳制（-5→1 / 99→6）', BS.bgIndexOf(-5) === 1 && BS.bgIndexOf(99) === 6);
+
+  /* 20 档氛围逐环唯一（每过 3 关一换气氛——同图不同循环互异） */
+  var atmos = BS.ATMOS;
+  check('氛围档位 20 档（每循环一档）', Array.isArray(atmos) && atmos.length === 20);
+  var sigs = {}, uniqAtmos = true;
+  for (var ai = 0; ai < 20; ai++) {
+    var a = atmos[ai];
+    if (!a || !a.name || !a.top || !a.bot) { uniqAtmos = false; break; }
+    var sg = a.name + '|' + a.top + '|' + a.bot + '|' + a.veil + '|' + a.lift + '|' + a.warm;
+    if (sigs[sg]) { uniqAtmos = false; break; }
+    sigs[sg] = 1;
+  }
+  check('20 档氛围互不相同（氛围签名无重复）', uniqAtmos);
+  /* 同一底图负责的多个循环氛围名互异（bg1 的 4 个循环各有气氛） */
+  var byBg = {};
+  for (var bj = 0; bj < 20; bj++) {
+    var k = BS.bgIndexOf(bj);
+    (byBg[k] = byBg[k] || []).push(atmos[bj].name);
+  }
+  var sameNameOk = Object.keys(byBg).every(function (k) {
+    var names = byBg[k];
+    return names.every(function (n) { return names.indexOf(n) === names.lastIndexOf(n); });
+  });
+  check('同一底图的各循环氛围名互异（bg1 四循环四气氛）', sameNameOk);
+
+  /* 4 族粒子按底图主题归属 */
+  var famOk = BS.familyOf(0) === 'meadow' && BS.familyOf(6) === 'meadow' &&
+    BS.familyOf(7) === 'sea' && BS.familyOf(10) === 'sea' &&
+    BS.familyOf(11) === 'petal' && BS.familyOf(13) === 'petal' &&
+    BS.familyOf(14) === 'star' && BS.familyOf(19) === 'star';
+  check('粒子族归属（bg1/2→meadow、bg3→sea、bg4→petal、bg5/6→star）', famOk);
+
+  /* 粒子层纯函数绘制（4 族 × 多时间点——坐标有限性契约） */
+  var okPart = true;
+  var fams = ['meadow', 'sea', 'petal', 'star'];
+  for (var fi = 0; fi < fams.length; fi++) {
+    for (var ti = 0; ti < 5; ti++) {
+      try { BS.drawParticles(makeCtx(), fams[fi], 90, 160, ti * 1400 + 300, 1); } catch (errP) { okPart = false; }
+    }
+  }
+  check('4 族粒子纯函数绘制无异常（meadow/sea/petal/star）', okPart);
+
+  /* 全视口舞台绘制（贴图缺失 → 渐变兜底 + 氛围 + 粒子——无异常） */
+  var okStage = true;
+  for (var si = 0; si < 20; si++) {
+    try { BS.drawStage(makeCtx(), si * 3 + 1, 90, 160, si * 700, 1); } catch (errS) { okStage = false; }
+  }
+  check('20 循环全视口舞台绘制无异常（渐变兜底 + 20 档氛围 + 粒子）', okStage);
+
+  /* 贴图探测在 Node 无 Image 环境降级 failed（不抛错） */
+  var probeRec = BS.probe(1);
+  check('贴图探测无 DOM 环境降级 failed（渐变兜底命中）', probeRec.state === 'failed');
+  check('resolveImage 无贴图时返回 null（走渐变兜底）', BS.resolveImage(0) === null);
+
+  /* 背景层与棋盘层分离（BoardRenderer 不再内绘场景——透出背景） */
+  var src = require('fs').readFileSync(__dirname + '/../src/render/BoardRenderer.js', 'utf8');
+  check('BoardRenderer 场景层已移出棋盘画布（drawEcoBackdrop 已下线）',
+    src.indexOf('function drawEcoBackdrop') === -1);
+  check('BoardRenderer 保留磨砂暖白可读性层（滑块对比度红线）',
+    src.indexOf('rgba(255,252,246,0.10)') !== -1);
+}
+
 /* ---- 主入口 ---- */
 scenarioBlocked();
 scenarioMechAnims();
@@ -494,6 +572,7 @@ scenarioPrismBlocked();
 scenarioSuitMapping();
 scenarioEcoBackdrop();
 scenarioSpriteSheets();
+scenarioBackdropStage();
 
 console.log('');
 if (failures.length) {

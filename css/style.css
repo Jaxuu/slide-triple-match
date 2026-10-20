@@ -28,6 +28,25 @@ html, body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* ---------- Δ15b3: 全视口背景舞台（底图 + 前景粒子——置于 #app 最底层） ---------- */
+#bg-canvas,
+#fx-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none; /* 背景层不拦截任何操作（宪章 IV 输入模型不受影响） */
+  z-index: 0;
+}
+#fx-canvas { z-index: 1; } /* 前景粒子层高于底图、低于棋盘 */
+
+/* HUD / 棋盘 / Dock / 道具栏 抬升至背景层之上 */
+#hud, #board-wrap, #dock, #items, #toast, #challenge-banner {
+  position: relative;
+  z-index: 2;
+}
+
 /* ---------- #app：9:16 容器（D-13） ---------- */
 #app {
   position: relative;
@@ -38,7 +57,9 @@ html, body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: linear-gradient(180deg, var(--app-bg) 0%, #16202b 100%);
+  /* Δ15b3: 背景画布未就绪时的中性兜底底色（与暖白磨砂棋盘协调，
+     避免深色底透过半透明棋盘形成暗边） */
+  background: linear-gradient(180deg, #DCE8F2 0%, #EFE4E8 100%);
 }
 
 @media (min-width: 720px) and (max-width: 1023px) {
@@ -83,6 +104,12 @@ html, body {
   padding: clamp(8px, 1.5%, 14px) clamp(12px, 4%, 20px);
   font-size: clamp(13px, 2.8cqw, 18px);
   container-type: inline-size;
+  /* Δ15b3: 半透明深色磨砂条——浅色 HUD 文字在明亮风景背景上仍清晰可读 */
+  background: linear-gradient(180deg, rgba(30, 40, 54, .34), rgba(30, 40, 54, .20));
+  -webkit-backdrop-filter: blur(6px) saturate(1.08);
+  backdrop-filter: blur(6px) saturate(1.08);
+  border-bottom: 1px solid rgba(255, 255, 255, .16);
+  text-shadow: 0 1px 3px rgba(20, 26, 36, .55);
 }
 
 .hud-left { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
@@ -154,7 +181,15 @@ html, body {
   max-height: 100%;
   aspect-ratio: 1 / 1;
   border-radius: var(--radius);
-  background: var(--app-bg);
+  /* Δ15b3: 半透明磨砂暖白底板（0.22——高清风景图充分透出，
+     前景 3D 奶油白滑块仍清晰醒目） */
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.30);
+  box-shadow:
+    0 8px 28px rgba(40, 50, 66, .22),
+    inset 0 1px 0 rgba(255, 255, 255, .40);
+  -webkit-backdrop-filter: blur(3px) saturate(1.05);
+  backdrop-filter: blur(3px) saturate(1.05);
   touch-action: manipulation; /* 允许滚动手势不劫持；点击仍走 pointerdown */
   cursor: pointer;
 }
@@ -175,19 +210,24 @@ html, body {
   justify-content: center;
   padding: 8px clamp(12px, 4%, 20px) 10px;
   min-height: clamp(48px, 7.5%, 64px);
+  /* 注: blur 不可加在容器上——会连同槽内 chip 图标一起模糊；
+     改为仅在 .slot 自身做背景磨砂（Δ15b3） */
 }
 .slot {
   width: clamp(38px, 12cqw, 52px);
   height: clamp(38px, 12cqw, 52px);
   border-radius: 10px;
-  border: 1px dashed var(--grid-line);
-  background: rgba(42, 54, 68, .25);
+  border: 1px dashed rgba(60, 76, 96, .55);
+  background: rgba(255, 255, 255, .30);
   display: flex;
   align-items: center;
   justify-content: center;
   transition: border-color .2s, background .2s;
+  box-shadow: 0 2px 8px rgba(40, 50, 66, .16);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
 }
-.slot.has-tile { border-style: solid; border-color: #3a4a5c; background: rgba(58,74,92,.4); }
+.slot.has-tile { border-style: solid; border-color: rgba(60, 76, 96, .8); background: rgba(255, 255, 255, .40); }
 .slot.empty::after {
   content: attr(data-label);
   color: var(--ink-dim);

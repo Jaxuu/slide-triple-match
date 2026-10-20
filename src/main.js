@@ -94,6 +94,11 @@
       if (sound) sound.unlock();
     }, { capture: true });
 
+    /* Δ15b3: 视口尺寸变化 → 重铺全视口背景（贴图/氛围层随视口缩放） */
+    global.addEventListener('resize', function onResize() {
+      paintBg();
+    });
+
     /* T051: 静音开关（muted 持久化于 progress） */
     if (els.btnMute) {
       els.btnMute.addEventListener('pointerdown', onMuteDown);
@@ -142,7 +147,6 @@
       toast: ensureToast(d)
     };
   }
-
   function ensureToast(d) {
     var t = d.getElementById('toast');
     if (!t) {
@@ -155,6 +159,101 @@
 
   function showError(msg) {
     if (global.console) console.error('[STM]', msg);
+  }
+
+  /* =========================================================
+   * Δ15b3: 全视口背景舞台（#bg-canvas 底图+氛围 / #fx-canvas 前景粒子）
+   * · 底图画布 = 9:16 视口尺寸，贴图 cover 等比铺满居中（不裁切边缘——
+   *   源图已去水印且为标准 9:16）
+   * · 前景粒子独立画布（pointer-events:none——不拦截操作）
+   * · 背景低频重绘（换关/贴图就绪时重铺）+ 粒子 rAF 每帧刷新
+   * · 换关即重算 cycleIndex（floor((id-1)/3)）——跳关/Undo 实时生效
+   * ========================================================= */
+  var bgCanvas = null, bgCtx = null, fxCanvas = null, fxCtx = null;
+  var bgLevelId = 0, bgRaf = 0, bgRunning = false;
+
+  function ensureBgCanvases() {
+    var d = global.document;
+    var app = d.getElementById('app');
+    if (!app) return;
+    if (!bgCanvas) {
+      bgCanvas = d.createElement('canvas');
+      bgCanvas.id = 'bg-canvas';
+      bgCanvas.setAttribute('aria-hidden', 'true');
+      app.insertBefore(bgCanvas, app.firstChild);
+    }
+    if (!fxCanvas) {
+      fxCanvas = d.createElement('canvas');
+      fxCanvas.id = 'fx-canvas';
+      fxCanvas.setAttribute('aria-hidden', 'true');
+      app.insertBefore(fxCanvas, app.firstChild);
+    }
+    bgCtx = bgCanvas.getContext('2d');
+    fxCtx = fxCanvas.getContext('2d');
+  }
+
+  /* 视口尺寸同步（9:16 视口——CSS 尺寸 × dpr） */
+  function sizeBgCanvases() {
+    if (!bgCanvas || !fxCanvas) return;
+    var app = global.document.getElementById('app');
+    if (!app) return;
+    var dpr = Math.max(1, global.devicePixelRatio || 1);
+    var w = Math.max(1, Math.round((app.clientWidth || 360) * dpr));
+    var h = Math.max(1, Math.round((app.clientHeight || 640) * dpr));
+    if (bgCanvas.width !== w || bgCanvas.height !== h) {
+      bgCanvas.width = w; bgCanvas.height = h;
+    }
+    if (fxCanvas.width !== w || fxCanvas.height !== h) {
+      fxCanvas.width = w; fxCanvas.height = h;
+    }
+  }
+
+  /* 重铺底图 + 氛围（换关/贴图就绪/尺寸变化时调用——低频） */
+  function paintBg() {
+    if (!bgCtx || !STM.BackdropStage) return;
+    sizeBgCanvases();
+    var W = bgCanvas.width, H = bgCanvas.height;
+    bgCtx.clearRect(0, 0, W, H);
+    try {
+      STM.BackdropStage.drawStage(bgCtx, bgLevelId || currentId || 1, W, H, 0, Math.max(1, global.devicePixelRatio || 1));
+    } catch (err) {
+      bgCtx.fillStyle = '#2A3568';
+      bgCtx.fillRect(0, 0, W, H);
+    }
+  }
+
+  /* 前景粒子循环（rAF——轻量：每帧仅数十粒，不影响 60fps 棋盘） */
+  function bgLoop(now) {
+    bgRaf = 0;
+    if (!fxCtx || !STM.BackdropStage) return;
+    sizeBgCanvases();
+    var W = fxCanvas.width, H = fxCanvas.height;
+    fxCtx.clearRect(0, 0, W, H);
+    try {
+      STM.BackdropStage.drawParticles(fxCtx, STM.BackdropStage.familyOf(
+        Math.min(19, Math.max(0, Math.floor(((bgLevelId || currentId || 1) - 1) / 3)))
+      ), W, H, now, Math.max(1, global.devicePixelRatio || 1));
+    } catch (err) { /* 粒子异常静默——不杀循环 */ }
+    scheduleBgLoop();
+  }
+
+  function scheduleBgLoop() {
+    if (bgRaf) return;
+    bgRaf = global.requestAnimationFrame(bgLoop);
+  }
+
+  function startBgStage(levelId) {
+    ensureBgCanvases();
+    bgLevelId = levelId || currentId || 1;
+    paintBg();
+    if (!bgRunning) {
+      bgRunning = true;
+      scheduleBgLoop();
+    }
+    /* 贴图就绪 → 惰性换装（重铺底图——程序化底已铺，不闪烁） */
+    if (STM.BackdropStage && typeof STM.BackdropStage.onReady === 'function') {
+      STM.BackdropStage.onReady(function () { paintBg(); });
+    }
   }
 
   /* ---------- 关卡加载（全部关卡总数引用动态取 LEVELS.length——Δ4） ---------- */
@@ -199,6 +298,7 @@
     bindItemInput(); /* T035: 道具栏 + 暂存区输入绑定 */
     exitWrenchMode();
 
+    startBgStage(currentId); /* Δ15b3: 全视口背景舞台（贴图 + 氛围 + 粒子） */
     showChallengeBanner(); /* Δ14/T052e: 挑战位关开局 1.6s 激励横幅（FR-036） */
   }
 
