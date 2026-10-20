@@ -1,5 +1,7 @@
 # Contract: Game Session / UI / Rendering / Audio / Debug（前端运行时接口）
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——BoardRenderer 底座/角标/背景/图鉴渲染、SoundManager BGM、挑战关横幅均有新契约需求 FR-033~037；本契约为主要传播落点)。Run `/speckit.refine.propagate` to update this document.
+
 **Feature**: `001-slide-triple-match-core` | **文件**: `index.html`, `css/style.css`, `src/main.js`, `src/core/GameState.js`, `src/render/BoardRenderer.js`, `src/audio/SoundManager.js`
 
 **用户可见行为契约**以 [spec.md](../spec.md) FR-001~008、FR-013~028 为准；本文档定义模块间接口与 UI 契约。规则语义（FR 引擎侧）见 [rules-engine.md](rules-engine.md)，本文件不重复。

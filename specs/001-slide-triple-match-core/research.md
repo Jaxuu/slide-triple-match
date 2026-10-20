@@ -1,5 +1,7 @@
 # Research: Slide & Triple（滑块三消）— 技术决策记录
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5《万物出发！》新增——FR-033~037)。Run `/speckit.refine.propagate` to update this document.
+
 **Feature**: `001-slide-triple-match-core` | **Phase**: 0 | **Date**: 2026-10-17
 
 **输入**: [spec.md](spec.md)（32 条 FR、Edge Cases、SC-001~006）、[constitution.md](../../.specify/memory/constitution.md)（六大原则 + 红线清单 + 流水线工作流）、用户 plan 阶段架构指令（四里程碑、LEVELS.length 动态化、机制边界收敛、目录结构）。

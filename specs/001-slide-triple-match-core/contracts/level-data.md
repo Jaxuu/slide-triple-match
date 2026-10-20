@@ -1,5 +1,7 @@
 # Contract: Level Data（`src/data/levels.js` 数据契约）
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——FR-033 §3/§4 明确图鉴映射不改写 levels.js 的 suit 字段与花色数 K，Δ13 保留铁律延续；预期无 schema 变更，propagate 时复核)。Run `/speckit.refine.propagate` to update this document.
+
 **Feature**: `001-slide-triple-match-core` | **文件**: `src/data/levels.js` | **生产者**: `tools/generator.js`（M3）/ 手工（M1~M2 测试关） | **消费者**: 前端运行时（classic script）、`tools/solver.js`（CommonJS require）
 
 **格式选型**: JS 文件（非独立 JSON——file:// 下 fetch 被 CORS 拦截，D-01/D-15）；UMD 双导出：
