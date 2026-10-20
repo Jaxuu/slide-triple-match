@@ -1,6 +1,6 @@
 # Contract: RulesEngine（前后端共用纯函数规则引擎）
 
-> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——图鉴/背景/横幅/BGM 均为渲染与音频层，FR-033 §5 明确 RulesEngine 以 suit 整数为准、口径不变；预期无接口变更，propagate 时复核)。Run `/speckit.refine.propagate` to update this document.
+> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——图鉴/背景/横幅/BGM 均为渲染与音频层，FR-033 §5 明确 RulesEngine 以 suit 整数为准、口径不变；预期无接口变更，propagate 时复核)；Δ15: 空间聚散度为生成/验证层指标，RulesEngine 口径零变化（贴图/Emoji/聚散度均不改 suit 整数判定）；预期无接口变更，propagate 时复核。Run `/speckit.refine.propagate` to update this document.
 
 **Feature**: `001-slide-triple-match-core` | **文件**: `src/core/RulesEngine.js` | **加载方**: 浏览器（classic script → `STM.RulesEngine`）+ Node（`require`，UMD 双导出，D-02）
 

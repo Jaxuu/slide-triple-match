@@ -1,6 +1,6 @@
 # Research: Slide & Triple（滑块三消）— 技术决策记录
 
-> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5《万物出发！》新增——FR-033~037)。Run `/speckit.refine.propagate` to update this document.
+> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5《万物出发！》新增——FR-033~037；Δ15: ① FR-029/FR-030/FR-011 空间聚散度三档曲线与存量关花色重打散迁移；② FR-033 §6/FR-035 §3 本地贴图+Emoji/程序化双兜底渲染链（宪章 III v2.0.0）；③ FR-034 §3 方向角标重做（锐利三角、猪鼻子禁令）)。Run `/speckit.refine.propagate` to update this document.
 
 **Feature**: `001-slide-triple-match-core` | **Phase**: 0 | **Date**: 2026-10-17
 

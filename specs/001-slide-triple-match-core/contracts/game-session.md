@@ -1,6 +1,6 @@
 # Contract: Game Session / UI / Rendering / Audio / Debug（前端运行时接口）
 
-> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——BoardRenderer 底座/角标/背景/图鉴渲染、SoundManager BGM、挑战关横幅均有新契约需求 FR-033~037；本契约为主要传播落点)。Run `/speckit.refine.propagate` to update this document.
+> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——BoardRenderer 底座/角标/背景/图鉴渲染、SoundManager BGM、挑战关横幅均有新契约需求 FR-033~037；本契约为主要传播落点)；Δ15: ① FR-033 §6/FR-035 §3 贴图加载 + Emoji/程序化双兜底渲染链入 BoardRenderer 契约；② FR-034 §3 方向角标重做为锐利宽翼三角（猪鼻子禁令）；③ FR-029 聚散度指标进调试面板难度展示复核。Run `/speckit.refine.propagate` to update this document.
 
 **Feature**: `001-slide-triple-match-core` | **文件**: `index.html`, `css/style.css`, `src/main.js`, `src/core/GameState.js`, `src/render/BoardRenderer.js`, `src/audio/SoundManager.js`
 

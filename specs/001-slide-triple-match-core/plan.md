@@ -2,13 +2,15 @@
 
 > **Propagated**: 2026-10-20 — Δ14（US5《万物出发！》）refine 传播：新增架构增量 Δ14a~Δ14d 与 Milestone 3.5（万物出发表现层）、SC-007/008 验收口径及结构/依赖同步；既有架构描述与 M1~M4 里程碑零删除（外科手术式增量）。
 
+> **Propagated**: 2026-10-20 — Δ15（空间打散 + 贴图双兜底 + 箭头重做）refine 传播：新增架构增量 Δ15a~Δ15c 与 Milestone 3.6（T052h~T052k 落点）、SC-006 重定义（空 assets 完整可玩 + 双兜底验收）、宪章 III v2.0.0 Constitution Check 同步、项目结构增补（assets/ 可选目录、tools/redisperse-60.js、backdrops.js 实现期事实同步）与数据流边界注记；既有 M1~M3.5 描述零删除（外科手术式增量——仅 M3.5→M4 边界句与 C-3 行按新宪章口径复核更新）。
+
 **Branch**: `001-slide-triple-match-core` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/001-slide-triple-match-core/spec.md`，叠加用户规划指令（四阶段里程碑策略、可扩展关卡架构、机制边界收敛与交互修正、轻量级目录结构），详见「架构决策与 Spec 增量」一节；2026-10-20 增补 Δ14 refine 传播（US5 万物出发——M3.5 表现层）。
+**Input**: Feature specification from `/specs/001-slide-triple-match-core/spec.md`，叠加用户规划指令（四阶段里程碑策略、可扩展关卡架构、机制边界收敛与交互修正、轻量级目录结构），详见「架构决策与 Spec 增量」一节；2026-10-20 增补 Δ14 refine 传播（US5 万物出发——M3.5 表现层）与 Δ15 refine 传播（同花色空间打散三档曲线与存量重打散迁移 / 外部贴图 + Emoji·程序化双兜底（宪章 III v2.0.0）/ 锐利三角箭头重做——M3.6）。
 
 ## Summary
 
-构建零构建链的纯 Web H5 游戏《Slide & Triple》：9:16 竖屏棋盘上，玩家点击带方向箭头的滑块——射线畅通则飞出棋盘进入 7 格收集槽，同花色凑三即消；配合齿轮旋转、冰封、钥匙锁链、棱镜折射四大机制与三种局内道具，由 Node 离线流水线（逆向生成器 + 回溯求解器）量产并 100% 验证 60 个标准关卡（Δ13 增量扩容: 原 50 关 100% 保留 + 10 新关拼接; 可经参数表无缝扩容至 100+），前端运行时零生成逻辑、零外部资源、双击 index.html 即可游玩。
+构建零构建链的纯 Web H5 游戏《Slide & Triple》：9:16 竖屏棋盘上，玩家点击带方向箭头的滑块——射线畅通则飞出棋盘进入 7 格收集槽，同花色凑三即消；配合齿轮旋转、冰封、钥匙锁链、棱镜折射四大机制与两种局内道具，由 Node 离线流水线（逆向生成器 + 回溯求解器）量产并 100% 验证 60 个标准关卡（Δ13 增量扩容: 原 50 关 100% 保留 + 10 新关拼接; Δ15 花色重打散迁移: 同花色空间聚散度三档曲线达标; 可经参数表无缝扩容至 100+），前端运行时零生成逻辑、零强制外部资源（Δ15: 本地可选美术贴图 + Emoji/程序化强制双兜底）、双击 index.html 即可游玩。
 
 技术路径：前端为原生 HTML5 + CSS3 + 经典 `<script defer>` 加载的 ES2020+ 代码（单全局命名空间 `STM`，保证 file:// 协议零跨域报错，见研究决策 D-01）；规则引擎 `src/core/RulesEngine.js` 为前后端共用纯函数模块（游玩与求解口径 100% 一致）；关卡数据为带预计算最优解 `solutionMoves` 的静态 JS 配置数组。实施按 **M1 核心循环 MVP → M2 四大机制与道具（冻结规则引擎）→ M3 离线流水线量产 50→60 关（Δ13 增量扩容）→ M3.5 万物出发表现层（45 种图鉴 / 20 景背景 / 激励横幅 / BGM——纯渲染与音频层，Δ14）→ M4 调试面板 / Bot / 无缝扩容验证** 「四阶段 + 表现层」推进（Core-First, Levels-Later, Presentation-Last）。
 
@@ -16,7 +18,7 @@
 
 **Language/Version**: 浏览器端 JavaScript（ES2020+ 语言特性；classic script 加载，禁用 import/export 语法，见 D-01）；离线工具 Node.js ≥ 18（CommonJS，零 npm 依赖）。
 
-**Primary Dependencies**: 运行时零第三方依赖。仅平台 API：Canvas 2D、Web Audio API、PointerEvents、localStorage、URLSearchParams、structuredClone、document.visibilityState（Δ14 BGM 失焦联动）。离线工具仅用 Node 内置模块（fs / path / process）。
+**Primary Dependencies**: 运行时零第三方依赖。仅平台 API：Canvas 2D、Web Audio API、PointerEvents、localStorage、URLSearchParams、structuredClone、document.visibilityState（Δ14 BGM 失焦联动）、HTMLImageElement（Δ15 贴图加载——`Image` 相对路径 + onerror 降级，不引入 fetch/XHR）。离线工具仅用 Node 内置模块（fs / path / process）。
 
 **Storage**: 玩家进度 localStorage（try/catch 防护，见 D-03）；关卡数据纯静态 `src/data/levels.js`（生成工件，随仓库交付）；验证报告 `tools/solver-report.json`（生成工件）。
 
@@ -29,9 +31,9 @@
 
 **Project Type**: 零构建静态 H5 游戏 + Node 离线关卡流水线（Generator / Solver）。
 
-**Performance Goals**: 首屏可交互 < 3 s（SC-003）；棋盘动效 60 fps（中端手机）；Solver 单关验证预算 2M 节点、全量 50 关 < 5 分钟（离线）；Hint 有界搜索 ≤ 100k 节点且 < 300 ms；Δ14 表现层预算：45 图案 Sprite 预渲染 + 底座重绘不降帧（棋盘满载 8×8×5 层 105 滑块稳定 60 fps）、背景层每景实例化 ≤16 ms 且低速/静态化、BGM 合成 CPU 占用 < 1%（Web Audio 调度表驱动）。
+**Performance Goals**: 首屏可交互 < 3 s（SC-003——Δ15 后空 assets 形态 MUST 不劣化，贴图形态允许加载期兜底先渲）；棋盘动效 60 fps（中端手机）；Solver 单关验证预算 2M 节点、全量 60 关 < 5 分钟（离线）；Hint 有界搜索 ≤ 100k 节点且 < 300 ms；Δ14 表现层预算：45 图案 Sprite 预渲染 + 底座重绘不降帧（棋盘满载 8×8×5 层 105 滑块稳定 60 fps）、背景层每景实例化 ≤16 ms 且低速/静态化、BGM 合成 CPU 占用 < 1%（Web Audio 调度表驱动）；Δ15 增补预算：贴图加载不阻塞首帧（兜底先渲、贴图就绪后惰性换装）、redisperse-60 全量迁移 + 重验证 < 10 分钟（离线一次性）。
 
-**Constraints**: file:// 协议双击零控制台报错、零跨域；运行时零网络请求、零二进制素材（SC-006）；PointerEvents 单一输入模型；前端运行时不执行任何关卡生成/全量求解逻辑（仅 M4 Hint 的有界轻量搜索例外，见 D-06）。
+**Constraints**: file:// 协议双击零控制台报错、零跨域；运行时零网络请求、核心代码零强制二进制素材（Δ15/SC-006 重定义——`assets/` 为本地可选增强目录，空目录/缺文件时 Emoji 卡牌 + 程序化背景强制双兜底完整可玩）；PointerEvents 单一输入模型；前端运行时不执行任何关卡生成/全量求解逻辑（仅 M4 Hint 的有界轻量搜索例外，见 D-06）。
 
 **Scale/Scope**: 棋盘 ≤ 8×8、滑块 ≤ 150（Δ11 大棋盘）、花色 ≤ 8、关卡交付 60（Δ13 增量扩容; 参数表可扩至 100+）；`levels.js` ≤ 330 KB（Δ13 扩容后实测 ≈315 KB）。
 
@@ -42,9 +44,11 @@
 | # | 宪章原则 | 门禁要求 | 规划方案 | 判定 |
 |---|---|---|---|---|
 | C-1 | I 比赛对齐 | 两大价值轴外功能拒绝/记录 backlog | 范围 = 核心循环 + 50 关 + 四机制 + 道具 + 调试面板；成就/社交/商城/本地化均未纳入 | ✅ PASS |
-| C-1Δ14 | I 比赛对齐（Δ14 复核） | US5 题材化 vs「去美术化」 | **用户裁定放宽**（spec 假设区记录）：题材仅落地为程序化绘制/合成的图案/背景/音频表现层，无剧情文本/世界观叙事/角色对话——宪章 I 的叙事包装禁项仍零触碰；宪章 III 技术红线零突破（仍零外部资源） | ✅ PASS（附用户裁定注记） |
+| C-1Δ14 | I 比赛对齐（Δ14 复核） | US5 题材化 vs「去美术化」 | **用户裁定放宽**（spec 假设区记录）：题材仅落地为程序化绘制/合成的图案/背景/音频表现层，无剧情文本/世界观叙事/角色对话——宪章 I 的叙事包装禁项仍零触碰；~~宪章 III 技术红线零突破（仍零外部资源）~~（**Δ15 取代：宪章 III 已升 v2.0.0 正式放开本地美术贴图 + 强制双兜底**——"零外部资源"记录就此失效，见 C-3Δ15 行） | ✅ PASS（附用户裁定注记；叙事包装禁项维持） |
+| C-1Δ15 | I 比赛对齐（Δ15 复核） | 外部美术贴图 vs「去美术化」 | 宪章 III v2.0.0 用户裁定修订（本批 refine 指令明示）；美术表现层放开为本地可选资产 + Emoji/程序化双兜底；宪章 I 的叙事包装禁项（剧情/世界观/角色）仍零触碰 | ✅ PASS（宪章正式修订，非违规） |
 | C-2 | II Zero-Build（NON-NEGOTIABLE） | 原生 HTML5+CSS3+Vanilla JS、双击可玩、Node 仅限 Generator/Solver、前端零 Node/npm 依赖 | 无框架、无构建链、无运行时依赖；classic script + 单全局命名空间（字面 "ES6 Modules" 的解释见 Complexity Tracking）；Node 仅 `tools/generator.js` + `tools/solver.js`；levels.js 为纯静态配置 | ✅ PASS（含 1 项已论证解释） |
-| C-3 | III 程序化资源 | 零图片/音频/字体文件 | 棋盘/花色/箭头/机关/粒子 = Canvas 2D + 内联 SVG + CSS 渐变；音效 = Web Audio 实时合成（D-04） | ✅ PASS |
+| C-3 | ~~III 程序化资源~~ III 本地可选美术资产 + 程序化双兜底（v2.0.0） | ~~零图片/音频/字体文件~~ 核心代码零强制二进制依赖；空 assets 目录 MUST 完整可玩；音频/字体红线不变 | 棋盘底座/箭头/机关/粒子 = Canvas 2D + 内联 SVG + CSS 渐变；卡牌图标 = `assets/icons/{suit}.png` 优先 → 原生全彩 Emoji 直渲染兜底（严禁 ctx.arc 手绘圆球）；背景 = `assets/bg/bg{1..20}.jpg|png|webp` 优先 → Canvas/SVG 程序化风景兜底；音效/BGM = Web Audio 实时合成（D-04 + 宪章 III v2.0.0 Δ15 条款） | ✅ PASS |
+| C-3Δ15 | III v2.0.0（Δ15 复核） | 贴图缺失时双兜底 MUST 完整可玩（SC-006 双兜底验收）；file:// 与静态服务双形态 Image 加载一致 | 渲染链改造：Bestiary Sprite 前置 Image 加载层（onerror → Emoji 码点表）；背景池前置 Image 加载层（onerror → 程序化绘制）；兜底判定逐条目/逐景独立 + 会话内缓存（不闪烁）；M3.6 任务组落地（T052i/T052j） | ✅ PASS（M3.6 落地） |
 | C-4 | IV 跨端自适应 | 9:16 锁定 + PointerEvents 单一模型 | CSS aspect-ratio 容器（D-13）；全部输入仅 pointerdown/pointerup/pointermove | ✅ PASS |
 | C-5 | V 可解性铁律（NON-NEGOTIABLE） | 逆向生成或 Solver 验证、50 关 100% 可解、量化难度指标 | M3 流水线：逆向构造 → 正向自检 → Solver 门禁三重验证（D-10）；levels.js 内嵌 metrics + solver-report.json 交付 | ✅ PASS（M3 落地） |
 | C-6 | VI 评委调试内置 | 跳关/重置/Hint/机制标签/难度参数、移动端可隐藏 | M4 调试面板，下拉框动态读 `LEVELS.length` | ✅ PASS |
@@ -68,10 +72,15 @@
 | Δ14b | **3D 奶油白底座 + 边缘流光角标 + 离屏 Sprite 缓存**（原 Δ8） | FR-034 | 1:1 奶油白 3D 圆角正方体底座（底部厚度阴影 + 纯白高光内倒角）+ 多层金字塔阶梯偏移投影；**移除左上角圆圈指示器与面部半透明箭头圆圈**，改为朝向侧边缘内嵌流光胶囊方向角标（图案居中零遮挡）；45 种图鉴图案离屏 canvas 预渲染成 Sprite 缓存（按需绘制一次、会话内复用，60 fps 预算）；机制标记位置与新底座兼容 | M3.5 |
 | Δ14c | **20 景生态背景插画池**（原 Δ9） | FR-035 | 20 套多层 SVG/Canvas 程序化生态风景（阳光牧场/花海/麦田 → 海滩/珊瑚湾/彩虹谷/云海 → 热气球晨光/海港/星河/云海金顶）；绑定 `cycleIndex = Math.floor((level.id - 1) / 3)`（0~19 严格一一对应，同一循环 3 关共享）；背景层与棋盘层间半透明蒙版/暗角保棋盘可读性；零外部图片（宪章 III） | M3.5 |
 | Δ14d | **Web Audio 治愈系 BGM 与困难关横幅**（原 Δ10） | FR-036 / FR-037 | 大调五声音阶柔和木琴/和弦循环 BGM（C D E G A，程序化合成、4~8 小节循环）；首次交互后自动播放（autoplay 政策合规）、音效开关同步静音联动、页面失焦暂停；挑战位关开局 1.6 秒绿金横幅（集合 = L3 ∪ (id-4)%3==2 位，共 20 关；XX% = 难度指标确定性函数） | M3.5 |
+| Δ15a | **同花色空间打散三档曲线 + 存量 60 关花色重打散迁移** | FR-029（增补 §1~§6）、FR-030、FR-011、FR-008（Δ13 铁律受控例外） | 邻接定义（连坐/三连簇/双连坐/完全分散，曼哈顿口径含同格相邻层）；三档曲线：L1~L6 三连簇 ≤15%、双连坐 ≈35%、分散 ≈50% / L7~L21 三连簇 ≤5% 且每关 ≤1 组、双连坐 30%→15%、分散 ≥80% / L22~L60 **三连簇 0%**、双连坐 15%→0~5%、两两曼哈顿 ≥2（8×8 优先 ≥3）。Generator 花色分配阶段引入打散分配；Solver 报告增列聚散度指标（tripleCluster/pairCluster/dispersed/minPairDist 达标判定）。**存量迁移**：既有 60 关一次性「花色重打散 + Solver 全量重验证」（仅调 suit 空间落位与重算 solutionMoves；网格/块数/堆叠/机制结构参数不变；开放花色 ≤5 与 100% 可解不降级；FR-031 全量门禁后 Δ13 铁律恢复） | M3.6 |
+| Δ15b | **外部本地美术贴图优先 + Emoji/程序化强制双兜底**（宪章 III v2.0.0） | FR-033 §6、FR-035 §3、SC-006（重定义）、宪章 III | 卡牌图标：`assets/icons/{suit}.png`（0.png~44.png）优先 → 原生全彩 Emoji 直渲染兜底（`ctx.fillText` + `Segoe UI Emoji / Apple Color Emoji / Noto Color Emoji` 字体栈 + 45 条目 Emoji 码点映射表；**严禁 ctx.arc 手绘圆球加黑点**）；背景：`assets/bg/bg{1..20}.jpg|png|webp`（序号 = cycleIndex+1）优先 → Canvas/SVG 程序化风景兜底。`Image` 元素相对路径（file:// 与静态服务一致，禁 fetch/XHR）；兜底判定逐条目/逐景独立、会话内缓存不闪烁；`assets/` 为可选增强目录（空目录完整可玩——双兜底验收）；音频/字体红线不变 | M3.6 |
+| Δ15c | **方向角标重做：单枚锐利宽翼三角箭头** | FR-034 §3（Δ15 取代流光胶囊）、FR-034 §5 | 废止「胶囊椭圆内含两个小点/小三角」造型（缩小后极像猪鼻子——猪鼻子造型禁令）；改为滑块朝向边缘内侧正中的**单枚锐利宽翼实心三角箭头**（带白色描边、干净利落、绝无孔洞感；或醒目 V 型折角 ▲/▼/◀/▶）；方向语义与 FR-001/FR-002 命中判定零变化（纯视觉替换）；可辨识度红线延续（FR-034 §5） | M3.6 |
 
 > **建议**：`spec.md` 应同步小修 FR-014 / FR-024-3 / FR-026 / FR-006 表述以消除文档间歧义（可经 `/speckit-clarify` 编回）。本计划与全部契约文档已按上表口径编写，`/speckit-tasks` 生成任务时以此为准。
 >
-> **Δ14 传播注记（2026-10-20）**: 原 refine 指令的 Δ7~Δ10 编号与实现期变更记录（Δ7 多层堆叠 / Δ8 分层阻挡 / Δ9 暂存区移除 / Δ10 无锁连点）全局命名空间冲突，四项增量顺延编入 spec Δ14 名下为 Δ14a~Δ14d（内容一一对应）。Δ14 系**纯渲染与音频层**增量：RulesEngine 规则语义、Solver 口径、levels.js 关卡数据（suit 字段/花色数/坐标/solutionMoves）**零变更**（FR-032/FR-031/Δ13 保留铁律不破）；US5 题材化对宪章原则 I「去美术化」的放宽已由用户裁定并记录于 spec 假设区（技术红线零突破——仍零外部资源、程序化绘制/合成）。
+> **Δ14 传播注记（2026-10-20）**: 原 refine 指令的 Δ7~Δ10 编号与实现期变更记录（Δ7 多层堆叠 / Δ8 分层阻挡 / Δ9 暂存区移除 / Δ10 无锁连点）全局命名空间冲突，四项增量顺延编入 spec Δ14 名下为 Δ14a~Δ14d（内容一一对应）。Δ14 系**纯渲染与音频层**增量：RulesEngine 规则语义、Solver 口径、levels.js 关卡数据（suit 字段/花色数/坐标/solutionMoves）**零变更**（FR-032/FR-031/Δ13 保留铁律不破）；US5 题材化对宪章原则 I「去美术化」的放宽已由用户裁定并记录于 spec 假设区。
+>
+> **Δ15 传播注记（2026-10-20）**: Δ15a（空间打散）**首次打破「纯渲染层」边界**——花色重打散迁移将改写 levels.js 的 suit 空间落位与 solutionMoves（受控让位条款：FR-008 Δ13 例外 + FR-033 §3 注记 + FR-031 全量重验证后铁律恢复），故 M3.6 顺序钉死为**先 T052h 重打散迁移、后 T052i/T052j/T052k 表现层渲染**（levels.js 只在 M3.6 开头变更一次，之后 git diff 恒空）。Δ15b/Δ15c（贴图 + 箭头）仍为纯渲染层。宪章 III 升 v2.0.0（MAJOR）：本地可选贴图 + 强制双兜底；音频/字体/双击秒开红线不变；Constitution Check 已按新口径复核（C-1Δ14 注记更新 + C-3/C-3Δ15 行）。SC-006 重定义（空 assets 完整可玩 + 双兜底验收），SC-007 的「levels.js git diff 为空」验收改为「M3.6 迁移后保持不变」口径。
 
 ### 核心架构决策（详见 research.md）
 
@@ -110,28 +119,35 @@ src/
 ├── main.js                 # 应用入口：boot、PointerEvents 绑定、道具栏、调试面板控制、Bot/Hint 调度；Δ14: 挑战关激励横幅调度（1.6s 非模态）与 BGM 首次交互启动
 ├── core/
 │   ├── GameState.js        # 会话状态机：棋盘/Dock/Staging/Undo 快照栈/胜负与死局判定调度/事件分发
-│   └── RulesEngine.js      # 前后端共用纯函数规则引擎（UMD 双导出）：射线、棱镜、齿轮、破冰、解锁、三消、终局（Δ14 零变更——图鉴/背景/横幅/BGM 均不触碰）
+│   └── RulesEngine.js      # 前后端共用纯函数规则引擎（UMD 双导出）：射线、棱镜、齿轮、破冰、解锁、三消、终局（Δ14 零变更；Δ15 零变更——空间打散/贴图/箭头均不触碰规则语义）
 ├── render/
-│   ├── BoardRenderer.js    # Canvas 2D：8 种无障碍高对比花色（颜色+图形双编码）、箭头、机关、粒子动效；Δ14: 45 种图鉴 Sprite 绘制与缓存、3D 奶油白底座与流光角标、20 景生态背景层（M3.5 落点）
-│   └── bestiary.js         # Δ14（M3.5）: 45 种生灵/载具矢量图鉴定义（每图案独立绘制函数）+ 阶段花色映射表（确定性抽样）——纯数据+纯函数，BoardRenderer 消费
-├── audio/
-│   └── SoundManager.js     # Web Audio API 纯代码合成音效（事件驱动、惰性初始化）；Δ14: 治愈系五声音阶循环 BGM 合成器（专用 gain 节点、开关/可见性联动）
-└── data/
-    └── levels.js           # 生成工件：LEVELS 数组（含 metrics 与 solutionMoves）；M1/M2 为手工烟雾/机制测试关，M3 起由工具导出（Δ14 后逐字节不变——图鉴映射纯落渲染层）
+│   ├── BoardRenderer.js    # Canvas 2D：棋盘、箭头（Δ15c 锐利三角重做）、机关、粒子动效；Δ14: 3D 奶油白底座、45 图鉴 Sprite 绘制与缓存、20 景生态背景层；Δ15: 贴图优先渲染链 + Emoji/程序化兜底切换（M3.6 落点）
+│   ├── bestiary.js         # Δ14（M3.5）: 45 种生灵/载具图鉴定义 + 阶段花色映射表（确定性抽样）——纯数据+纯函数；Δ15: 增补 45 条目 Emoji 码点映射表（Emoji 兜底渲染源，plan 阶段固化为常量表）
+│   └── backdrops.js        # Δ14（M3.5 实现期拆分）: 20 景生态背景绘制模块（原计划并入 BoardRenderer，实现时独立成文件——STM.Backdrops）
+└── audio/
+    └── SoundManager.js     # Web Audio API 纯代码合成音效（事件驱动、惰性初始化）；Δ14: 治愈系五声音阶循环 BGM 合成器（专用 gain 节点、开关/可见性联动）
+data → src/data/
+└── levels.js               # 生成工件：LEVELS 数组（含 metrics 与 solutionMoves）；M3 起由工具导出；Δ15: M3.6 起头一次性花色重打散迁移（redisperse-60.js 导出 + Solver 重验证），此后逐字节不变
 tools/
-├── level-config.js         # 可扩展章节参数矩阵 CHAPTERS + 预算/评分权重（前端永不引用）
-├── generator.js            # 逆向发牌生成器（require solver.js；导出 levels.js）
-├── solver.js               # 回溯求解器（require ../src/core/RulesEngine.js；导出 solver-report.json；--engine-selftest）
-└── solver-report.json      # 生成工件：50/50 可解性验证报告（随仓库交付）
+├── level-config.js         # 可扩展章节参数矩阵 CHAPTERS + 预算/评分权重（前端永不引用）；Δ15: 增补空间聚散度三档档位参数（Δ15a）
+├── generator.js            # 逆向发牌生成器（require solver.js；导出 levels.js）；Δ15: 花色分配阶段引入同花色空间打散约束（FR-029 §1~§5）
+├── solver.js               # 回溯求解器（require ../src/core/RulesEngine.js；导出 solver-report.json；--engine-selftest）；Δ15: 报告增列聚散度指标与档位达标判定（FR-030 Δ15）
+├── expand-60.js            # Δ13 拼接工具（50→60 增量迁移）
+├── redisperse-60.js        # Δ15（M3.6 新增）: 存量 60 关花色重打散迁移工具（仅调 suit 落位 + 重算 solutionMoves + 触发 Solver 全量重验——Δ13 铁律受控让位的一次性迁移载体）
+├── render-selftest.js      # Δ14 引入（渲染层 Node 冒烟自测）；Δ15: 增补 Δ15 断言组（贴图兜底链/箭头几何/聚散度渲染零干扰）
+└── solver-report.json      # 生成工件：60/60 可解性验证报告（Δ15 起含聚散度指标字段）
+assets/                     # Δ15（M3.6 可选增强目录——仓库不强制包含，空目录完整可玩）
+├── icons/                  #   卡牌图标贴图 {suit}.png（0.png ~ 44.png；缺失 → Emoji 兜底）
+└── bg/                     #   背景贴图 bg{1..20}.jpg|png|webp（缺失 → Canvas 程序化兜底）
 ```
 
-**Structure Decision**: 采用用户指定的轻量级单页结构（Option 1 变体）：前端 6 个运行时文件 + 1 个样式文件，无目录层级冗余；`tools/` 为宪章唯一允许的 Node 离线工具区。`levels.js` 与 `solver-report.json` 为生成工件但随仓库交付（供 file:// 直开与 FR-031 复验）。测试不设独立目录——以 Solver 验证/自测模式 + quickstart 场景承载（D-14）。Δ14 唯一新增运行时文件 `src/render/bestiary.js`（45 图案定义 + 阶段映射表——图案量使单文件膨胀，独立成模块维护；仍 classic script + `STM.Bestiary` 挂载，加载序插在 BoardRenderer 之前）。
+**Structure Decision**: 采用用户指定的轻量级单页结构（Option 1 变体）：前端 6 个运行时文件 + 1 个样式文件，无目录层级冗余；`tools/` 为宪章唯一允许的 Node 离线工具区。`levels.js` 与 `solver-report.json` 为生成工件但随仓库交付（供 file:// 直开与 FR-031 复验）。测试不设独立目录——以 Solver 验证/自测模式 + quickstart 场景承载（D-14）。Δ14 新增运行时文件 `src/render/bestiary.js`（45 图案定义 + 阶段映射表——图案量使单文件膨胀，独立成模块维护；仍 classic script + `STM.Bestiary` 挂载，加载序插在 BoardRenderer 之前）；实现期进一步拆出 `src/render/backdrops.js`（20 景背景绘制，`STM.Backdrops`）。**Δ15**：新增离线工具 `tools/redisperse-60.js`（存量花色重打散一次性迁移）与可选目录 `assets/`（icons/bg 贴图——仓库不强制包含，空形态完整可玩，宪章 III v2.0.0）；前端运行时文件数不变（贴图加载链与 Emoji 码点表内嵌于 bestiary.js/BoardRenderer.js，避免新增文件）。
 
-**脚本加载顺序（index.html 内固定）**: `src/data/levels.js` → `src/core/RulesEngine.js` → `src/core/GameState.js` → `src/render/bestiary.js`（Δ14）→ `src/render/BoardRenderer.js` → `src/audio/SoundManager.js` → `src/main.js`，全部 `<script defer>`；各文件向 `window.STM` 命名空间挂载（契约见 [contracts/game-session.md](contracts/game-session.md)）。
+**脚本加载顺序（index.html 内固定）**: `src/data/levels.js` → `src/core/RulesEngine.js` → `src/core/GameState.js` → `src/render/bestiary.js`（Δ14）→ `src/render/backdrops.js`（Δ14 实现期拆分）→ `src/render/BoardRenderer.js` → `src/audio/SoundManager.js` → `src/main.js`，全部 `<script defer>`；各文件向 `window.STM` 命名空间挂载（契约见 [contracts/game-session.md](contracts/game-session.md)）。Δ15 贴图不在加载序中——运行期由渲染层 `Image` 惰性加载（onerror 兜底，见 M3.6）。
 
 ## Milestones（「四阶段 + 表现层」实施策略：Core-First, Levels-Later, Presentation-Last）
 
-> 阶段间为**冻结门**关系：M2 结束冻结 RulesEngine 语义（M3 的 Generator/Solver 依赖冻结口径，规则再变更须全量重跑流水线并重验 50 关）。M3.5 为纯渲染与音频层（Δ14——规则语义、Solver 口径、levels.js 关卡数据零变更），插于 M3（60 关量产完成）与 M4（调试面板）之间。
+> 阶段间为**冻结门**关系：M2 结束冻结 RulesEngine 语义（M3 的 Generator/Solver 依赖冻结口径，规则再变更须全量重跑流水线并重验）。M3.5 为纯渲染与音频层（Δ14——规则语义、Solver 口径、levels.js 关卡数据零变更），插于 M3（60 关量产完成）与 M4（调试面板）之间；**M3.6（Δ15）**插于 M3.5 与 M4 之间——含一次受控的 levels.js 花色重打散迁移（Δ13 铁律受控让位）与贴图/箭头渲染链改造。
 
 ### Milestone 1 — 核心循环 MVP（对应 US1 + Δ4 架构）
 
@@ -173,45 +189,60 @@ tools/
 **目标**：题材与视听表现层全面升级——45 种动态生灵/载具图鉴、3D 奶油白底座与流光角标、20 景生态背景、挑战关激励横幅、程序化治愈系 BGM；**纯渲染与音频层，规则语义与关卡数据零变更**。
 
 - **图鉴与映射（FR-033）**：45 种程序化矢量图鉴定义（三大生态阶段各 15 种，Canvas 2D 绘制、每图案独立绘制函数）；**渲染层阶段花色映射表**——按关卡 id 区间（L1~21 / L22~42 / L43~60，严禁读 `level.chapter`）+ 确定性抽样（seed = f(level.id, 阶段号)）将关卡实际花色数 K（3~8 不变）映射到图鉴池 K 个图案；同关内 suit→图案唯一、可复现；`levels.js` 的 suit 字段/坐标/solutionMoves **逐字节不变**（Δ13 保留铁律，SC-007 验收）。
-- **底座与方向标识（FR-034）**：1:1 奶油白 3D 圆角正方体底座（底部立体厚度阴影 + 纯白高光内倒角）；多层堆叠（1~5 层）向左上角微量阶梯偏移 + 层间阴影（金字塔式空间立体感）；**移除左上角圆圈指示器与面部半透明箭头圆圈**，方向改为朝向侧边缘内嵌流光胶囊角标（程序化渐变流光动画），图案居中零遮挡；45 图案离屏 canvas Sprite 预渲染缓存（60 fps 预算——T016/T-M15.3 旧水果花色表与胶囊箭头徽章由本层取代，逻辑编码 suit 值不变）。
-- **生态背景（FR-035）**：20 套多层程序化生态风景（Canvas/内联 SVG + 渐变；Cycle 1~7 陆地风光 / 8~14 蔚蓝天地 / 15~20 远航胜景），`cycleIndex = Math.floor((level.id - 1) / 3)` 严格绑定（同循环 3 关共享）；棋盘层半透明蒙版/暗角保可读性；背景层与渲染循环分层（背景低速重绘或静态化，滑块层照常 60 fps）。
+- **底座与方向标识（FR-034）**：1:1 奶油白 3D 圆角正方体底座（底部立体厚度阴影 + 纯白高光内倒角）；多层堆叠（1~5 层）向左上角微量阶梯偏移 + 层间阴影（金字塔式空间立体感）；**移除左上角圆圈指示器与面部半透明箭头圆圈**，~~方向改为朝向侧边缘内嵌流光胶囊角标（程序化渐变流光动画）~~（**Δ15c 取代：改为单枚锐利宽翼实心三角箭头 + 白描边——见 M3.6**），图案居中零遮挡；45 图案离屏 canvas Sprite 预渲染缓存（60 fps 预算——T016/T-M15.3 旧水果花色表与胶囊箭头徽章由本层取代，逻辑编码 suit 值不变）。
+- **生态背景（FR-035）**：20 套多层程序化生态风景（Canvas/内联 SVG + 渐变；Cycle 1~7 陆地风光 / 8~14 蔚蓝天地 / 15~20 远航胜景），`cycleIndex = Math.floor((level.id - 1) / 3)` 严格绑定（同循环 3 关共享）；棋盘层半透明蒙版/暗角保可读性；背景层与渲染循环分层（背景低速重绘或静态化，滑块层照常 60 fps）；~~零外部图片（宪章 III）~~（**Δ15b 取代：程序化绘制降格为兜底渲染源——本地贴图优先，见 M3.6**；实现期拆出 backdrops.js 独立模块）。
 - **激励横幅（FR-036）**：挑战位关（集合 = L3 ∪ (id-4)%3==2 位，共 20 关）开局 1.6 秒屏幕中央绿金横幅「🔥 挑战关卡！只有 XX% 的玩家能一次通过这一关」；XX% = 关卡难度指标确定性函数（同关恒定）；非模态（不阻塞输入、不冻结 rAF）。
 - **治愈系 BGM（FR-037）**：SoundManager 扩展 Web Audio 大调五声音阶（C D E G A）柔和木琴/和弦循环合成器；首次交互（PointerEvent/keydown）后自动播放（autoplay 政策合规——首次交互前 MUST NOT 发声）；音效开关同步静音联动；visibilitychange 失焦暂停/恢复续播；BGM 音色与既有 SFX 振荡器链路隔离（BGM 专用 gain 节点）。
 - **验证策略**：`tools/render-selftest.js` 扩展 Δ14 断言组（图鉴映射确定性/同关同图案/阶段边界正确/Sprite 缓存命中/底座几何有限性/背景 cycleIndex 绑定/横幅非模态）+ `--engine-selftest` 全量回归（规则口径零漂移证明）+ quickstart Δ14 场景组（SC-007/SC-008 人工验收）。
 
-**验收门（→ M4）**：SC-007（图鉴渲染一致性 + levels.js 字节级不变）、SC-008（20 景对应 0 遗漏 0 冲突 + 横幅 20/20 + BGM autoplay 合规）全过；US5-AC1~AC8 全过；`--engine-selftest` 与 render-selftest 全绿；FR-031 不触发（纯渲染层，levels.js 零变更以 git diff 佐证）。
+**验收门（→ M3.6）**: ~~SC-007（图鉴渲染一致性 + levels.js 字节级不变）~~（**Δ15 调整：SC-007 的「levels.js git diff 为空」子项由 M3.6 迁移后口径接管**——M3.5 完成时仍按原口径验收）、SC-008（20 景对应 0 遗漏 0 冲突 + 横幅 20/20 + BGM autoplay 合规）全过；US5-AC1~AC8 全过（AC4/AC5 按 Δ15 新口径由 M3.6 复核）；`--engine-selftest` 与 render-selftest 全绿；FR-031 不触发（纯渲染层，levels.js 零变更以 git diff 佐证——M3.5 时点）。
+
+### Milestone 3.6 — Δ15 增量：空间打散迁移、贴图双兜底与箭头重做（对应 FR-029 Δ15 / FR-033 §6 / FR-035 §3 / FR-034 §3，Priority: P1+P2 混合）
+
+**目标**：① 存量 60 关花色空间重打散达标（三档聚散度曲线）+ Solver 全量重验；② 渲染链切换为「本地贴图优先 + Emoji/程序化强制双兜底」（宪章 III v2.0.0）；③ 方向角标重做为单枚锐利宽翼三角箭头。**执行顺序钉死：T052h（levels.js 迁移）先行 → T052i/T052j/T052k（渲染层）并行——levels.js 在本里程碑开头一次性变更，之后 git diff 恒空**。
+
+- **花色重打散迁移（Δ15a/FR-029 §6，唯一触碰 levels.js 的任务）**：`tools/redisperse-60.js` 对存量 60 关执行一次性「花色重打散迁移」——按三档曲线重排同花色滑块空间落位（仅改 tiles[].suit 与 tiles[].r/c 中的花色落位分配；网格尺寸、滑块总数、堆叠层数、机制标记/配对、方向等结构参数不变），迁移后逐关重算 solutionMoves 并触发 Solver 全量重验证（FR-031）；验证报告增列聚散度指标（三连簇数 / 双连坐占比 / 完全分散占比 / 8×8 两两最小曼哈顿 ≥3 达标 / 档位达标布尔）；60/60 可解 + 聚散度全达标方可合入，此后 Δ13 保留铁律恢复约束力。
+- **Generator/Solver 落地 Δ15a**：`level-config.js` 增补三档档位参数（供生成器与核验共用）；`generator.js` 花色分配阶段引入空间打散分配策略（最远点/区格均衡类启发式——具体算法实现期定）；`solver.js` 报告 schema 增列聚散度字段组（向后兼容旧报告读取）。
+- **贴图加载与双兜底渲染链（Δ15b/FR-033 §6）**：bestiary.js 增补 45 条目 Emoji 码点常量表 + BoardRenderer 图标渲染链前置 `Image` 加载层——`assets/icons/{suit}.png` 优先，onerror/未就绪逐条目降级 Emoji 直渲染（`ctx.fillText` + 系统 Emoji 字体栈；**严禁 ctx.arc 手绘圆球**）；贴图就绪后惰性换装（同关同 suit 恒同来源，不闪烁）。
+- **背景贴图与程序化兜底（Δ15b/FR-035 §3）**：backdrops.js/BoardRenderer 背景链前置 `Image` 加载层——`assets/bg/bg{cycleIndex+1}.jpg|png|webp` 优先，onerror 逐景降级既有 20 景程序化风景（兜底判定会话内缓存）；蒙版/暗角可读性保证延续。
+- **方向角标重做（Δ15c/FR-034 §3）**：BoardRenderer 移除流光胶囊角标绘制路径，改为滑块朝向边缘内侧正中的单枚锐利宽翼实心三角箭头（白描边、无孔洞感；具体宽高比/描边宽度实现期定于 FR-034 §5 红线内）；方向语义与 hitTest/动画坐标零变化（纯视觉替换）。
+- **验证策略**：`node tools/redisperse-60.js`（迁移 + 自检输出聚散度报告）→ `node tools/solver.js` 全量门禁 60/60 + 聚散度档位断言 → render-selftest Δ15 断言组（Emoji 兜底链确定性 / 箭头几何有限性 / 兜底判定缓存不闪烁）→ `--engine-selftest` 回归零漂移 → quickstart Δ15 场景组（空 assets / 满 assets 双形态验收——SC-006 重定义口径）。
+
+**验收门（→ M4）**：SC-006（空 assets 目录完整可玩 + 双兜底双形态验收）、FR-029 三档曲线 60/60 达标（Solver 报告聚散度指标佐证）、FR-031 全量重验报告更新；US2-AC6（新增——聚散度核验）、US5-AC4/AC5 复扫（新口径）；`--engine-selftest` 零漂移 + render-selftest 全绿；迁移后 `git diff src/data/levels.js` 恒空（M3.6 之后时点）。**未全过不得进入 M4**。
 
 ### Milestone 4 — 调试面板、Auto-Play Bot 与无缝扩容（对应 US4 面板 + Δ4/Δ6）
 
-**目标**：评审效率层 + 扩容能力实证（M3.5 表现层完成后进行——横幅/BGM 与面板 UI 互不干扰已就绪）。
+**目标**：评审效率层 + 扩容能力实证（M3.5 表现层与 M3.6 Δ15 层完成后进行——横幅/BGM/贴图渲染与面板 UI 互不干扰已就绪）。
 
-- 调试面板：1~`LEVELS.length` 动态下拉跳关、重置、Hint（高亮脉冲）、Auto-Play（600 ms/步、可被玩家输入打断）、难度评估分/量化指标/机制标签展示；移动端抽屉隐藏/唤出。
+- 调试面板：1~`LEVELS.length` 动态下拉跳关、重置、Hint（高亮脉冲）、Auto-Play（600 ms/步、可被玩家输入打断）、难度评估分/量化指标/机制标签展示（Δ15 后 metrics 含聚散度维度——FR-011 增补）；移动端抽屉隐藏/唤出；Hint/Bot 消费的是**重打散后批次**的 solutionMoves（Δ15a 迁移产物）。
 - Hint/Bot 策略（D-06）：在轨回放 `solutionMoves`；偏离时有界 DFS（预算 100k 节点）；Bot 兜底重置重放。
 - **扩容验证钻探（不进入交付物）**：临时向 `CHAPTERS` 追加第 6 章条目 → 重新生成 → 验证下拉框/进度/自动进关/终局零代码自适应 → 回滚配置并恢复 50 关（quickstart Q8）。
 - 终验：SC-001~SC-008 全量扫尾 + 红线审计（quickstart Q9）。
 
-**验收门（交付）**：SC-002（10 分钟遍历 60 关 + ≥10 关机制深验——Δ13 扩容后）、SC-003、SC-006、SC-007/SC-008（Δ14 复扫）；宪章红线清单零违规。
+**验收门（交付）**：SC-002（10 分钟遍历 60 关 + ≥10 关机制深验——Δ13 扩容后）、SC-003、SC-006（Δ15 重定义口径：核心代码零强制二进制依赖 + 空 assets 完整可玩双兜底验收）、SC-007/SC-008（Δ14 复扫 + Δ15 贴图链复核）；宪章红线清单零违规（v2.0.0 口径——音频/字体/双击秒开红线不变，贴图为可选增强资产）。
 
 ## Data Flow & Module Boundaries
 
 ```text
-[离线] tools/level-config.js ──(CHAPTERS 参数)→ tools/generator.js ──候选──→ tools/solver.js
+[离线] tools/level-config.js ──(CHAPTERS 参数 + Δ15 聚散度档位)→ tools/generator.js ──候选──→ tools/solver.js
                                         ↑ require RulesEngine（口径一致）│
                                         └──────── 验证通过 ←────────────┘
-   导出: src/data/levels.js（LEVELS + metrics + solutionMoves）、tools/solver-report.json
+   导出: src/data/levels.js（LEVELS + metrics + solutionMoves + Δ15 聚散度指标）、tools/solver-report.json
+   [Δ15 迁移支线] tools/redisperse-60.js ──(存量 60 关花色重打散 + 重算 solutionMoves)→ levels.js → solver.js 全量重验（FR-031）→ Δ13 铁律恢复
 
 [运行时] index.html ─defer→ levels.js → STM.LEVELS
    main.js ─(levelDef)→ GameState/GameSession ─(纯函数调用)→ RulesEngine（无状态、无 DOM/音频）
                  │                                    ↑
                  ├─ events 流 → BoardRenderer（Canvas+DOM）、SoundManager（Web Audio）
+                 ├─ Δ15 贴图链: bestiary.js/backdrops.js → Image(assets/...) onerror → Emoji/程序化兜底（渲染层内部，不进事件流）
                  ├─ 快照栈 → Undo；localStorage → 进度
                  └─ 调试面板 → Hint（RulesEngine 有界搜索）/ Bot（session 公共动作 API 回放）
 ```
 
 - **RulesEngine 是唯一语义源**：前端游玩、Hint、Bot 与离线 Solver 全部经由同一纯函数集合（FR-032 口径一致的实现保证）。
 - **GameState 不实现规则**：只做编排（快照、次数、输入锁、事件分发、终局调度）。
-- **levels.js 只读**：前端对其零写入；变更仅经流水线（FR-031）。**Δ14 边界（FR-033 §3）**：Bestiary 阶段映射表只读 levels.js（level.id 与 tiles[].suit），输出渲染图案——绝不写回关卡数据；图鉴/背景/横幅/BGM 模块均以「纯表现层」身份旁挂于事件流（消费 GameState 事件 + 渲染层数据），不反向触碰 RulesEngine/GameState 规则路径。
-- **RulesEngine 零依赖渲染层**：Bestiary/背景/横幅/BGM 任何缺陷均不得影响判定（隔离方向单向——引擎→渲染）。
+- **levels.js 只读**：前端对其零写入；变更仅经流水线（FR-031）。**Δ14 边界（FR-033 §3）**：Bestiary 阶段映射表只读 levels.js（level.id 与 tiles[].suit），输出渲染图案——绝不写回关卡数据；图鉴/背景/横幅/BGM 模块均以「纯表现层」身份旁挂于事件流（消费 GameState 事件 + 渲染层数据），不反向触碰 RulesEngine/GameState 规则路径。**Δ15 边界（FR-029 §6）**：levels.js 的唯一合法变更通道为 M3.6 一次性 redisperse-60 迁移（经 Solver 全量重验后合入）；贴图加载链（bestiary/backdrops → Image → Emoji/程序化兜底）完全内敛于渲染层，不进事件流、不触碰规则路径。
+- **RulesEngine 零依赖渲染层**：Bestiary/背景/横幅/BGM 任何缺陷均不得影响判定（隔离方向单向——引擎→渲染）。**Δ15**：贴图缺失/加载失败属于渲染层缺陷范畴，兜底链必须保证渲染永不中断（Δ12 崩溃教训——draw() try/catch 纵深防御延续）。
 
 ## Complexity Tracking
 
@@ -229,9 +260,9 @@ Phase 1 设计工件（data-model / contracts×4 / quickstart）完成后复核�
 |---|---|
 | C-2 Zero-Build | 契约 [game-session.md](contracts/game-session.md) §1 固定 classic script 加载序与 `STM` 命名空间；[level-data.md](contracts/level-data.md) 固定 levels.js 双导出（浏览器全局 + CommonJS，供 Solver 复验），前端运行时零 fetch/import 动态加载。✅ |
 | C-3 程序化资源 | [game-session.md](contracts/game-session.md) §4 花色=Canvas 图形+色板、§5 音效=振荡器/噪声合成；仓库无二进制工件位。✅ |
-| C-3 Δ14 复核 | US5 全部素材仍程序化：45 图鉴=Canvas 矢量函数、20 背景=Canvas/SVG+渐变、BGM=Web Audio 合成；零 .png/.jpg/.mp3/.wav（SC-006 延续，SC-007 佐证）。✅ |
+| C-3 Δ14 复核 | ~~US5 全部素材仍程序化：45 图鉴=Canvas 矢量函数、20 背景=Canvas/SVG+渐变、BGM=Web Audio 合成；零 .png/.jpg/.mp3/.wav（SC-006 延续，SC-007 佐证）~~（**Δ15 取代：宪章 III v2.0.0——本地贴图可选 + Emoji/程序化双兜底**；BGM=Web Audio 合成红线不变；核心代码零强制二进制依赖） | ✅（见 C-3Δ15） |
 | C-5 可解性铁律 | [level-pipeline.md](contracts/level-pipeline.md) 定义三重验证、指标口径、报告 schema 与 FR-031 门禁；[level-data.md](contracts/level-data.md) 固定 metrics 契约。✅ |
 | C-6 调试面板 | [game-session.md](contracts/game-session.md) §7 面板功能集与 `LEVELS.length` 动态化。✅ |
 | 结论 | 设计后无新增违规；D-01 解释（Complexity Tracking 单行）为唯一已论证偏离，不构成实质违宪。 |
 
-**Status**: PROPAGATED 2026-10-20（Δ14→M3.5 表现层已同步）| READY FOR `/speckit-tasks`（增量任务由 refine-propagate 直接写入 tasks.md Phase 5.5）
+**Status**: PROPAGATED 2026-10-20（Δ14→M3.5 表现层已同步；Δ15→M3.6 空间打散/贴图双兜底/箭头重做已同步）| READY FOR `/speckit-tasks`（增量任务由 refine-propagate 直接写入 tasks.md Phase 5.6）
