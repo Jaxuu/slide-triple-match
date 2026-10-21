@@ -6,8 +6,8 @@
  *
  * 阶段区间（按 level.id 区间判定——严禁读 level.chapter，L21/L41/L42 错位）:
  *   阶段一 L1~21   → 陆地萌宠池 Suit 0~14（15 种）
- *   阶段二 L22~42  → 陆地+碧海合并池 Suit 0~29（30 种）
- *   阶段三 L43~60  → 全图鉴池 Suit 0~44（45 种）
+ *   阶段二 L25~48  → 陆地+碧海合并池 Suit 0~29（30 种）
+ *   阶段三 L49~72  → 全图鉴池 Suit 0~44（45 种）
  * 确定性抽样: seed = f(level.id, 阶段号) xorshift PRNG（禁 Math.random——D-08）
  * ========================================================= */
 (function (global) {
@@ -71,11 +71,11 @@
     { id: 44, name: '土星环',   theme: '#E8CFA0', draw: 'saturn' }
   ];
 
-  /* 阶段池定义（FR-033 §1~§3；区间按 level.id） */
+  /* 阶段池定义（FR-033 §1~§3；区间按 level.id；Δ16a 重划为 3×24） */
   var STAGES = [
-    { stage: 1, from: 1,  to: 21, poolMax: 15 }, /* 陆地萌宠 0~14 */
-    { stage: 2, from: 22, to: 42, poolMax: 30 }, /* + 碧海飞羽 0~29 */
-    { stage: 3, from: 43, to: 60, poolMax: 45 }  /* + 奇幻远航 0~44 */
+    { stage: 1, from: 1,  to: 24, poolMax: 15 }, /* 陆地萌宠 0~14 */
+    { stage: 2, from: 25, to: 48, poolMax: 30 }, /* + 碧海飞羽 0~29 */
+    { stage: 3, from: 49, to: 72, poolMax: 45 }  /* + 奇幻远航 0~44 */
   ];
 
   /* =========================================================
@@ -146,10 +146,10 @@
     };
   }
 
-  /* 阶段号（按 level.id 区间——非 chapter；阶段三兜底 id>42） */
+  /* 阶段号（按 level.id 区间——非 chapter；Δ16a 重划 3×24，阶段三兜底 id>48） */
   function stageOf(levelId) {
-    if (levelId >= 1 && levelId <= 21) return 1;
-    if (levelId >= 22 && levelId <= 42) return 2;
+    if (levelId >= 1 && levelId <= 24) return 1;
+    if (levelId >= 25 && levelId <= 48) return 2;
     return 3;
   }
 

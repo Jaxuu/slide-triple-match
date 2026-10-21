@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-21T05:58:10.800Z",
+  "generatedAt": "2026-10-21T07:55:55.192Z",
   "seed": null,
   "nodeBudget": {
     "nodes": 2000000,
@@ -14,7 +14,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 4,
       "openSuitsMax": 3,
-      "elapsedMs": 107,
+      "elapsedMs": 113,
       "mechCount": 0,
       "difficultyScore": 4,
       "dispersion": {
@@ -43,7 +43,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 3,
-      "elapsedMs": 112,
+      "elapsedMs": 120,
       "mechCount": 0,
       "difficultyScore": 15,
       "dispersion": {
@@ -100,7 +100,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 4,
       "openSuitsMax": 3,
-      "elapsedMs": 112,
+      "elapsedMs": 111,
       "mechCount": 0,
       "difficultyScore": 9,
       "dispersion": {
@@ -128,7 +128,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 3,
-      "elapsedMs": 130,
+      "elapsedMs": 118,
       "mechCount": 0,
       "difficultyScore": 17,
       "dispersion": {
@@ -156,7 +156,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 3,
-      "elapsedMs": 136,
+      "elapsedMs": 128,
       "mechCount": 0,
       "difficultyScore": 24,
       "dispersion": {
@@ -184,7 +184,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 3,
-      "elapsedMs": 195,
+      "elapsedMs": 162,
       "mechCount": 1,
       "difficultyScore": 27,
       "dispersion": {
@@ -212,7 +212,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 3,
-      "elapsedMs": 198,
+      "elapsedMs": 174,
       "mechCount": 1,
       "difficultyScore": 27,
       "dispersion": {
@@ -240,7 +240,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 166,
+      "elapsedMs": 193,
       "mechCount": 1,
       "difficultyScore": 38,
       "dispersion": {
@@ -268,7 +268,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 3,
-      "elapsedMs": 141,
+      "elapsedMs": 156,
       "mechCount": 1,
       "difficultyScore": 27,
       "dispersion": {
@@ -296,7 +296,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 3,
-      "elapsedMs": 145,
+      "elapsedMs": 162,
       "mechCount": 1,
       "difficultyScore": 27,
       "dispersion": {
@@ -324,7 +324,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 3,
-      "elapsedMs": 201,
+      "elapsedMs": 183,
       "mechCount": 2,
       "difficultyScore": 48,
       "dispersion": {
@@ -352,7 +352,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 3,
-      "elapsedMs": 148,
+      "elapsedMs": 164,
       "mechCount": 2,
       "difficultyScore": 39,
       "dispersion": {
@@ -380,7 +380,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 3,
-      "elapsedMs": 148,
+      "elapsedMs": 153,
       "mechCount": 2,
       "difficultyScore": 43,
       "dispersion": {
@@ -408,7 +408,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 175,
+      "elapsedMs": 178,
       "mechCount": 2,
       "difficultyScore": 50,
       "dispersion": {
@@ -436,7 +436,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 4,
       "openSuitsMax": 3,
-      "elapsedMs": 140,
+      "elapsedMs": 144,
       "mechCount": 2,
       "difficultyScore": 31,
       "dispersion": {
@@ -464,7 +464,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 3,
-      "elapsedMs": 154,
+      "elapsedMs": 171,
       "mechCount": 2,
       "difficultyScore": 44,
       "dispersion": {
@@ -492,7 +492,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 5,
-      "elapsedMs": 196,
+      "elapsedMs": 234,
       "mechCount": 2,
       "difficultyScore": 54,
       "dispersion": {
@@ -520,7 +520,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 3,
-      "elapsedMs": 155,
+      "elapsedMs": 171,
       "mechCount": 2,
       "difficultyScore": 40,
       "dispersion": {
@@ -548,7 +548,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 3,
-      "elapsedMs": 154,
+      "elapsedMs": 167,
       "mechCount": 2,
       "difficultyScore": 40,
       "dispersion": {
@@ -576,7 +576,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 5,
-      "elapsedMs": 173,
+      "elapsedMs": 182,
       "mechCount": 2,
       "difficultyScore": 54,
       "dispersion": {
@@ -604,7 +604,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 4,
-      "elapsedMs": 167,
+      "elapsedMs": 179,
       "mechCount": 3,
       "difficultyScore": 52,
       "dispersion": {
@@ -632,7 +632,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 177,
+      "elapsedMs": 173,
       "mechCount": 3,
       "difficultyScore": 56,
       "dispersion": {
@@ -660,7 +660,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 182,
+      "elapsedMs": 180,
       "mechCount": 3,
       "difficultyScore": 64,
       "dispersion": {
@@ -688,7 +688,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 162,
+      "elapsedMs": 164,
       "mechCount": 3,
       "difficultyScore": 56,
       "dispersion": {
@@ -716,7 +716,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 175,
+      "elapsedMs": 173,
       "mechCount": 3,
       "difficultyScore": 56,
       "dispersion": {
@@ -744,7 +744,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 4,
-      "elapsedMs": 180,
+      "elapsedMs": 181,
       "mechCount": 3,
       "difficultyScore": 60,
       "dispersion": {
@@ -828,7 +828,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 5,
-      "elapsedMs": 184,
+      "elapsedMs": 177,
       "mechCount": 3,
       "difficultyScore": 64,
       "dispersion": {
@@ -856,7 +856,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 4,
-      "elapsedMs": 157,
+      "elapsedMs": 173,
       "mechCount": 3,
       "difficultyScore": 52,
       "dispersion": {
@@ -912,7 +912,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 218,
+      "elapsedMs": 247,
       "mechCount": 4,
       "difficultyScore": 76,
       "dispersion": {
@@ -940,7 +940,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 169,
+      "elapsedMs": 180,
       "mechCount": 4,
       "difficultyScore": 68,
       "dispersion": {
@@ -968,7 +968,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 170,
+      "elapsedMs": 194,
       "mechCount": 4,
       "difficultyScore": 68,
       "dispersion": {
@@ -996,7 +996,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 196,
+      "elapsedMs": 202,
       "mechCount": 4,
       "difficultyScore": 76,
       "dispersion": {
@@ -1024,7 +1024,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 192,
+      "elapsedMs": 191,
       "mechCount": 4,
       "difficultyScore": 68,
       "dispersion": {
@@ -1052,7 +1052,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 201,
+      "elapsedMs": 187,
       "mechCount": 4,
       "difficultyScore": 68,
       "dispersion": {
@@ -1080,7 +1080,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 189,
+      "elapsedMs": 195,
       "mechCount": 4,
       "difficultyScore": 79,
       "dispersion": {
@@ -1108,7 +1108,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 177,
+      "elapsedMs": 186,
       "mechCount": 4,
       "difficultyScore": 68,
       "dispersion": {
@@ -1136,7 +1136,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 4,
-      "elapsedMs": 155,
+      "elapsedMs": 176,
       "mechCount": 4,
       "difficultyScore": 65,
       "dispersion": {
@@ -1165,7 +1165,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 206,
+      "elapsedMs": 291,
       "mechCount": 4,
       "difficultyScore": 79,
       "dispersion": {
@@ -1193,7 +1193,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 3,
-      "elapsedMs": 179,
+      "elapsedMs": 214,
       "mechCount": 4,
       "difficultyScore": 70,
       "dispersion": {
@@ -1221,7 +1221,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 176,
+      "elapsedMs": 197,
       "mechCount": 4,
       "difficultyScore": 70,
       "dispersion": {
@@ -1249,7 +1249,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 5,
-      "elapsedMs": 208,
+      "elapsedMs": 229,
       "mechCount": 4,
       "difficultyScore": 79,
       "dispersion": {
@@ -1277,7 +1277,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 4,
-      "elapsedMs": 194,
+      "elapsedMs": 204,
       "mechCount": 4,
       "difficultyScore": 65,
       "dispersion": {
@@ -1305,7 +1305,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 4,
-      "elapsedMs": 165,
+      "elapsedMs": 160,
       "mechCount": 4,
       "difficultyScore": 66,
       "dispersion": {
@@ -1333,7 +1333,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 223,
+      "elapsedMs": 216,
       "mechCount": 4,
       "difficultyScore": 79,
       "dispersion": {
@@ -1361,7 +1361,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 3,
-      "elapsedMs": 201,
+      "elapsedMs": 214,
       "mechCount": 4,
       "difficultyScore": 67,
       "dispersion": {
@@ -1389,7 +1389,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 175,
+      "elapsedMs": 182,
       "mechCount": 4,
       "difficultyScore": 71,
       "dispersion": {
@@ -1417,7 +1417,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 5,
-      "elapsedMs": 204,
+      "elapsedMs": 224,
       "mechCount": 4,
       "difficultyScore": 79,
       "dispersion": {
@@ -1445,7 +1445,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 180,
+      "elapsedMs": 179,
       "mechCount": 4,
       "difficultyScore": 70,
       "dispersion": {
@@ -1501,7 +1501,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 336,
+      "elapsedMs": 201,
       "mechCount": 4,
       "difficultyScore": 79,
       "dispersion": {
@@ -1529,7 +1529,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 214,
+      "elapsedMs": 172,
       "mechCount": 4,
       "difficultyScore": 69,
       "dispersion": {
@@ -1557,7 +1557,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 3,
-      "elapsedMs": 187,
+      "elapsedMs": 170,
       "mechCount": 4,
       "difficultyScore": 71,
       "dispersion": {
@@ -1585,7 +1585,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 218,
+      "elapsedMs": 230,
       "mechCount": 4,
       "difficultyScore": 79,
       "dispersion": {
@@ -1613,7 +1613,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 171,
+      "elapsedMs": 238,
       "mechCount": 4,
       "difficultyScore": 71,
       "dispersion": {
@@ -1641,7 +1641,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 221,
+      "elapsedMs": 207,
       "mechCount": 4,
       "difficultyScore": 71,
       "dispersion": {
@@ -1669,7 +1669,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 4,
-      "elapsedMs": 222,
+      "elapsedMs": 238,
       "mechCount": 4,
       "difficultyScore": 79,
       "dispersion": {
@@ -1689,22 +1689,358 @@
         "tierOkPair": true,
         "tierOkDist": true
       }
+    },
+    {
+      "id": 61,
+      "solvable": true,
+      "minMoves": 75,
+      "solutionCount": ">=10000",
+      "dockPeak": 6,
+      "openSuitsMax": 4,
+      "elapsedMs": 237,
+      "mechCount": 4,
+      "difficultyScore": 66,
+      "dispersion": {
+        "tripleClusters": 0,
+        "pairClusters": 3,
+        "dispersed": 22,
+        "triplets": 25,
+        "triplePct": 0,
+        "pairPct": 12,
+        "dispersedPct": 88,
+        "minPairDist": 1,
+        "tripletsBelow2": 3,
+        "tripletsBelow3": 12,
+        "distPreferred": 2,
+        "tierOk": true,
+        "tierOkTrip": true,
+        "tierOkPair": true,
+        "tierOkDist": true
+      }
+    },
+    {
+      "id": 62,
+      "solvable": true,
+      "minMoves": 75,
+      "solutionCount": ">=10000",
+      "dockPeak": 7,
+      "openSuitsMax": 4,
+      "elapsedMs": 211,
+      "mechCount": 4,
+      "difficultyScore": 70,
+      "dispersion": {
+        "tripleClusters": 0,
+        "pairClusters": 2,
+        "dispersed": 23,
+        "triplets": 25,
+        "triplePct": 0,
+        "pairPct": 8,
+        "dispersedPct": 92,
+        "minPairDist": 1,
+        "tripletsBelow2": 2,
+        "tripletsBelow3": 10,
+        "distPreferred": 2,
+        "tierOk": true,
+        "tierOkTrip": true,
+        "tierOkPair": true,
+        "tierOkDist": true
+      }
+    },
+    {
+      "id": 63,
+      "solvable": true,
+      "minMoves": 105,
+      "solutionCount": ">=10000",
+      "dockPeak": 7,
+      "openSuitsMax": 4,
+      "elapsedMs": 256,
+      "mechCount": 4,
+      "difficultyScore": 79,
+      "dispersion": {
+        "tripleClusters": 0,
+        "pairClusters": 3,
+        "dispersed": 32,
+        "triplets": 35,
+        "triplePct": 0,
+        "pairPct": 8.6,
+        "dispersedPct": 91.4,
+        "minPairDist": 1,
+        "tripletsBelow2": 3,
+        "tripletsBelow3": 15,
+        "distPreferred": 3,
+        "tierOk": true,
+        "tierOkTrip": true,
+        "tierOkPair": true,
+        "tierOkDist": true
+      }
+    },
+    {
+      "id": 64,
+      "solvable": true,
+      "minMoves": 75,
+      "solutionCount": ">=10000",
+      "dockPeak": 7,
+      "openSuitsMax": 4,
+      "elapsedMs": 198,
+      "mechCount": 4,
+      "difficultyScore": 70,
+      "dispersion": {
+        "tripleClusters": 0,
+        "pairClusters": 2,
+        "dispersed": 23,
+        "triplets": 25,
+        "triplePct": 0,
+        "pairPct": 8,
+        "dispersedPct": 92,
+        "minPairDist": 1,
+        "tripletsBelow2": 2,
+        "tripletsBelow3": 11,
+        "distPreferred": 2,
+        "tierOk": true,
+        "tierOkTrip": true,
+        "tierOkPair": true,
+        "tierOkDist": true
+      }
+    },
+    {
+      "id": 65,
+      "solvable": true,
+      "minMoves": 72,
+      "solutionCount": ">=10000",
+      "dockPeak": 7,
+      "openSuitsMax": 4,
+      "elapsedMs": 178,
+      "mechCount": 4,
+      "difficultyScore": 69,
+      "dispersion": {
+        "tripleClusters": 0,
+        "pairClusters": 3,
+        "dispersed": 21,
+        "triplets": 24,
+        "triplePct": 0,
+        "pairPct": 12.5,
+        "dispersedPct": 87.5,
+        "minPairDist": 1,
+        "tripletsBelow2": 3,
+        "tripletsBelow3": 13,
+        "distPreferred": 2,
+        "tierOk": true,
+        "tierOkTrip": true,
+        "tierOkPair": true,
+        "tierOkDist": true
+      }
+    },
+    {
+      "id": 66,
+      "solvable": true,
+      "minMoves": 105,
+      "solutionCount": ">=10000",
+      "dockPeak": 7,
+      "openSuitsMax": 4,
+      "elapsedMs": 209,
+      "mechCount": 4,
+      "difficultyScore": 79,
+      "dispersion": {
+        "tripleClusters": 0,
+        "pairClusters": 3,
+        "dispersed": 32,
+        "triplets": 35,
+        "triplePct": 0,
+        "pairPct": 8.6,
+        "dispersedPct": 91.4,
+        "minPairDist": 1,
+        "tripletsBelow2": 3,
+        "tripletsBelow3": 13,
+        "distPreferred": 3,
+        "tierOk": true,
+        "tierOkTrip": true,
+        "tierOkPair": true,
+        "tierOkDist": true
+      }
+    },
+    {
+      "id": 67,
+      "solvable": true,
+      "minMoves": 75,
+      "solutionCount": ">=10000",
+      "dockPeak": 7,
+      "openSuitsMax": 5,
+      "elapsedMs": 172,
+      "mechCount": 4,
+      "difficultyScore": 71,
+      "dispersion": {
+        "tripleClusters": 0,
+        "pairClusters": 1,
+        "dispersed": 24,
+        "triplets": 25,
+        "triplePct": 0,
+        "pairPct": 4,
+        "dispersedPct": 96,
+        "minPairDist": 1,
+        "tripletsBelow2": 1,
+        "tripletsBelow3": 12,
+        "distPreferred": 2,
+        "tierOk": true,
+        "tierOkTrip": true,
+        "tierOkPair": true,
+        "tierOkDist": true
+      }
+    },
+    {
+      "id": 68,
+      "solvable": true,
+      "minMoves": 75,
+      "solutionCount": ">=10000",
+      "dockPeak": 7,
+      "openSuitsMax": 4,
+      "elapsedMs": 167,
+      "mechCount": 4,
+      "difficultyScore": 71,
+      "dispersion": {
+        "tripleClusters": 0,
+        "pairClusters": 2,
+        "dispersed": 23,
+        "triplets": 25,
+        "triplePct": 0,
+        "pairPct": 8,
+        "dispersedPct": 92,
+        "minPairDist": 1,
+        "tripletsBelow2": 2,
+        "tripletsBelow3": 11,
+        "distPreferred": 2,
+        "tierOk": true,
+        "tierOkTrip": true,
+        "tierOkPair": true,
+        "tierOkDist": true
+      }
+    },
+    {
+      "id": 69,
+      "solvable": true,
+      "minMoves": 105,
+      "solutionCount": ">=10000",
+      "dockPeak": 6,
+      "openSuitsMax": 4,
+      "elapsedMs": 228,
+      "mechCount": 4,
+      "difficultyScore": 75,
+      "dispersion": {
+        "tripleClusters": 0,
+        "pairClusters": 3,
+        "dispersed": 32,
+        "triplets": 35,
+        "triplePct": 0,
+        "pairPct": 8.6,
+        "dispersedPct": 91.4,
+        "minPairDist": 1,
+        "tripletsBelow2": 3,
+        "tripletsBelow3": 15,
+        "distPreferred": 3,
+        "tierOk": true,
+        "tierOkTrip": true,
+        "tierOkPair": true,
+        "tierOkDist": true
+      }
+    },
+    {
+      "id": 70,
+      "solvable": true,
+      "minMoves": 72,
+      "solutionCount": ">=10000",
+      "dockPeak": 7,
+      "openSuitsMax": 4,
+      "elapsedMs": 164,
+      "mechCount": 4,
+      "difficultyScore": 71,
+      "dispersion": {
+        "tripleClusters": 0,
+        "pairClusters": 3,
+        "dispersed": 21,
+        "triplets": 24,
+        "triplePct": 0,
+        "pairPct": 12.5,
+        "dispersedPct": 87.5,
+        "minPairDist": 1,
+        "tripletsBelow2": 3,
+        "tripletsBelow3": 12,
+        "distPreferred": 2,
+        "tierOk": true,
+        "tierOkTrip": true,
+        "tierOkPair": true,
+        "tierOkDist": true
+      }
+    },
+    {
+      "id": 71,
+      "solvable": true,
+      "minMoves": 75,
+      "solutionCount": ">=10000",
+      "dockPeak": 7,
+      "openSuitsMax": 4,
+      "elapsedMs": 155,
+      "mechCount": 4,
+      "difficultyScore": 71,
+      "dispersion": {
+        "tripleClusters": 0,
+        "pairClusters": 1,
+        "dispersed": 24,
+        "triplets": 25,
+        "triplePct": 0,
+        "pairPct": 4,
+        "dispersedPct": 96,
+        "minPairDist": 1,
+        "tripletsBelow2": 1,
+        "tripletsBelow3": 11,
+        "distPreferred": 2,
+        "tierOk": true,
+        "tierOkTrip": true,
+        "tierOkPair": true,
+        "tierOkDist": true
+      }
+    },
+    {
+      "id": 72,
+      "solvable": true,
+      "minMoves": 105,
+      "solutionCount": ">=10000",
+      "dockPeak": 6,
+      "openSuitsMax": 4,
+      "elapsedMs": 252,
+      "mechCount": 4,
+      "difficultyScore": 75,
+      "dispersion": {
+        "tripleClusters": 0,
+        "pairClusters": 4,
+        "dispersed": 31,
+        "triplets": 35,
+        "triplePct": 0,
+        "pairPct": 11.4,
+        "dispersedPct": 88.6,
+        "minPairDist": 1,
+        "tripletsBelow2": 4,
+        "tripletsBelow3": 18,
+        "distPreferred": 3,
+        "tierOk": true,
+        "tierOkTrip": true,
+        "tierOkPair": true,
+        "tierOkDist": true
+      }
     }
   ],
   "summary": {
-    "total": 60,
-    "solvable": 60,
+    "total": 72,
+    "solvable": 72,
     "failedIds": [],
     "curveGate": {
       "chMonotonic": true,
-      "slope14": 12.599999999999998,
+      "slope14": 10.875,
       "ch5Zigzag": true
     },
     "dispersion": {
       "tierPass": {
         "L1_6": "4/6",
         "L7_21": "15/15",
-        "L22_60": "38/39"
+        "L22_60": "50/51"
       },
       "aggregate": {
         "L1_6": {
@@ -1719,8 +2055,8 @@
         },
         "L22_60": {
           "triplePct": 0.1,
-          "pairPct": 10,
-          "dispersedPct": 89.9
+          "pairPct": 9.7,
+          "dispersedPct": 90.2
         }
       }
     }

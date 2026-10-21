@@ -410,7 +410,7 @@ function curveGates(levelsWithMetrics) {
     slope14 = den === 0 ? 0 : num / den;
   }
 
-  /* 门-3: Δ11 波浪锯齿——「2 简 1 难」3 关一循环（Δ13 锚点: L4+ (id-4)%3==2 → 8×8 难关;
+  /* 门-3: Δ11/Δ16a 波浪锯齿——「2 简 1 难」3 关一循环（Δ13 锚点: L4+ (id-4)%3==2 → 8×8 难关;
    * L1~L3 新手循环 1 不计入波浪统计）
    * 显著性: 8×8 挑战关均值 > 全程均值 × 1.05、7×7 简单关 < × 0.95
    * （门禁校准注记: 挑战/简单档实际分离 ≈ spike-valley ≥ 10 分（>20% 相对差），
@@ -881,7 +881,7 @@ function runFull(seed) {
       ' nodes=' + sol.nodes + ' ' + fmtMs(elapsed));
   }
 
-  /* difficultyScore 全域归一（min-max across 60 levels——Δ13 扩容后全域） */
+  /* difficultyScore 全域归一（min-max across 72 levels——Δ16a 扩容后全域） */
   var domains = { minMoves: [Infinity, -Infinity], solutionCount: [Infinity, -Infinity], dockPeak: [Infinity, -Infinity], tiles: [Infinity, -Infinity], suits: [Infinity, -Infinity] };
   var suitsOf = {};
   for (i = 0; i < levels.length; i++) {
@@ -978,7 +978,7 @@ function runFull(seed) {
     }
   }
 
-  /* 曲线门（Δ13 波浪架构: 章均值单调 + 全章 minMoves 斜率 + 7/7/8 波浪锯齿——60 关/3 大阶段口径） */
+  /* 曲线门（Δ13/Δ16a 波浪架构: 章均值单调 + 全章 minMoves 斜率 + 7/7/8 波浪锯齿——72 关/3×24 大阶段口径） */
   var cg = curveGates(embedded);
   console.log('curveGate: chMonotonic=' + cg.chMonotonic + ' slope14=' + cg.slope14.toFixed(2) + ' waveZigzag=' + cg.ch5Zigzag);
   if (!cg.chMonotonic) { console.error('  ✗ 曲线门-1: 章均值非单调不减'); gate = 1; }
@@ -1011,8 +1011,8 @@ function runFull(seed) {
         }
         function fmt(a) { return a[3] ? { triplePct: Math.round(a[0] / a[3] * 1000) / 10, pairPct: Math.round(a[1] / a[3] * 1000) / 10, dispersedPct: Math.round(a[2] / a[3] * 1000) / 10 } : null; }
         return {
-          tierPass: { L1_6: tiers.t1[0] + '/' + tiers.t1[1], L7_21: tiers.t2[0] + '/' + tiers.t2[1], L22_60: tiers.t3[0] + '/' + tiers.t3[1] },
-          aggregate: { L1_6: fmt(agg.t1), L7_21: fmt(agg.t2), L22_60: fmt(agg.t3) }
+          tierPass: { L1_6: tiers.t1[0] + '/' + tiers.t1[1], L7_21: tiers.t2[0] + '/' + tiers.t2[1], L22_72: tiers.t3[0] + '/' + tiers.t3[1] },
+          aggregate: { L1_6: fmt(agg.t1), L7_21: fmt(agg.t2), L22_72: fmt(agg.t3) }
         };
       })()
     }
