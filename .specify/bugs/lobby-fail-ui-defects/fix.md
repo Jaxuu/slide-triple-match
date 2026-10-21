@@ -2,8 +2,9 @@
 
 - **Slug**: lobby-fail-ui-defects
 - **Fixed**: 2026-10-22
+- **Verified**: 2026-10-22（见 ./test.md — **Result: verified**，41/41 端到端断言 + 全套回归绿）
 - **Assessment**: ./assessment.md
-- **Status**: applied
+- **Status**: applied → **verified**
 
 ## Summary
 

@@ -3,7 +3,7 @@
 - **Slug**: lobby-fail-ui-defects
 - **Created**: 2026-10-22
 - **Source**: pasted text（实机测试三缺陷报告，含 Bug 1/2/3 描述与 `effectiveCleared` 整改口径）
-- **Verdict**: valid（三项均经真实 Chrome CDP 实机探针复现并量化，根因确定）
+- **Verdict**: valid（三项均经真实 Chrome CDP 实机探针复现并量化，根因确定）→ **已修复并验证（2026-10-22，见 ./fix.md + ./test.md，Result: verified）**
 - **Severity**: critical（三项分列——Bug 1: high；Bug 2: **critical（硬性软锁）**；Bug 3: medium）
 
 ## Report (verbatim)
