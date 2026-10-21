@@ -1500,16 +1500,37 @@ html, body {
   100% { opacity: 0; transform: translateY(-90px) scale(1.2); }
 }
 
-/* ---------- 中部：星盘晶片 + 棱晶飞入 ---------- */
+/* ---------- 中部：棱晶星盘（2×2 能量晶片）+ 棱晶飞入 ---------- */
 .result-mid { position: relative; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+/* 2×2 能量晶片（象限 0=左上 1=右上 2=左下 3=右下）——与大厅棱晶星盘同构 */
 .result-chips {
-  width: 118px; height: 118px;
-  border-radius: 24%;
-  overflow: hidden;
+  position: relative;
+  width: 148px; height: 148px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 26%;
+  background: linear-gradient(160deg, rgba(232,163,61,.34), rgba(120,86,220,.30));
   box-shadow: 0 0 0 3px rgba(232,163,61,.85), 0 10px 26px rgba(0,0,0,.48);
 }
+.result-chip {
+  position: relative;
+  border-radius: 16%;
+  overflow: hidden;
+  background: rgba(66,44,124,.55);
+  box-shadow: inset 0 0 0 1px rgba(214,186,255,.34);
+}
 .result-chipcv { width: 100%; height: 100%; display: block; }
-.result-chips.just-lit { animation: chip-flip .7s cubic-bezier(.3, 1.4, .5, 1); }
+/* 未点亮象限 = 紫晶盲盒态（不泄漏未解锁画面内容——FR-044 §4） */
+.result-chip.is-blind {
+  background:
+    radial-gradient(circle at 50% 38%, rgba(150,110,225,.55) 0%, rgba(108,76,190,.42) 55%, rgba(66,44,124,.60) 100%);
+  box-shadow: inset 0 0 0 1px rgba(214,186,255,.34);
+}
+/* 新点亮象限 = 翻转折出动画（困难位关——T072 ④） */
+.result-chip.just-lit { animation: chip-flip .7s cubic-bezier(.3, 1.4, .5, 1); }
 @keyframes chip-flip {
   0%   { transform: rotateY(90deg) scale(.6); opacity: .2; }
   100% { transform: none; opacity: 1; }
@@ -1636,6 +1657,7 @@ html, body {
 #fail-root[hidden] { display: none !important; }
 
 .fail-card {
+  position: relative;
   display: flex; flex-direction: column;
   align-items: center;
   text-align: center;
@@ -1644,6 +1666,24 @@ html, body {
   overflow: visible;
   padding-top: 46px;
 }
+/* 右上角返回主大厅按钮（T074 ③）——绝对定位于**覆盖层**右上角
+ * （不放进卡片内——卡片内会与居中的标题铭牌重叠） */
+.fail-back-lobby {
+  position: absolute;
+  top: 10px; right: 12px;
+  z-index: 3;
+  padding: 7px 14px;
+  border: 2px solid rgba(255, 255, 255, .84);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #FFF6E6, #F3D6A8 62%, #D9AE6E);
+  color: #6A4415;
+  font-size: 12px;
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 3px 0 #B98F52, 0 6px 14px rgba(0, 0, 0, .28);
+}
+.fail-back-lobby:active { transform: translateY(2px); box-shadow: 0 1px 0 #B98F52; }
 .fail-plaque { background: linear-gradient(180deg, #FFD3C4, #F0906A 58%, #C05A34); }
 
 /* 温和鼓励文案（XX% = 通关率暗示值，非倒计时） */
