@@ -145,8 +145,30 @@
       btnRetry: d.getElementById('result-retry'),
       btnNext: d.getElementById('result-next'),
       btnMute: d.getElementById('btn-mute'),
-      toast: ensureToast(d)
+      toast: ensureToast(d),
+      /* M4 T053~T058: 调试面板 DOM 元素 */
+      debugPanel: d.getElementById('debug-panel'),
+      debugToggle: ensureDebugToggle(d),
+      debugLevel: d.getElementById('debug-level'),
+      debugReset: d.getElementById('debug-reset'),
+      debugHint: d.getElementById('debug-hint'),
+      debugAuto: d.getElementById('debug-auto'),
+      debugInfo: d.getElementById('debug-info'),
+      debugMute: d.getElementById('debug-mute')
     };
+  }
+  /* M4 T053: 移动端调试面板折叠按钮（PC 端不显示） */
+  function ensureDebugToggle(d) {
+    var t = d.getElementById('debug-toggle');
+    if (!t) {
+      t = d.createElement('button');
+      t.id = 'debug-toggle';
+      t.type = 'button';
+      t.title = '调试面板';
+      t.textContent = '🛠 调试';
+      d.getElementById('app').appendChild(t);
+    }
+    return t;
   }
   function ensureToast(d) {
     var t = d.getElementById('toast');
@@ -304,6 +326,32 @@
     bindItemInput(); /* T035: 道具栏 + 暂存区输入绑定 */
     exitWrenchMode();
 
+    /* M4: 调试面板首次初始化（DOM 订阅 + 1~LEVELS.length 动态选项） */
+    var panelNeedsInit = !els.debugPanel || !els.debugPanel._stmDebugInitialized;
+    if (panelNeedsInit) {
+      initDebugPanel();
+      if (els.debugPanel) els.debugPanel._stmDebugInitialized = true;
+    } else {
+      /* 已初始化 → 刷新面板选项 + 信息（动态 LEVELS.length 适配） */
+      if (els.debugLevel) {
+        var opts = '';
+        for (var i = 0; i < STM.LEVELS.length; i++) {
+          var lv0 = STM.LEVELS[i];
+          var size0 = (lv0 && lv0.n) ? (lv0.n + '×' + lv0.n) : '?';
+          var flags0 = levelFlagLabel(lv0);
+          opts += '<option value="' + (i + 1) + '">L' + (i + 1) + ' · ' + size0 + ' [' + flags0 + ']</option>';
+        }
+        els.debugLevel.innerHTML = opts;
+      }
+      if (els.debugMute) els.debugMute.checked = !!progress.muted;
+    }
+    /* 同步下拉框当前选中 → currentId */
+    if (els.debugLevel) els.debugLevel.value = String(id);
+    renderDebugInfo();
+    currentHintIndex = 0; /* 跳关 → 重置 onRail 解前缀计数器 */
+    /* 跳出任何残留 Bot */
+    stopAutoBot('载入关卡');
+
     startBgStage(currentId); /* Δ15b3: 全视口背景舞台（贴图 + 氛围 + 粒子） */
     showChallengeBanner(); /* Δ14/T052e: 挑战位关开局 1.6s 激励横幅（FR-036） */
   }
@@ -434,6 +482,7 @@
 
   function onUndoDown() {
     if (!session) return;
+    notifyBotInterruption(); /* M4 T056: 玩家道具操作 → 打断 Bot */
     var r = session.useItem('undo');
     if (r) {
       sound.play('undo');
@@ -447,6 +496,7 @@
 
   function onWrenchDown() {
     if (!session) return;
+    notifyBotInterruption(); /* M4 T056: 玩家道具操作 → 打断 Bot */
     var s = session.state();
     if (!s.items || s.items.wrench <= 0) return;
     wrenchMode = !wrenchMode;
@@ -545,6 +595,408 @@
 
   function hideOverlay() { els.overlay.hidden = true; }
 
+  /* =========================================================
+   * M4: 评委调试面板（T053~T058）
+   *   T053: 响应式容器（PC 右侧 320px 侧栏 + 移动端底部抽屉 + 浮动按钮）
+   *   T054: 1~LEVELS.length 动态跳关与重置
+   *   T055: AI 提示下一步（Hint）——on-rail → 高亮 solutionMoves 下一步；
+   *         off-rail → 有界 DFS（100k 节点/300ms 预算）首步高亮
+   *         或启发式提示「非保证」标记
+   *   T056: 一键自动演示通关（Auto-Play Bot）——450ms/步；玩家
+   *         pointerdown 立即打断；off-rail 失败兜底 reset 重放 solutionMoves
+   *   T057: 难度指标 + 机制标签 + 音效开关
+   *   T058: 检查点（quickstart Q4 + SC-002）
+   * ========================================================= */
+
+  /* T053: 调试面板初始化（首次弹出 + 移动端浮动按钮 +
+   * 1~LEVELS.length 动态选项填入 + 信息面板格式） */
+  function initDebugPanel() {
+    var d = global.document;
+    if (!els.debugPanel) return;
+    /* PC 默认显示 / 移动端默认收起 */
+    var isPC = global.matchMedia ? global.matchMedia('(min-width:1024px)').matches : true;
+    els.debugPanel.hidden = !isPC;
+    if (els.debugToggle) {
+      els.debugToggle.style.display = isPC ? 'none' : '';
+    }
+
+    /* T054: 关卡下拉框 = 1~LEVELS.length 动态生成（Δ4 零硬编码） */
+    if (els.debugLevel && STM.LEVELS) {
+      var opts = '';
+      for (var i = 0; i < STM.LEVELS.length; i++) {
+        var lv = STM.LEVELS[i];
+        var size = (lv && lv.n) ? (lv.n + '×' + lv.n) : '?';
+        var flags = levelFlagLabel(lv);
+        opts += '<option value="' + (i + 1) + '">L' + (i + 1) + ' · ' + size + ' [' + flags + ']</option>';
+      }
+      els.debugLevel.innerHTML = opts;
+    }
+
+    /* T057: 默认静音 checkbox 反映 progress.muted */
+    if (els.debugMute) {
+      els.debugMute.checked = !!progress.muted;
+    }
+
+    /* T053: 移动端浮动按钮 + 抽屉切换 */
+    if (els.debugToggle) {
+      els.debugToggle.addEventListener('pointerdown', onDebugToggleDown);
+    }
+    els.debugPanel.addEventListener('pointerdown', onDebugPanelPointerDown, true);
+    if (els.debugLevel) els.debugLevel.addEventListener('change', onJumpLevel);
+    if (els.debugReset) els.debugReset.addEventListener('pointerdown', onDebugResetDown);
+    if (els.debugHint) els.debugHint.addEventListener('pointerdown', onDebugHintDown);
+    if (els.debugAuto) els.debugAuto.addEventListener('pointerdown', onDebugAutoDown);
+    if (els.debugMute) els.debugMute.addEventListener('change', onDebugMuteChange);
+  }
+
+  /* 关卡机制标记文本（齿轮/冰封/锁链/棱镜——按 tiles/prisms/cfg 实际出现计） */
+  function levelFlagLabel(lv) {
+    if (!lv) return '?';
+    var flags = [];
+    var tiles = lv.tiles || [];
+    var hasG = false, hasI = false, hasC = false, hasK = false;
+    for (var i = 0; i < tiles.length; i++) {
+      var m = tiles[i].m;
+      if (m === 'g') hasG = true;
+      else if (m === 'i') hasI = true;
+      else if (m === 'c') hasC = true;
+      else if (m === 'k') hasK = true;
+    }
+    var prisms = lv.prisms || [];
+    var hasP = prisms.length > 0;
+    if (hasG) flags.push('齿轮');
+    if (hasI) flags.push('冰封');
+    if (hasC || hasK) flags.push('锁链');
+    if (hasP) flags.push('棱镜');
+    if (!flags.length) flags.push('基础');
+    return flags.join('/');
+  }
+
+  function onDebugToggleDown() {
+    if (!els.debugPanel) return;
+    if (els.debugPanel.hidden) {
+      els.debugPanel.hidden = false;
+    } else {
+      els.debugPanel.hidden = true;
+    }
+  }
+
+  /* 面板内点击拦截（非按钮/选择器不冒泡到棋盘） */
+  /* 面板内点击仅在「背景空白处」拦截——目标为按钮/选择器时不绝止
+   * 冒泡，让子元素的 pointerdown / change listener 正常触发（捕获阶段
+   * 拦截会阻断 reset/hint/auto 等按钮的 bubble 阶段 listener） */
+  function onDebugPanelPointerDown(ev) {
+    var t = ev.target;
+    if (!t) return;
+    if (t.tagName === 'BUTTON' || t.tagName === 'SELECT' || t.tagName === 'INPUT' || t.tagName === 'LABEL' || t === els.debugInfo) return;
+    ev.stopPropagation();
+  }
+
+  /* T054: 跳关（深链等效——直接调用 loadLevel） */
+  function onJumpLevel() {
+    var id = parseInt(els.debugLevel.value, 10) || 1;
+    /* 跳出 Bot（再点跳出） */
+    stopAutoBot('跳关');
+    loadLevel(id);
+  }
+
+  /* T054: 重置本关（session.reset） */
+  function onDebugResetDown() {
+    if (!session) return;
+    stopAutoBot('重置');
+    session.reset();
+    renderer.refresh();
+    renderHud();
+    renderDock();
+    renderItems();
+    renderDebugInfo();
+    showChallengeBanner();
+  }
+
+  /* T057: 难度指标 + 机制标签在面板中实时刷新 */
+  function renderDebugInfo() {
+    if (!els.debugInfo) return;
+    if (!currentLevel) {
+      els.debugInfo.innerHTML = '';
+      return;
+    }
+    var lv = currentLevel;
+    var n = lv.n || (lv.tiles && Math.sqrt(lv.tiles.length)) || 0;
+    var maxZ = 0;
+    var tiles = lv.tiles || [];
+    for (var i = 0; i < tiles.length; i++) {
+      if (tiles[i].z != null && tiles[i].z + 1 > maxZ) maxZ = tiles[i].z + 1;
+    }
+    var mechFlags = levelFlagLabel(lv);
+    var themes = lv.theme || '';
+    var suitSet = {};
+    var suitCount = 0;
+    for (var j = 0; j < tiles.length; j++) {
+      var s = tiles[j].s;
+      if (s != null && !suitSet[s]) { suitSet[s] = 1; suitCount++; }
+    }
+    var metrics = lv.metrics || {};
+    var info =
+      '<div><b>' + (lv.name || ('L' + currentId)) + '</b> · ' + n + '×' + n + ' · ' + maxZ + '层</div>' +
+      '<div>主题: ' + (themes || '—') + '</div>' +
+      '<div>滑块 ' + tiles.length + ' · 花色 ' + suitCount + '</div>' +
+      '<div>难度 <b>' + (metrics.difficultyScore || 0) + '</b> · 槽压峰 ' + (metrics.dockPeak || '-') +
+        ' · 最优 ' + (metrics.minMoves || '-') + ' 步</div>' +
+      '<div>机制: ' + mechFlags + '</div>';
+    els.debugInfo.innerHTML = info;
+  }
+
+  /* T057: 音效开关（与 HUD 的 mute 同步——走 setMuted 单入口） */
+  function onDebugMuteChange() {
+    setMuted(!!els.debugMute.checked);
+    renderMuteBtn();
+  }
+
+  /* =========================================================
+   * T055: Hint —— on-rail 回放 solutionMoves 高亮下一步；
+   *        off-rail 有界 DFS（100k 节点/300ms 时限）搜索解决方案；
+   *        失败则给启发式建议 +「非保证」标记
+   * ========================================================= */
+  function onDebugHintDown() {
+    if (!session) return;
+    stopAutoBot('Hint');
+    /* 必须在 READY 态 */
+    var st = session.state();
+    if (st.phase === 'WON' || st.phase === 'LOST_BURST' || st.phase === 'LOST_LIVES' || st.phase === 'LOST_DEADLOCK') {
+      toast('终局态不可 Hint');
+      return;
+    }
+    /* 已存在高亮 → 用户再次请求相同高亮=无操作（避免频繁闪烁） */
+    if (session.onRail()) {
+      var sol = currentLevel.solutionMoves || [];
+      if (currentHintIndex >= sol.length) {
+        toast('已通关——无可 Hint');
+        return;
+      }
+      var tileId = sol[currentHintIndex].t;
+      highlightTile(tileId, 1800);
+      return;
+    }
+    /* off-rail → 有界 DFS 搜索（复用 T033 死锁复证搜索器同形 action set） */
+    var found = searchHint(/*depth*/6, /*nodeCap*/100000, /*timeCap*/300);
+    if (found && found.firstTileId != null) {
+      highlightTile(found.firstTileId, 1800);
+      if (found.guaranteed) {
+        sound.play('click');
+      } else {
+        toast('非保证建议');
+      }
+      return;
+    }
+    /* 失败 → 启发式: 找一个能飞出、且降低当前 dock 压力的 tap */
+    var tip = heuristicHint();
+    if (tip != null && tip >= 0) {
+      highlightTile(tip, 1800);
+      toast('启发式建议（非保证）');
+    } else {
+      toast('无可用提示——尝试 Undo 或扳手');
+    }
+  }
+
+  function highlightTile(tileId, ttlMs) {
+    if (!renderer) return;
+    renderer.setHighlight(tileId, ttlMs);
+    currentHintIndex++;
+  }
+
+  /* off-rail DFS（动作集=tap，引信搜索——返回首步 tileId） */
+  function searchHint(maxDepth, nodeCap, timeCap) {
+    var eng = session.engineState();
+    var RE = STM.RulesEngine;
+    var nodes = 0;
+    var t0 = Date.now();
+
+    function dfs(state, depth, firstTileId) {
+      if (nodes >= nodeCap || Date.now() - t0 > timeCap) return null;
+      var ts = RE.terminal(state);
+      if (ts === 'won') return { firstTileId: firstTileId, guaranteed: true };
+      if (depth <= 0 || ts !== 'playing') return null;
+      var taps = RE.enumerateTaps(state);
+      /* 启发式排序: 优先 enumerateTaps 返回序（D-08 确定性） */
+      for (var i = 0; i < taps.length; i++) {
+        nodes++;
+        var snap = RE.snapshot(state);
+        var res = RE.applyTap(state, taps[i]);
+        if (res.type === 'flyout' || res.type === 'prism-flyout') {
+          var sub = dfs(state, depth - 1, firstTileId != null ? firstTileId : taps[i]);
+          RE.restore(state, snap);
+          if (sub) return sub;
+        } else {
+          RE.restore(state, snap);
+        }
+      }
+      return null;
+    }
+    /* 浅层优先（深度 3~6）——保证首解不爆预算 */
+    return dfs(RE.snapshot(eng), Math.min(maxDepth, 6), null);
+  }
+
+  /* 启发式提示: 优先 enumerateTaps 中能降低 dock 压力的 tap */
+  function heuristicHint() {
+    var eng = session.engineState();
+    var RE = STM.RulesEngine;
+    var taps = RE.enumerateTaps(eng);
+    /* 当前 dock 各花色计数（1 或 2=接近 3） */
+    function suitCounts() {
+      var c = {};
+      var dock = eng.dock || [];
+      for (var i = 0; i < dock.length; i++) {
+        var s = dock[i].s;
+        c[s] = (c[s] || 0) + 1;
+      }
+      return c;
+    }
+    var best = -1, bestScore = -1;
+    for (var i = 0; i < taps.length; i++) {
+      var t = eng.tiles[taps[i]];
+      if (!t || t.removed) continue;
+      var cnt = suitCounts()[t.s] || 0;
+      /* 优先: cnt===2（再入一个可三消）；次优: 普通滑块; 排除冰封/锁定 */
+      var sc = (cnt === 2 ? 100 : cnt === 1 ? 50 : 10) - (t.ice > 0 ? 30 : 0) - (t.locked ? 50 : 0);
+      if (sc > bestScore) { bestScore = sc; best = taps[i]; }
+    }
+    return best;
+  }
+
+  /* =========================================================
+   * T056: Auto-Play Bot —— on-rail 逐 tap 回放（450ms/步）；
+   *        off-rail 优先有界续解（失败→reset 重放 solutionMoves）；
+   *        玩家 pointerdown 棋盘/道具 立即打断；
+   *        终态自动停
+   * ========================================================= */
+  var autoBot = null;
+  var currentHintIndex = 0;
+
+  function onDebugAutoDown() {
+    if (autoBot && autoBot.running) {
+      stopAutoBot('用户点击');
+      return;
+    }
+    if (!session) return;
+    /* 终态 → 不启 */
+    var st = session.state();
+    if (st.phase !== 'READY' && st.phase !== 'LOADING') {
+      toast('终局态不可自动演示');
+      return;
+    }
+    startAutoBot();
+  }
+
+  function startAutoBot() {
+    autoBot = {
+      running: true,
+      stepIndex: 0,
+      failed: false,
+      label: 'Bot',
+      timer: 0
+    };
+    sound.play('botTick');
+    toast('🤖 自动演示中（再次点击或点棋盘停止）');
+    setAutoBtnState(true);
+    scheduleNextBotStep();
+  }
+
+  function stopAutoBot(reason) {
+    if (!autoBot || !autoBot.running) return;
+    clearTimeout(autoBot.timer);
+    autoBot.running = false;
+    autoBot.timer = 0;
+    setAutoBtnState(false);
+    /* 不特意 toast（玩家主动停止常见，不打扰） */
+  }
+
+  function setAutoBtnState(running) {
+    if (!els.debugAuto) return;
+    if (running) {
+      els.debugAuto.textContent = '⏹ 停止 Bot';
+      els.debugAuto.classList.add('active');
+    } else {
+      els.debugAuto.textContent = '🤖 自动演示（Auto-Play）';
+      els.debugAuto.classList.remove('active');
+    }
+  }
+
+  function scheduleNextBotStep() {
+    if (!autoBot || !autoBot.running) return;
+    autoBot.timer = setTimeout(autoBotTick, 450);
+  }
+
+  function autoBotTick() {
+    if (!autoBot || !autoBot.running) return;
+    if (!session) return;
+    var st = session.state();
+    /* 终态 → 停止 */
+    if (st.phase !== 'READY' && st.phase !== 'LOADING') {
+      stopAutoBot('终态');
+      return;
+    }
+    var sol = currentLevel.solutionMoves || [];
+    var RE = STM.RulesEngine;
+    var tileId = null;
+    if (session.onRail()) {
+      /* on-rail: 直接取 solutionMoves[stepIndex].t */
+      if (autoBot.stepIndex >= sol.length) {
+        stopAutoBot('解已走完');
+        return;
+      }
+      tileId = sol[autoBot.stepIndex].t;
+    } else {
+      /* off-rail: 优先尝试有界 DFS 续解 */
+      var r = searchHint(6, 50000, 200);
+      if (r && r.firstTileId != null) {
+        tileId = r.firstTileId;
+      } else {
+        /* 兜底 reset + 重放（保证「直至该关胜利」承诺） */
+        toast('Bot 偏离 → 重置并重放最优解');
+        session.reset();
+        renderer.refresh();
+        renderHud();
+        renderDock();
+        renderItems();
+        autoBot.stepIndex = 0;
+        if (sol.length) {
+          tileId = sol[0].t;
+        } else {
+          stopAutoBot('无解');
+          return;
+        }
+      }
+    }
+    if (tileId == null) { stopAutoBot('空 tileId'); return; }
+    var t = session.state().board; /* 已被移除/不可点击 → 跳过 */
+    var exists = false;
+    for (var i = 0; i < t.length; i++) {
+      if (t[i].id === tileId) { exists = true; break; }
+    }
+    if (!exists) {
+      /* 该滑块已不在棋盘上——跳过到下一步 */
+      autoBot.stepIndex++;
+      sound.play('botTick');
+      scheduleNextBotStep();
+      return;
+    }
+    session.tap(tileId);
+    autoBot.stepIndex++;
+    currentHintIndex = autoBot.stepIndex;
+    sound.play('botTick');
+    /* 提示框高亮此滑块（短促 200ms 视觉反馈） */
+    highlightTile(tileId, 220);
+    scheduleNextBotStep();
+  }
+
+  /* 玩家手动操作 → 打断 Bot（不重置进度仅停 Bot） */
+  function notifyBotInterruption() {
+    if (autoBot && autoBot.running) {
+      stopAutoBot('玩家点击');
+      toast('🤖 Bot 已停止——玩家接管');
+    }
+  }
+
   /* ---------- 输入绑定（PointerEvents 唯一输入模型——宪章 IV） ---------- */
   function bindBoardInput() {
     /* canvas tap：pointerdown 判定（点击型交互，无拖动语义） */
@@ -560,6 +1012,8 @@
 
   function onBoardDown(ev) {
     if (!session || !renderer) return;
+    /* M4 T056: 玩家手动点击棋盘 → 立即打断 Bot */
+    notifyBotInterruption();
     /* Δ10: 终态拦截（won/lost_* 结算浮层期间棋盘不可点）；扳手选目标期间点选优先 */
     var st = session.state();
     if (st.phase !== 'READY' && st.phase !== 'LOADING') return;
