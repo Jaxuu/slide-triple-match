@@ -139,6 +139,7 @@ async function main() {
       glide: !!L.querySelector('.lobby-brand-glide'),
       critters: !!L.querySelector('.lobby-brand-critters'),
       wings: L.querySelectorAll('.lobby-brand-wing').length,
+      rows: L.querySelectorAll('.lobby-brand-row').length,
       burst: !!L.querySelector('.lobby-brand-burst'),
       brandPet: !!L.querySelector('.lobby-brand-pet'),
       gem: !!L.querySelector('.lobby-shards-icon svg')
@@ -154,25 +155,35 @@ async function main() {
   check('B8 左下: 玩家头像按钮', !!zones.avatar);
 
   console.log('\n[lobby-smoke] Δ18 徽标双层立体字 + 双风翼 + 棱晶图标');
-  check('B9 双层立体字（Glide 琥珀 + Critters 薄荷胶囊）',
+  check('B9 two-layer wordmark (Glide + Critters)',
     zones.glide && zones.critters);
+  check('B9b two-row stack container', zones.rows === 2, 'rows=' + zones.rows);
   var brandGeo = await evalJs(`(function(){
     var b = document.querySelector('.lobby-brand');
     if (!b) return null;
     var wl = b.querySelector('.lobby-brand-wing-l');
     var wr = b.querySelector('.lobby-brand-wing-r');
     var nw = b.querySelector('.lobby-brand-name');
-    if (!wl || !wr || !nw) return { missing: true };
-    var a = wl.getBoundingClientRect(), c = wr.getBoundingClientRect();
+    if (!nw) return { missing: true };    var a = wl ? wl.getBoundingClientRect() : null;    var c = wr ? wr.getBoundingClientRect() : null;
     var n = nw.getBoundingClientRect();
-    return { wingL: Math.round(a.left), wingR: Math.round(c.left),
+    return { wingL: a ? Math.round(a.left) : 0, wingR: c ? Math.round(c.left) : 0,
              nameL: Math.round(n.left), nameR: Math.round(n.right),
-             lw: Math.round(a.width), rw: Math.round(c.width) };
+             lw: a ? Math.round(a.width) : 0, rw: c ? Math.round(c.width) : 0,
+             glideBottom: (function(){ var g = document.querySelector('.lobby-brand-glide');
+               if (!g) return 0; return Math.round(g.getBoundingClientRect().bottom); })(),
+             crittersTop: (function(){ var c2 = document.querySelector('.lobby-brand-critters');
+               if (!c2) return 0; return Math.round(c2.getBoundingClientRect().top); })(),
+             cRadius: (function(){ var c2 = document.querySelector('.lobby-brand-critters');
+               if (!c2) return '?'; return getComputedStyle(c2).borderRadius; })(),
+             wings: document.querySelectorAll('.lobby-brand-wing').length };
   })()`);
-  check('B10 左风翼位于标题左侧', brandGeo && !brandGeo.missing &&
-    brandGeo.wingL + brandGeo.lw <= brandGeo.nameL, JSON.stringify(brandGeo));
-  check('B11 右风翼位于标题右侧', brandGeo && !brandGeo.missing &&
-    brandGeo.wingR >= brandGeo.nameR, JSON.stringify(brandGeo));
+  check('B10 Critters no capsule frame',
+    brandGeo && brandGeo.cRadius === '0px', brandGeo && brandGeo.cRadius);
+  check('B11 two words stacked vertically',
+    brandGeo && !brandGeo.missing && brandGeo.crittersTop >= brandGeo.glideBottom - 2,
+    JSON.stringify(brandGeo));
+  check('B12 side white triangles removed',
+    brandGeo && brandGeo.wings === 0, 'wings=' + (brandGeo && brandGeo.wings));
   check('B12 棱镜星芒装饰在位', zones.burst);
   check('B13 徽标萌宠探头在位', zones.brandPet);
   check('B14 棱晶栏七彩切面棱晶 SVG', zones.gem);
@@ -194,9 +205,53 @@ async function main() {
   check('C1 2×2 四块能量晶片', portal.chips === 4, '实际 ' + portal.chips);
   check('C2 顶部铭牌进度 `X/4`', /^\d\/4$/.test(portal.prog || ''), portal.prog);
   check('C3 左右切换按钮齐备', portal.prev && portal.next);
-  check('C4 外圈机械齿轮刻纹(8齿)', portal.gear === 8, '实际 ' + portal.gear);
+  check('C4 gear teeth removed', portal.gear === 0, 'actual ' + portal.gear);
   check('C5 风翼纹饰(左右各一)', portal.wing === 2, '实际 ' + portal.wing);
   check('C6 新档位下晶片全为盲盒态', portal.lit === 0, 'lit=' + portal.lit);
+
+  console.log('\n[lobby-smoke] Δ20 Bug 1: 拼图解锁进度与关卡进度一致');
+  /* 模拟「关卡 12 但拼图 0/4」的老存档/跳关态：
+     * progress v1 = unlocked 12；profile v2 的 paintingProgress 全 0 */
+  await evalJs(`(function(){
+    try {
+      localStorage.setItem('slide-triple:progress:v1', JSON.stringify({
+        v:1, unlocked:12, last:11, best:{}, muted:false, clearedLevels:[3,6,9]
+      }));
+    } catch (e) {}
+    return true;
+  })()`);
+  /* 重载进度 → 重进大厅 */
+  await evalJs(`(function(){
+    STM.Lobby.setProgressCtx({ unlocked: 12, currentLevel: 11, clearedLevels: [3,6,9] });
+    STM.Lobby.refresh({ unlocked: 12, level: 11, clearedLevels: [3,6,9] });
+    return true;
+  })()`);
+  await sleep(400);
+  var bug1 = await evalJs(`(function(){
+    var L = document.getElementById('lobby');
+    var st = STM.Lobby.paintingState(1);
+    var chips = L.querySelectorAll('.portal-chip');
+    var litFlags = [];
+    for (var i=0;i<chips.length;i++) litFlags.push(chips[i].classList.contains('is-lit'));
+    return {
+      levelBtn: (L.querySelector('.lobby-btn-level-text')||{}).textContent,
+      prog: (L.querySelector('.portal-plaque-prog')||{}).textContent,
+      lit: L.querySelectorAll('.portal-chip.is-lit').length,
+      blind: L.querySelectorAll('.portal-chip.is-blind').length,
+      flags: litFlags,
+      stateProgress: st.progress,
+      maxPassed: STM.Profile.maxPassedLevel({ unlocked: 12, currentLevel: 11, clearedLevels: [3,6,9] }),
+      cap0: (L.querySelector('.portal-chip-0 .portal-chip-caption')||{}).textContent,
+      cap3: (L.querySelector('.portal-chip-3 .portal-chip-caption')||{}).textContent
+    };
+  })()`);
+  check('D1 level button shows level 12', bug1.levelBtn === '关卡 12', bug1.levelBtn);
+  check('D2 maxPassed = 11', bug1.maxPassed === 11, 'maxPassed=' + bug1.maxPassed);
+  check('D3 first 3 pieces lit', bug1.lit === 3, 'lit=' + bug1.lit);
+  check('D4 4th piece still blind', bug1.flags[3] === false, JSON.stringify(bug1.flags));
+  check('D5 plaque shows 3/4', bug1.prog === '3/4', bug1.prog);
+  check('D6 lit chip caption cleared', !bug1.cap0, bug1.cap0);
+  check('D7 blind chip caption shows level 12', /12/.test(bug1.cap3 || ''), bug1.cap3);
 
   console.log('\n[lobby-smoke] 大厅背景（Δ17 §3 云端浮空岛兜底）');
   /* 画布尺寸 + 已绘制校验；getImageData 在 file:// 下会因跨源污染抛
@@ -381,6 +436,74 @@ async function main() {
   check('K7 底部仅两个按钮', fail.buttons === 2, 'buttons=' + fail.buttons);
   check('K8 复活按钮 = 💎100 棱晶复活', (fail.btnTexts[0]||'').indexOf('100') >= 0, fail.btnTexts[0]);
   check('K9 无底部多余小字', !/提示|教程|广告/.test(fail.full));
+
+  console.log('\n[lobby-smoke] Δ20 Bug 2: 失败页出口按钮必须关闭失败层并切场景');
+  /* 真实场景切换入口：enterGame / enterLobby 必须关闭 #fail-root，
+   * 否则 z-index:26 的不透明失败层会盖死新场景（表现为「点击无反应」） */
+  await evalJs(`(function(){
+    STM.Fail.show({ kind:'lost_burst', reason:'收集槽爆满', score:120, percent:27,
+                    onRevive:function(){}, onRestart:function(){}, onLobby:function(){} });
+    return true;
+  })()`);
+  await sleep(400);
+  var beforeBtn = await evalJs(`(function(){
+    var F = document.getElementById('fail-root');
+    return { hidden: F.hidden, display: getComputedStyle(F).display };
+  })()`);
+  check('L1 fail layer visible before click', beforeBtn.hidden === false, JSON.stringify(beforeBtn));
+
+  /* 「重新开始」→ enterGame → 失败层 MUST 已关闭 */
+  await evalJs(`(function(){
+    STM.Fail.show({ kind:'lost_burst', reason:'收集槽爆满', score:120, percent:27,
+      onRevive:function(){},
+      onRestart:function(){ STM.main.enterGame(1); },
+      onLobby:function(){} });
+    return true;
+  })()`);
+  await sleep(300);
+  var restartBtn = await evalJs(`(function(){
+    var e = document.querySelector('.fail-foot button.jelly-btn-secondary');
+    if (!e) return null; var r = e.getBoundingClientRect();
+    return { x: r.left + r.width/2, y: r.top + r.height/2 };
+  })()`);
+  await c.send('Input.dispatchMouseEvent', { type:'mousePressed', x:restartBtn.x, y:restartBtn.y, button:'left', clickCount:1 });
+  await c.send('Input.dispatchMouseEvent', { type:'mouseReleased', x:restartBtn.x, y:restartBtn.y, button:'left', clickCount:1 });
+  await sleep(600);
+  var afterRestart = await evalJs(`(function(){
+    var F = document.getElementById('fail-root');
+    return { hidden: F.hidden, display: getComputedStyle(F).display,
+             sceneLobby: document.getElementById('app').classList.contains('scene-lobby') };
+  })()`);
+  check('L2 restart closes fail layer', afterRestart.hidden === true, JSON.stringify(afterRestart));
+  check('L3 restart enters game scene', afterRestart.sceneLobby === false, JSON.stringify(afterRestart));
+
+  /* 「返回主大厅」→ enterLobby → 失败层 MUST 已关闭且大厅可见 */
+  await evalJs(`(function(){
+    STM.Fail.show({ kind:'lost_burst', reason:'收集槽爆满', score:120, percent:27,
+      onRevive:function(){}, onRestart:function(){},
+      onLobby:function(){ STM.main.enterLobby({ unlocked:12, level:11 }); } });
+    return true;
+  })()`);
+  await sleep(300);
+  var backBtn = await evalJs(`(function(){
+    var e = document.querySelector('.fail-back-lobby');
+    if (!e) return null; var r = e.getBoundingClientRect();
+    return { x: r.left + r.width/2, y: r.top + r.height/2 };
+  })()`);
+  await c.send('Input.dispatchMouseEvent', { type:'mousePressed', x:backBtn.x, y:backBtn.y, button:'left', clickCount:1 });
+  await c.send('Input.dispatchMouseEvent', { type:'mouseReleased', x:backBtn.x, y:backBtn.y, button:'left', clickCount:1 });
+  await sleep(600);
+  var afterBack = await evalJs(`(function(){
+    var F = document.getElementById('fail-root');
+    var L = document.getElementById('lobby');
+    return { hidden: F.hidden, display: getComputedStyle(F).display,
+             lobbyHidden: L.hidden,
+             sceneLobby: document.getElementById('app').classList.contains('scene-lobby') };
+  })()`);
+  check('L4 back-to-lobby closes fail layer', afterBack.hidden === true, JSON.stringify(afterBack));
+  check('L5 back-to-lobby shows lobby', afterBack.lobbyHidden === false && afterBack.sceneLobby === true,
+    JSON.stringify(afterBack));
+
 
   console.log('\n[lobby-smoke] 竞品视觉元素清零（Δ17 原创性红线）');
   var banned = await evalJs(`(function(){

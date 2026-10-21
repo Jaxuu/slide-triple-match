@@ -985,7 +985,10 @@ function scenarioPurifyAndOriginality() {
 
   /* Δ17 三项核心原创载体必须在实现中就位 */
   check('Δ17: 棱晶星盘（Prism Portal）载体就位',
-    /portal-chip/.test(lobbySrc) && /portal-ring/.test(lobbySrc) && /portal-gear/.test(lobbySrc));
+    /portal-chip/.test(lobbySrc) && /portal-ring/.test(lobbySrc));
+  /* Δ20 Bug 3：8 齿长方体凸起已删除——实现中 MUST NOT 残留 .portal-gear 构造 */
+  check('Δ20: 星盘无 8 齿长方体凸起（.portal-gear 已删除）',
+    !/portal-gear/.test(stripComments(lobbySrc)));
   check('Δ17: 大厅兜底为云端浮空岛（非室内场景）',
     /drawCloudIslands/.test(lobbySrc) && /drawFloatingIsland/.test(lobbySrc) && !/木桌|窗景/.test(implOnly));
   check('Δ17: 奶油果冻弹窗基底（琥珀金铭牌 + 棱晶拨片）',

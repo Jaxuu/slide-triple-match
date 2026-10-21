@@ -139,32 +139,28 @@
     h('span', 'lobby-shards-value', shardBar).textContent = '0';
 
     /* ④ 中上区: Glide Critters 原创 3D 浮雕徽标
-     *    原创性红线（FR-039 §4）: MUST NOT 抄袭外部竞品地球仪/小鸟构图
-     *    双层立体 3D 卡通字: Glide = 琥珀暖金渐变立体字;
-     *    Critters = 薄荷翠绿胶囊底托字。两侧舒展纯白「滑行风翼」+ 棱镜星芒;
-     *    玩家选中的 3D 萌宠头像从标题上方探出并随呼吸轻微浮动。 */
+     *    Δ20 Bug 3：改为**上下双行居中紧凑叠排**（上行 GLIDE 大字 /
+     *    下行 CRITTERS 稍小），纯白→暖奶油黄立体渐变字 + 天蓝/深海蓝厚描边；
+     *    删除两侧白色扁三角风翼与 Critters 的绿色胶囊外框；
+     *    玩家萌宠头像停靠在标题正上方并随呼吸浮动。 */
     var midT = h('div', 'lobby-zone lobby-zone-midtop', r);
     var brand = h('div', 'lobby-brand', midT);
     /* 棱镜星芒（徽标背后的方向星芒装饰） */
     h('span', 'lobby-brand-burst', brand).setAttribute('aria-hidden', 'true');
-    /* 左侧纯白滑行风翼 */
-    var wingL = h('span', 'lobby-brand-wing lobby-brand-wing-l', brand);
-    wingL.setAttribute('aria-hidden', 'true');
     /* 玩家萌宠从标题上方探出（呼吸浮动） */
     var pet = h('span', 'lobby-brand-pet', brand);
     pet.setAttribute('aria-hidden', 'true');
-    /* 双层立体字: Glide（琥珀暖金渐变）+ Critters（薄荷翠绿胶囊底托）
-     *    —— .lobby-brand-name 为整体容器（文案 = "Glide Critters"） */
+    /* 双行字标容器（文案 = "Glide Critters"） */
     var nameWrap = h('span', 'lobby-brand-name', brand);
-    var wordGlide = h('i', 'lobby-brand-glide', nameWrap);
+    var rowTop = h('span', 'lobby-brand-row lobby-brand-row-top', nameWrap);
+    var wordGlide = h('i', 'lobby-brand-glide', rowTop);
     wordGlide.textContent = 'Glide';
-    /* 词间空格（纯空白文本节点——flex 布局忽略它，但保持整体文案 = "Glide Critters"） */
+    /* 词间空格（纯空白文本节点——flex 布局忽略其渲染，但保持整体文案
+     * = "Glide Critters"，与 Δ18 徽标文案口径一致） */
     nameWrap.appendChild(d.createTextNode(' '));
-    var wordCritters = h('i', 'lobby-brand-critters', nameWrap);
+    var rowBottom = h('span', 'lobby-brand-row lobby-brand-row-bottom', nameWrap);
+    var wordCritters = h('i', 'lobby-brand-critters', rowBottom);
     wordCritters.textContent = 'Critters';
-    /* 右侧纯白滑行风翼 */
-    var wingR = h('span', 'lobby-brand-wing lobby-brand-wing-r', brand);
-    wingR.setAttribute('aria-hidden', 'true');
 
     /* ⑤ 中心区: 【棱晶星盘 / 时空传送门】(Δ17) —— 齿轮+风翼纹饰底座
      *    + 2×2 能量晶片 + 顶部悬浮胶囊铭牌 + 左右切换 */
@@ -175,9 +171,9 @@
     h('span', 'portal-plaque-prog', plaque).textContent = '0/4';
     var ring = h('div', 'portal-ring', portal);
     ring.setAttribute('aria-hidden', 'true');
-    /* 外圈齿轮刻纹（8 齿） + 风翼纹饰 —— 纯 CSS 绘制 */
-    var gears = h('div', 'portal-gears', ring);
-    for (var g = 0; g < 8; g++) h('i', 'portal-gear portal-gear-' + g, gears);
+    /* Δ20 Bug 3：删除外围 8 块「创可贴」式棕色长方体凸起（.portal-gear）——
+     * 改为冰晶奶油白圆角画板 + 内嵌棱晶描边；机械齿轮刻纹语义由
+     * .portal-ring 的内描边 + 角部棱晶装饰承载（FR-039 §5.1 结构不变）。 */
     var wings = h('div', 'portal-wings', ring);
     h('i', 'portal-wing portal-wing-l', wings);
     h('i', 'portal-wing portal-wing-r', wings);
@@ -494,33 +490,39 @@
       }
     }
 
-    /* 未点亮 = 半透明紫晶盲盒态（仅棱晶微光 + 几何切面——不泄漏图景） */
+    /* 未点亮 = 浅冰蓝半透明盲盒态（Δ20 Bug 3：去掉斜叉线，仅保留
+     * 干净的浅冰蓝底 + 居中精致锁图标位 + 下方文字标注——不泄漏图景） */
     var bgGrad = ctx.createRadialGradient(w * 0.5, hh * 0.38, 0, w * 0.5, hh * 0.5, w * 0.78);
-    bgGrad.addColorStop(0, 'rgba(150,110,225,0.55)');
-    bgGrad.addColorStop(0.55, 'rgba(108,76,190,0.42)');
-    bgGrad.addColorStop(1, 'rgba(66,44,124,0.60)');
+    bgGrad.addColorStop(0, 'rgba(214, 238, 252, 0.72)');
+    bgGrad.addColorStop(0.55, 'rgba(186, 220, 244, 0.62)');
+    bgGrad.addColorStop(1, 'rgba(150, 192, 226, 0.68)');
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, w, hh);
 
-    /* 棱晶切面（2~3 条折线构成几何感） */
-    ctx.strokeStyle = 'rgba(214,186,255,0.55)';
-    ctx.lineWidth = Math.max(1, w * 0.018);
-    ctx.beginPath();
-    ctx.moveTo(w * 0.12, hh * 0.72);
-    ctx.lineTo(w * 0.42, hh * 0.28);
-    ctx.lineTo(w * 0.72, hh * 0.62);
-    ctx.lineTo(w * 0.90, hh * 0.34);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(w * 0.20, hh * 0.20);
-    ctx.lineTo(w * 0.52, hh * 0.84);
-    ctx.stroke();
+    /* 柔和内高光（冰晶质感——替代原斜叉折线） */
+    var hl = ctx.createLinearGradient(0, 0, 0, hh);
+    hl.addColorStop(0, 'rgba(255, 255, 255, 0.55)');
+    hl.addColorStop(0.5, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = hl;
+    ctx.fillRect(0, 0, w, hh);
+  }
 
-    /* 微光点（盲盒态的呼吸辉光，避免死板） */
-    ctx.fillStyle = 'rgba(255,255,255,0.42)';
-    ctx.beginPath();
-    ctx.arc(w * 0.68, hh * 0.34, w * 0.045, 0, Math.PI * 2);
-    ctx.fill();
+  /* ---------- 有效已通关进度（Δ20 Bug 1） ----------
+   * 权威源 = 关卡进度，而非仅 profile 的 paintingProgress：
+   *   maxPassed = max(unlocked-1, currentLevel-1, ...clearedLevels)
+   * 大厅持有这些上下文，由 main.js 在 show()/refresh() 时注入。 */
+  var progressCtx = { unlocked: 1, currentLevel: 1, clearedLevels: [] };
+
+  /* 合并式更新进度上下文——仅覆盖**显式提供**的字段，
+   * 避免部分刷新（如 refresh({unlocked:7})）把已知的
+   * currentLevel / clearedLevels 抹成默认值。 */
+  function setProgressCtx(ctx) {
+    if (!ctx) return;
+    progressCtx = {
+      unlocked: ctx.unlocked != null ? ctx.unlocked : progressCtx.unlocked,
+      currentLevel: ctx.currentLevel != null ? ctx.currentLevel : progressCtx.currentLevel,
+      clearedLevels: ctx.clearedLevels != null ? ctx.clearedLevels : progressCtx.clearedLevels
+    };
   }
 
   /* 计算某画卷的已点亮晶片数与下一块的解锁关卡 */
@@ -529,13 +531,20 @@
     /* 内部一律 1-based（与 PAINTING_NAMES / PAINTING_RANGES 对齐）；
      * 0 或越界 MUST 钳回 1，否则 PP[idx-1] = undefined → 下游 [0] 抛错 */
     var idx = Math.min(6, Math.max(1, paintingIdx | 0 || 1));
-    var prog = 0;
-    if (P) {
-      var pp = P.get().paintingProgress || [];
+    var range = (P && P.PAINTING_RANGES && P.PAINTING_RANGES[idx - 1]) || [1, 12];
+    /* Δ20 Bug 1：点亮态以**关卡进度反推**为准（不再是 paintingProgress 单源）——
+     * 跳关 / 深链 / 老存档下 paintingProgress 与关卡进度会发散，
+     * 故凡充能关卡 <= maxPassed（或已通关集合含之）即判定为已点亮。 */
+    var prog = 0, flags = null;
+    if (P && P.pieceUnlockFlags) {
+      var un = P.pieceUnlockFlags(idx, progressCtx);
+      flags = un.flags;
+      prog = un.litCount;
+    } else {
+      var pp = P ? (P.get().paintingProgress || []) : [];
       prog = pp[idx - 1] || 0;
     }
-    var range = (P && P.PAINTING_RANGES && P.PAINTING_RANGES[idx - 1]) || [1, 12];
-    return { progress: prog, range: range, index: idx };
+    return { progress: prog, range: range, index: idx, flags: flags };
   }
 
   /* 第 q 块晶片的充能关卡（逐块独立——各晶片标注自己的充能关卡）。
@@ -555,7 +564,8 @@
     var st = paintingState(browsingIdx);
     for (var q = 0; q < el.chips.length; q++) {
       var chip = el.chips[q];
-      var lit = q < st.progress; /* 点亮顺序 = 象限顺序 0→3（节奏确定性） */
+      /* Δ20 Bug 1：逐块独立判定（flags 优先），回退到象限顺序计数 */
+      var lit = st.flags ? st.flags[q] : (q < st.progress);
       chip.classList.toggle('is-lit', lit);
       chip.classList.toggle('is-blind', !lit);
       /* 第 4 块（q === 3）= 满充能大奖位——额外挂 is-bonus 标记 */
@@ -691,6 +701,13 @@
      * clientWidth/Height；hidden 态下布局盒为 0，画布无从绘制。 */
     r.hidden = false;
     visible = true;
+    /* Δ20 Bug 1：注入关卡进度上下文（unlocked / currentLevel / clearedLevels）
+     * ——晶片点亮态据此反推，避免与 `关卡 X` 按钮脱节 */
+    setProgressCtx({
+      unlocked: opts.unlocked,
+      currentLevel: opts.level,
+      clearedLevels: opts.clearedLevels
+    });
     /* 默认选中当前关归属的大陆（FR-044 §5）——Δ18 起左右可翻阅全部 6 大陆，
      * 默认落点仍为「当前所在关归属的大陆」 */
     var cur = paintingState(browsingIdx);
@@ -750,6 +767,12 @@
   function refresh(opts) {
     if (!visible) return false;
     opts = opts || {};
+    /* Δ20 Bug 1：进度变化时同步上下文，再重绘晶片 */
+    setProgressCtx({
+      unlocked: opts.unlocked,
+      currentLevel: opts.level,
+      clearedLevels: opts.clearedLevels
+    });
     renderTopBar();
     if (opts.unlocked) renderLevelButton(opts.unlocked);
     renderChips();
@@ -762,6 +785,7 @@
     refresh: refresh,
     isVisible: function () { return visible; },
     paintingState: paintingState,
-    browsableList: browsableList
+    browsableList: browsableList,
+    setProgressCtx: setProgressCtx
   };
 })(typeof window !== 'undefined' ? window : globalThis);
