@@ -235,10 +235,18 @@ async function main() {
     var beforeShards = P.get().shards;
     var spent = P.spendShards(100);
     var afterShards = P.get().shards;
+    /* 存活滑块数（MUST 在净化前取——Δ19 起 state.tiles 数组长度恒定，
+     * 下标 == 滑块 id 是引擎寻址铁律，净化只置 removed 标记） */
+    var liveBefore = st.tiles.filter(function(t){return !t.removed;}).length;
     var r = RE.applyPurify(st);
     var groups = r.events.filter(function(e){return e.e==='match';});
+    var liveAfter = st.tiles.filter(function(t){return !t.removed;}).length;
+    /* 复活后仍可操作（寻址不变量门禁——复活后点击 MUST NOT 命中错块） */
+    var tappable = RE.renderProbe(st).tiles.filter(function(t){return RE.canTap(st,t.id);}).length;
+    var addrOk = st.tiles.every(function(t,i){return t.id===i;});
     return { spent: spent, beforeShards: beforeShards, afterShards: afterShards,
              dock: st.dock.length, lives: st.lives, tilesBefore: base, tilesAfter: st.tiles.length,
+             liveBefore: liveBefore, liveAfter: liveAfter, tappable: tappable, addrOk: addrOk,
              allMultiple3: groups.every(function(e){return e.ids.length % 3 === 0;}),
              groups: groups.length, terminal: RE.terminal(st) };
   })()`);
@@ -247,8 +255,11 @@ async function main() {
     revive.beforeShards + ' -> ' + revive.afterShards);
   check('⑥b Dock 完全腾空', revive.dock === 0);
   check('⑥c 生命恢复为 3', revive.lives === 3);
-  check('⑥d 板面成组消除', revive.tilesAfter < revive.tilesBefore,
-    revive.tilesBefore + ' -> ' + revive.tilesAfter);
+  check('⑥d 板面成组消除', revive.liveAfter < revive.liveBefore,
+    revive.liveBefore + ' -> ' + revive.liveAfter);
+  check('⑥g 复活后寻址不变量保持（tiles 下标 == 滑块 id）', revive.addrOk === true);
+  check('⑥h 复活后棋盘仍可操作（存在可点击滑块）', revive.tappable > 0,
+    'tappable=' + revive.tappable);
   check('⑥e 花色守恒（恒为 3 的倍数）', revive.allMultiple3 === true && revive.groups > 0);
   check('⑥f 复活后回到可玩态（续局不重置棋盘）', revive.terminal === 'playing', revive.terminal);
 

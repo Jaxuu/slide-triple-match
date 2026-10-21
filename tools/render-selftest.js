@@ -852,13 +852,20 @@ function scenarioPurifyAndOriginality() {
   st.lives = 0;
   check('Δ16g: 净化前处于 lost_lives 终局态', RE.terminal(st) === 'lost_lives', RE.terminal(st));
 
+  /* 净化前存活滑块数（MUST 在净化前取——净化只置 removed 标记，
+   * `state.tiles` 数组长度恒定，下标 == 滑块 id 是引擎寻址铁律） */
+  var liveBefore = st.tiles.filter(function (t) { return !t.removed; }).length;
+
   var r = RE.applyPurify(st);
   check('Δ16g: applyPurify 已导出且可调用', typeof r === 'object' && !!r.events);
   check('Δ16g: Dock 完全腾空（FR-043 §3）', st.dock.length === 0, 'dock=' + st.dock.length);
   check('Δ16g: 生命恢复为 3（FR-043 §3）', st.lives === lvl.lives || st.lives === 3, 'lives=' + st.lives);
   check('Δ16g: 净化后回到可玩态（续局不重置棋盘）', RE.terminal(st) === 'playing', RE.terminal(st));
-  check('Δ16g: 板面被成组消除（滑块数减少）', st.tiles.length < baseTiles,
-    baseTiles + ' -> ' + st.tiles.length);
+  /* 板面被成组消除：MUST 以**存活滑块数**计（Δ19 起 `state.tiles` 数组长度
+   * 恒定不变——下标 == 滑块 id 是引擎寻址铁律，净化只置 removed 标记） */
+  var liveAfter = st.tiles.filter(function (t) { return !t.removed; }).length;
+  check('Δ16g: 板面被成组消除（存活滑块数减少）', liveAfter < liveBefore,
+    liveBefore + ' -> ' + liveAfter);
 
   /* 花色守恒铁律: 每组恒为 3 的倍数（MUST NOT 留非 3 倍数余数） */
   var groups = r.events.filter(function (e) { return e.e === 'match'; });
@@ -881,6 +888,70 @@ function scenarioPurifyAndOriginality() {
   RE.applyPurify(st3);
   check('Δ16g: 净化后快照与渲染探针仍可用（未破坏引擎结构）',
     !!probe && !!RE.renderProbe(st3) && st3.tiles.length === t3);
+
+  /* ---------- Δ19 回归：净化后引擎寻址不变量（board/tiles 脱钩 Bug 门禁） ----------
+   * Bug 现象（Δ16g 初版）：applyPurify 用 `tiles.filter()` 压缩数组并跳过
+   *   `state.board[r][c]` 栈维护 → ① 数组下标与滑块 id 脱钩，玩家点击命中
+   *   **错误**的滑块；② 被净化的滑块仍留在 board 栈里 → 继续挡光、继续占据
+   *   栈顶 → 复活后大量滑块变成「点不动的死块」；③ 候选块未过滤 `removed`
+   *   → 选中已飞出棋盘的幽灵块，既不消块也不消除。
+   * 铁律：`state.tiles` 下标 MUST 恒等于滑块 id；`state.board` 栈 MUST 与
+   *   `tiles` 的存活集合逐格一致。 */
+  var st4 = RE.init(lvl);
+  st4.dock = [{ id: 9001, s: st4.tiles[0].s }];
+  var r4 = RE.applyPurify(st4);
+  var rmIds4 = [];
+  r4.events.forEach(function (e) { if (e.e === 'remove') rmIds4 = rmIds4.concat(e.ids); });
+  check('Δ19: 净化后 tiles 下标恒等于滑块 id（寻址不变量）',
+    st4.tiles.every(function (t, i) { return t.id === i; }));
+  var phantom4 = 0;
+  for (var rr4 = 0; rr4 < st4.n; rr4++) {
+    for (var cc4 = 0; cc4 < st4.n; cc4++) {
+      var cell4 = st4.board[rr4][cc4];
+      if (!cell4 || !cell4.length) continue;
+      cell4.forEach(function (t) { if (rmIds4.indexOf(t.id) >= 0) phantom4++; });
+    }
+  }
+  check('Δ19: board 栈已摘除被净化滑块（无幽灵阻挡块）', phantom4 === 0, 'phantom=' + phantom4);
+  var emptyCell4 = 0;
+  for (var rr4b = 0; rr4b < st4.n; rr4b++) {
+    for (var cc4b = 0; cc4b < st4.n; cc4b++) {
+      var cell4b = st4.board[rr4b][cc4b];
+      if (cell4b && !cell4b.prism && !cell4b.length) emptyCell4++;
+    }
+  }
+  check('Δ19: board 空栈已置 null（空数组不得被射线判为占格）', emptyCell4 === 0, 'empty=' + emptyCell4);
+
+  /* 复活后必须仍可正常操作：活着的滑块中「点不动」的数量 MUST NOT 超过
+   * 未净化时的基线（被上层滑块压住本就可点不动——那是正常堆叠口径）。 */
+  var stBase = RE.init(lvl);
+  var baseStuck = RE.renderProbe(stBase).tiles.filter(function (t) { return !RE.canTap(stBase, t.id); }).length;
+  var afterStuck = RE.renderProbe(st4).tiles.filter(function (t) { return !RE.canTap(st4, t.id); }).length;
+  check('Δ19: 复活后「点不动的活块」不超基线（无死块残留）',
+    afterStuck <= baseStuck, 'base=' + baseStuck + ' after=' + afterStuck);
+
+  /* 候选块 MUST 过滤 removed —— 不得选中已飞出棋盘的幽灵块 */
+  var st5 = RE.init(lvl);
+  for (var i5 = 0; i5 < 8; i5++) RE.applyTap(st5, i5);
+  var deadBefore5 = st5.tiles.filter(function (t) { return t.removed; }).length;
+  /* 记录净化前已死滑块的 id 集合——净化后新增的 removed 才是真正被净化的 */
+  var deadIds5 = {};
+  st5.tiles.forEach(function (t) { if (t.removed) deadIds5[t.id] = true; });
+  st5.dock = [{ id: 9002, s: st5.tiles[0].s }];
+  var r5 = RE.applyPurify(st5);
+  var rmIds5 = [];
+  r5.events.forEach(function (e) { if (e.e === 'remove') rmIds5 = rmIds5.concat(e.ids); });
+  /* 幽灵块 = 净化声称消除、但净化前就已经死了（既不在棋盘上也不在 Dock 上） */
+  var ghost5 = rmIds5.filter(function (id) { return id !== 9002 && deadIds5[id] === true; });
+  check('Δ19: 净化不选中已移出棋盘的幽灵块（候选过滤 removed）',
+    deadBefore5 > 0 && ghost5.length === 0, 'dead=' + deadBefore5 + ' ghost=' + ghost5.join(','));
+
+  /* 复活后仍能继续操作（tap 链路完好——MUST NOT 出现点击命中错块） */
+  var tapOk5 = RE.renderProbe(st5).tiles.filter(function (t) { return RE.canTap(st5, t.id); });
+  var tapRes5 = tapOk5.length ? RE.applyTap(st5, tapOk5[0].id) : null;
+  check('Δ19: 复活后棋盘仍可正常点击出块（tap 链路完好）',
+    !!tapRes5 && (tapRes5.type === 'flyout' || tapRes5.type === 'prism-flyout' || tapRes5.type === 'blocked'),
+    tapRes5 ? tapRes5.type : 'no-tappable');
 
   /* ---------- Δ17 外围 UI 原创性红线 ---------- */
   var fs = require('fs');
@@ -925,6 +996,28 @@ function scenarioPurifyAndOriginality() {
     /portal-board/.test(resultSrc) && /portal-board-range/.test(resultSrc) && /portal-board-note/.test(resultSrc));
   check('Δ17: 失败页零倒计时（无 countdown 类名/话术）',
     /fail-encourage/.test(failSrc) && !/countdown|倒计时|限时/.test(stripComments(failSrc)));
+
+  /* ---------- Δ19: Batch C 结构补强回归（T072/T073/T074 契约细化） ----------
+   * ① T072 ③: 结算层 MUST 展示**完整 2×2 棱晶星盘**（4 块能量晶片），
+   *    而非单块象限；未点亮象限呈紫晶盲盒态（不泄漏画面内容）。
+   * ② T073 ③⑤: 传送门展板的名称/徽章/手账 MUST 指向**下一片**大陆
+   *    （nextIdx = pi + 1），且手账文案为**两行**；终局（bg6）MUST NOT
+   *    显示越界的 `关卡 X-Y` 区间。
+   * ③ T074 ③: 失败页 MUST 提供**右上角返回主大厅**按钮。 */
+  check('Δ19: 结算层展示完整 2×2 棱晶星盘（4 块晶片）',
+    /result-chip result-chip-/.test(resultSrc) &&
+    /for \(var q = 0; q < 4; q\+\+\)/.test(resultSrc) &&
+    /is-blind/.test(resultSrc));
+  check('Δ19: 传送门展板指向下一片大陆（nextIdx = pi + 1）',
+    /var nextIdx = pi \+ 1/.test(resultSrc) &&
+    /PAINTING_RANGES\[nextIdx\]/.test(resultSrc) &&
+    /PAINTING_NAMES\[nextIdx\]/.test(resultSrc));
+  check('Δ19: 手账文案为两行（两段 portal-board-note-text）',
+    (resultSrc.match(/portal-board-note-text/g) || []).length >= 3);
+  check('Δ19: 终局（bg6 拼齐）不显示越界关卡区间',
+    /isLast/.test(resultSrc) && /全境点亮/.test(resultSrc));
+  check('Δ19: 失败页提供右上角返回主大厅按钮',
+    /fail-back-lobby/.test(failSrc) && /opts\.onLobby/.test(failSrc));
 
   /* 切片区必须复用会话级缓存（MUST NOT 新建 Image —— FR-035 §6） */
   var bdSrc = fs.readFileSync(path.join(RT, 'src', 'render', 'backdrops.js'), 'utf8');
