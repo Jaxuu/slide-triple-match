@@ -79,7 +79,6 @@
   /* 进入主大厅（大厅与局内互斥——隐藏 HUD/棋盘/Dock/道具栏与旧结算层） */
   function enterLobby(opts) {
     opts = opts || {};
-    if (hideOverlay) hideOverlay();
     var app = global.document.getElementById('app');
     if (app) app.classList.add('scene-lobby');
     scene = SCENE.LOBBY;
@@ -245,11 +244,6 @@
       boardWrap: d.getElementById('board-wrap'),
       dock: d.getElementById('dock'),
       items: d.getElementById('items'),
-      overlay: d.getElementById('result-overlay'),
-      resultTitle: d.getElementById('result-title'),
-      resultDetail: d.getElementById('result-detail'),
-      btnRetry: d.getElementById('result-retry'),
-      btnNext: d.getElementById('result-next'),
       btnMute: d.getElementById('btn-mute'),
       toast: ensureToast(d),
       /* M4 T053~T058: 调试面板 DOM 元素 */
@@ -408,7 +402,6 @@
       return;
     }
 
-    hideOverlay();
     session = STM.GameState.createSession(currentLevel, {
       onEvent: handleSessionEvent,
       onTerminal: handleTerminal
@@ -567,6 +560,19 @@
       var wb = global.document.getElementById('item-wrench');
       if (wb) wb.classList.add('selecting');
     }
+    /* Δ16f/T071: 免费次数用尽后角标变为 `💎 50`（不再显示数字次数） */
+    renderItemBadge('item-undo', (it.undo || 0) > 0);
+    renderItemBadge('item-wrench', (it.wrench || 0) > 0);
+  }
+
+  /* 道具角标：免费可用 → 显次数；用尽 → 显 `💎 50` 购买价 */
+  function renderItemBadge(btnId, hasFree) {
+    var btn = global.document.getElementById(btnId);
+    if (!btn) return;
+    var cnt = btn.querySelector('.item-count');
+    if (!cnt) return;
+    btn.classList.toggle('is-buyable', !hasFree);
+    if (!hasFree) cnt.textContent = ITEM_PRICE_LABEL;
   }
 
   function setItemBtn(btnId, count, selecting, disabledExtra) {
@@ -574,9 +580,45 @@
     if (!btn) return;
     var cnt = count == null ? 0 : count;
     var countEl = btn.querySelector('.item-count');
+    /* 记录免费次数原值（购买态恢复时回填） */
+    if (countEl && cnt > 0) btn.setAttribute('data-free', String(cnt));
     if (countEl) countEl.textContent = String(cnt);
-    btn.disabled = cnt <= 0 || !!disabledExtra;
+    /* Δ16f/T071: 次数用尽**不得**禁用——按钮进入购买态仍可点击
+     * （余额不足时在点击时提示，FR-041 §2：拒绝扣费、拒绝消耗） */
+    btn.disabled = !!disabledExtra;
     if (!selecting) btn.classList.remove('selecting');
+  }
+
+  /* ---------- Δ16f/T071: 棱晶购买（原子扣费 + 立即生效，FR-041 §2） ----------
+   * 顺序铁律: ① 校验余额 → ② 扣费（spendShards 原子）→ ③ 使用。
+   * 余额不足 MUST 拒绝扣费、拒绝消耗道具次数并给出明确提示（不得静默失败、
+   * 不得扣成负数）。余额恰好等于价格时扣费后归零、道具仍正常生效。 */
+  var ITEM_PRICE = 50;
+  var ITEM_PRICE_LABEL = '💎 50';
+
+  function buyItemAndUse(item, tileId) {
+    if (!session || !STM.Profile) return false;
+    var cost = ITEM_PRICE;
+    if (!STM.Profile.spendShards(cost)) {
+      /* 余额不足 → 明确提示，零扣费零消耗（余额恒 ≥0） */
+      toast('棱晶不足，需要 ' + cost + ' 💎');
+      sound.play('blocked');
+      return false;
+    }
+    var r = session.buyItemUse(item, tileId, cost);
+    if (!r || !r.ok) {
+      /* 生效失败 → 退还已扣的棱晶（扣费与生效必须原子，不得白扣） */
+      STM.Profile.addShards(cost);
+      toast('本次无法使用该道具');
+      return false;
+    }
+    sound.play('match');
+    renderer.refresh();
+    renderDock();
+    renderHud();
+    renderItems();
+    toast('已消耗 ' + cost + ' 💎 使用一次' + (item === 'undo' ? '撤回' : '扳手'));
+    return true;
   }
 
   /* ---------- T031/T035 道具交互编排（道具 2 种: undo/wrench——暂存区已移除） ---------- */
@@ -598,6 +640,9 @@
   function onUndoDown() {
     if (!session) return;
     notifyBotInterruption(); /* M4 T056: 玩家道具操作 → 打断 Bot */
+    /* Δ16f/T071: 免费次数用尽 → 进入棱晶购买闭环（FR-041 §2） */
+    var left = (session.state().items || {}).undo || 0;
+    if (left <= 0) { buyItemAndUse('undo'); return; }
     var r = session.useItem('undo');
     if (r) {
       sound.play('undo');
@@ -613,10 +658,24 @@
     if (!session) return;
     notifyBotInterruption(); /* M4 T056: 玩家道具操作 → 打断 Bot */
     var s = session.state();
-    if (!s.items || s.items.wrench <= 0) return;
+    /* Δ16f/T071: 免费次数用尽 → 进入购买态（点选目标时原子扣费并生效），
+     * 不在按钮点击时提前扣费——避免「买了却没点中」白扣（FR-041 §2） */
+    if (!s.items || s.items.wrench <= 0) {
+      if (!STM.Profile || STM.Profile.get().shards < ITEM_PRICE) {
+        toast('棱晶不足，需要 ' + ITEM_PRICE + ' 💎');
+        sound.play('blocked');
+        return;
+      }
+    }
     wrenchMode = !wrenchMode;
     renderItems();
-    if (wrenchMode) toast('点选要转向的滑块');
+    if (wrenchMode) toast(wrenchPaidPending() ? '点选要转向的滑块（将消耗 ' + ITEM_PRICE + ' 💎）' : '点选要转向的滑块');
+  }
+
+  /* 扳手是否处于「待付费」购买态（免费次数已用尽） */
+  function wrenchPaidPending() {
+    if (!session) return false;
+    return ((session.state().items || {}).wrench || 0) <= 0;
   }
 
   function exitWrenchMode() {
@@ -684,31 +743,114 @@
     if (o.kind === 'won') {
       sound.play('victory');
       recordWin(currentId, o.score, o.combo); /* T050: unlocked/max 刷新 + 持久化 */
-      var isLast = currentId >= STM.LEVELS.length; /* 动态终局判定（Δ4） */
-      var best = progress.best[currentId];
-      var detail = isLast
-        ? '全部 ' + STM.LEVELS.length + ' 关通关！ 总分 ' + o.score + ' · 连击 x' + o.combo
-        : '得分 ' + o.score + ' · 连击 x' + o.combo + (best ? ' · 最佳 ' + best.score : '');
-      showOverlay(isLast ? '全通关！' : '胜利！', detail, !isLast);
+      /* Δ16e/T070: 结算奖励 + 晶片点亮（FR-041 §1 确定性表，幂等） */
+      var settlement = settleWin(currentId);
+      enterResult(settlement);
     } else {
       sound.play('defeat');
       progress.last = currentId; /* 失败也记录 last（刷新回本关） */
       saveProgress();
       var reason = o.kind === 'lost_burst' ? '收集槽爆满' :
         o.kind === 'lost_lives' ? '生命耗尽' : '陷入死局';
-      showOverlay('失败', reason + ' · 得分 ' + o.score, false);
+      /* Δ16g/T074: 无倒计时失败页接管（FR-043） */
+      enterFail(o.kind, reason, o.score);
     }
   }
 
-  function showOverlay(title, detail, showNext) {
-    els.resultTitle.textContent = title;
-    els.resultTitle.className = title.indexOf('全通关') >= 0 ? 'clear' : (title === '胜利！' ? 'win' : 'lose');
-    els.resultDetail.textContent = detail;
-    els.btnNext.hidden = !showNext;
-    els.overlay.hidden = false;
+  /* ---------- Δ16e/T070: 通关结算（FR-041 §1 确定性表 + FR-044 §2 点亮节奏）
+   * 产出规则（MUST NOT 依赖随机数——FR-041 §5 确定性铁律）:
+   *   首通普通 +25 / 首通困难 +60 / 整幅满充能额外 +150 / 重复通关 +10
+   * 幂等: 重复通关不重复发首通奖励、不重复点亮晶片。 */
+  var REWARD_NORMAL = 25, REWARD_HARD = 60, REWARD_PAINTING = 150, REWARD_REPEAT = 10;
+
+  function settleWin(levelId) {
+    var out = { level: levelId, shards: 0, litChip: false, paintingFull: false, firstClear: false };
+    if (!STM.Profile) return out;
+    try {
+      var isFirst = STM.Profile.grantFirstClear(levelId);
+      out.firstClear = isFirst;
+      /* 困难位关 = 每第 3 关（FR-044 §2 —— 同时点亮晶片的那一关） */
+      var isHard = levelId % 3 === 0;
+      /* 首通奖励（幂等——重复通关只走 +10 分支） */
+      if (isFirst) out.shards += isHard ? REWARD_HARD : REWARD_NORMAL;
+      else out.shards += REWARD_REPEAT;
+
+      /* 点亮晶片：仅困难位关 + 仅首通（重复游玩不重复点亮） */
+      if (isFirst && isHard) {
+        var pi = STM.Profile.paintingIndexOfLevel(levelId);
+        if (STM.Profile.unlockPaintingTile(pi)) out.litChip = true;
+        /* 满充能 4/4 → 整幅大奖（仅点亮成功的那一次触发，幂等） */
+        var pp = STM.Profile.get().paintingProgress;
+        if (pp[pi] >= STM.Profile.PIECES_PER_PAINTING) {
+          out.paintingFull = true;
+          out.shards += REWARD_PAINTING;
+        }
+      }
+      if (out.shards > 0) STM.Profile.addShards(out.shards);
+      out.balance = STM.Profile.get().shards;
+    } catch (e) { /* 存储不可用 → 内存态照常（D-03） */ }
+    return out;
   }
 
-  function hideOverlay() { els.overlay.hidden = true; }
+  /* ---------- Δ16e/T070: 结算层 / 展板 / 失败页 场景入口 ----------
+   * 导航闭环（FR-042 §3 铁律）:
+   *   通关 → 结算层（必经中间态）→ [满 4/4 时传送门开启展板] → 主大厅
+   * 结算层 MUST NOT 跳过直接回大厅；分支由「是否本次触发 4/4」确定性驱动。 */
+  function enterResult(settlement) {
+    scene = SCENE.RESULT;
+    var app = global.document.getElementById('app');
+    if (app) app.classList.remove('scene-lobby');
+    if (STM.Lobby) STM.Lobby.hide();
+    if (!STM.Result) { enterLobby({ unlocked: progress.unlocked, level: progress.last }); return; }
+    STM.Result.show({
+      level: settlement.level,
+      shards: settlement.shards,
+      litChip: settlement.litChip,
+      paintingFull: settlement.paintingFull,
+      firstClear: settlement.firstClear,
+      onContinue: function () { enterLobby({ unlocked: progress.unlocked, level: progress.last }); }
+    });
+  }
+
+  /* ---------- Δ16g/T074: 失败页入口（零倒计时铁律） ---------- */
+  function enterFail(kind, reason, score) {
+    scene = SCENE.RESULT;
+    var app = global.document.getElementById('app');
+    if (app) app.classList.remove('scene-lobby');
+    if (STM.Lobby) STM.Lobby.hide();
+    if (!STM.Fail) { enterLobby({ unlocked: progress.unlocked, level: progress.last }); return; }
+    STM.Fail.show({
+      kind: kind,
+      reason: reason,
+      score: score,
+      percent: challengePercent(currentId), /* FR-036 同源确定性函数，非倒计时 */
+      onRevive: function () { reviveWithPrisms(); },
+      onRestart: function () { enterGame(currentId); },
+      onLobby: function () { enterLobby({ unlocked: progress.unlocked, level: progress.last }); }
+    });
+  }
+
+  /* ---------- Δ16f/T074: 100 棱晶复活（净化消除 + 续局不重置棋盘） ---------- */
+  var REVIVE_COST = 100;
+
+  function reviveWithPrisms() {
+    if (!STM.Profile || !STM.Fail || !session) return;
+    /* 余额不足 → 拒绝扣费、按钮置为不可用并提示（FR-043 §3） */
+    if (!STM.Profile.spendShards(REVIVE_COST)) {
+      STM.Fail.notifyInsufficient();
+      return;
+    }
+    var r = session.purify(); /* 成组净化消除——恒为 3 的倍数（FR-043 §4） */
+    sound.play('match', 3);
+    renderer.refresh();
+    renderDock();
+    renderHud();
+    renderItems();
+    STM.Fail.hide();
+    scene = SCENE.GAME;
+    toast('棱晶净化完成，继续挑战！');
+  }
+
 
   /* =========================================================
    * M4: 评委调试面板（T053~T058）
@@ -1118,11 +1260,9 @@
     els.board.removeEventListener('pointerdown', onBoardDown);
     els.board.addEventListener('pointerdown', onBoardDown);
 
-    /* 结算浮层按钮 */
-    els.btnRetry.removeEventListener('pointerdown', onRetryDown);
-    els.btnRetry.addEventListener('pointerdown', onRetryDown);
-    els.btnNext.removeEventListener('pointerdown', onNextDown);
-    els.btnNext.addEventListener('pointerdown', onNextDown);
+    /* Δ17/T070: 旧结算浮层已退役 → 结算层由 STM.Result 接管（FR-042 §3
+     * 必经中间态），失败页由 STM.Fail 接管（FR-043），二者均为模态场景层，
+     * 不在棋盘输入绑定范围内。 */
   }
 
   function onBoardDown(ev) {
@@ -1136,6 +1276,13 @@
     if (id < 0) return;
     /* T035 扳手目标选择模式: 点击即施加转向（不 tap） */
     if (wrenchMode) {
+      /* Δ16f/T071: 免费次数用尽 → 此处原子「扣 50 棱晶 + 立即生效」 */
+      if (wrenchPaidPending()) {
+        /* 成功或失败均退出选择态（失败分支内部已退还棱晶并提示） */
+        buyItemAndUse('wrench', id);
+        exitWrenchMode();
+        return;
+      }
       var r = session.useItem('wrench', id);
       if (r && r.type === 'wrench') {
         sound.play('gear');
@@ -1151,25 +1298,6 @@
     }
     /* Δ10 无锁连点: 瞬时结算（0ms）——连续狂点直接命中最新逻辑态的栈顶滑块 */
     session.tap(id);
-  }
-
-  function onRetryDown() {
-    if (!session) return;
-    session.reset();
-    hideOverlay();
-    renderer.refresh();
-    renderDock();
-    renderItems();
-    renderHud();
-    showChallengeBanner(); /* Δ14/T052e: 重开本关挑战横幅可再弹（FR-036 §3） */
-  }
-
-  function onNextDown() {
-    if (!session) return;
-    /* id+1 > LEVELS.length → 终局占位（已在 handleTerminal 处理为全通关） */
-    var next = currentId + 1;
-    if (next > STM.LEVELS.length) next = STM.LEVELS.length;
-    loadLevel(next);
   }
 
   /* ---------- 启动 ---------- */

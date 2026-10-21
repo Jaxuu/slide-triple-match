@@ -376,49 +376,11 @@ html, body {
 /* 扳手目标选择模式（M2 启用，M1 预留样式） */
 #items button.targeting { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(255,197,61,.4); }
 
-/* ---------- 结算浮层 ---------- */
-#result-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(10, 15, 21, .72);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 30;
-  animation: fade-in .25s ease-out;
-}
-@keyframes fade-in { from { opacity: 0; } }
-.result-card {
-  width: min(82%, 340px);
-  background: linear-gradient(165deg, var(--panel), #1a2530);
-  border: 1px solid #354558;
-  border-radius: 16px;
-  padding: 26px 22px;
-  text-align: center;
-  box-shadow: 0 24px 80px rgba(0,0,0,.6);
-}
-.result-card h2 { margin: 0 0 6px; font-size: clamp(20px, 6cqw, 28px); }
-.result-card p { margin: 0 0 18px; color: var(--ink-dim); font-size: clamp(13px, 3.5cqw, 15px); }
-.result-card h2.win { color: var(--accent); }
-.result-card h2.lose { color: var(--danger); }
-.result-card h2.clear { color: var(--gold); }
-.result-actions { display: flex; gap: 10px; justify-content: center; }
-.result-actions button {
-  flex: 1;
-  max-width: 140px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid #3a4a5c;
-  background: #2a3644;
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform .15s, background .15s;
-}
-.result-actions button:active { transform: scale(.96); }
-.result-actions #result-next { background: var(--accent); border-color: var(--accent); color: #0b1a12; }
+/* ---------- 结算浮层 ----------
+ * Δ17/T070: 旧 #result-overlay 结算浮层已退役 —— 结算层改由 STM.Result
+ * （双风翼棱晶能量铭牌）接管、失败页由 STM.Fail 接管（FR-042 / FR-043）。
+ * 保留本占位注释以说明样式归属迁移，避免后续误加同名样式。
+ * ---------- */
 
 /* ---------- 调试面板（M4 主功能；M1 骨架隐藏） ---------- */
 #debug-panel {
@@ -1053,7 +1015,6 @@ html, body {
 #app.scene-lobby #dock,
 #app.scene-lobby #items,
 #app.scene-lobby #debug-panel,
-#app.scene-lobby #result-overlay,
 #app.scene-lobby #bg-canvas,
 #app.scene-lobby #fx-canvas,
 #app.scene-lobby #challenge-banner {
@@ -1236,3 +1197,17 @@ html, body {
   box-shadow: 0 3px 0 #CDB894, 0 6px 12px rgba(0, 0, 0, .20);
 }
 .jelly-btn:active { transform: translateY(3px); }
+
+/* ---------- Δ16f/T071: 道具购买角标（免费次数用尽 → `💎 50`） ---------- */
+#items button.is-buyable .item-count {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--prism-glow), var(--prism-violet));
+  border: 1.5px solid rgba(255, 255, 255, .8);
+  color: #FFF;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 0 10px rgba(201, 174, 255, .85);
+}
+#items button.is-buyable { border-color: var(--prism-glow); }
+#items button.is-buyable.selecting { box-shadow: 0 0 0 3px rgba(201, 174, 255, .55); }
