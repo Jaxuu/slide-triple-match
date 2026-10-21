@@ -97,7 +97,6 @@ function check(name, cond, extra) {
 
   var url = 'http://127.0.0.1:' + PORT_HTTP + '/index.html?level=1';
   await c.send('Page.navigate', { url });
-  await sleep(2200);
 
   async function ev(expr) {
     var r = await c.send('Runtime.evaluate', { expression: expr, returnByValue: true });
@@ -105,15 +104,27 @@ function check(name, cond, extra) {
     return r.result.value;
   }
 
-  var ready = await ev('typeof STM === "object" && STM.main && STM.main.session ? "READY" : "NOT_READY"');
-  check('页面就绪', ready === 'READY', ready);
+  /* Δ16d: 开机动画 2.0s + 淡出 0.38s 后才载入关卡（FR-038 时序）——轮询
+   * 就绪态而非固定等待，避免把动画时序当失败（询至 8s 超时兜底） */
+  var ready = 'NOT_READY';
+  for (var rp = 0; rp < 160; rp++) {
+    await sleep(50);
+    /* 就绪真信号 = session() 返回真会话（STM.main.session 恒为函数对象，
+     * 真值性判断在关卡未载入时亦为真——必须取其返回值判定） */
+    ready = await ev('(function(){try{return (typeof STM === "object" && STM.main && STM.main.session && STM.main.session()) ? "READY" : "NOT_READY";}catch(e){return "NOT_READY";}})()');
+    if (ready === 'READY') break;
+  }
+  check('页面就绪（Δ16d 开机动画播完后）', ready === 'READY', ready);
   if (ready !== 'READY') { srv.close(); proc.kill(); process.exit(1); }
 
   /* ----- 测试 A: 调试面板初始化 + LEVELS.length 动态选项 ----- */
   var panelExists = await ev('!!document.getElementById("debug-panel")');
   check('调试面板 DOM 存在', !!panelExists);
   var levelOpts = await ev('document.getElementById("debug-level").options.length');
-  check('跳关下拉 = 60 项（LEVELS.length 动态）', levelOpts === 60, 'opts=' + levelOpts);
+  /* Δ16a: 关卡总数 60→72——断言改为对 LEVELS.length 动态取值（动态化铁律本身） */
+  var expectedOpts = await ev('STM.LEVELS.length');
+  check('跳关下拉 = ' + expectedOpts + ' 项（LEVELS.length 动态——Δ16a 72 关口径）',
+    levelOpts === expectedOpts && expectedOpts === 72, 'opts=' + levelOpts + ' levels=' + expectedOpts);
   var optText = await ev('document.getElementById("debug-level").options[11].text');
   check('L12 下拉文本含尺寸与机制标签', /L12 · 7×7/.test(optText) || /L12 · \d+×\d+/.test(optText), optText);
 

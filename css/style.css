@@ -591,3 +591,149 @@ html, body {
   78%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   100% { opacity: 0; transform: translate(-50%, -52%) scale(.96); }
 }
+
+/* =========================================================
+ * Δ16d/T066: HooLey Games 品牌开机动画（FR-038）
+ * · 黑曜石径向微光渐变（严禁纯黑 #000000 死黑——中心微光、四周沉黑）
+ * · HooLey 浮雕艺术字（多层描边 + 高光 + 微投影）+ 宽字距 GAMES
+ * · 中间两 `o` 双环几何造型（内含高光眼神点），磁力弹跳碰撞吸附 +
+ *   俏皮眨动一次 + 七彩棱镜光晕（变形由 rAF 驱动，纯 transform/opacity）
+ * · 白金流光自左向右扫掠字面（渐变遮罩位移 --sweep，clip-path 硬边——
+ *   非整体闪烁）
+ * · 约 2.0s 后平滑淡出并卸载；零布局抖动（全程不触发布局属性）
+ * ========================================================= */
+#splash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 42%, #181E29 0%, #0B0E14 60%, #05070A 100%);
+  overflow: hidden;
+  transition: opacity .38s ease, visibility .38s ease;
+}
+#splash-screen.splash-fading {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.splash-brand {
+  position: relative;
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 主标题 HooLey —— 原创浮雕艺术字（多层描边 + 顶部高光 + 微投影） */
+.splash-title {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .04em;
+  font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: clamp(52px, 17vw, 104px);
+  font-weight: 800;
+  letter-spacing: .01em;
+  line-height: 1;
+  color: #EEF3FA;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, .34),        /* 顶部高光棱 */
+    0 -1px 0 rgba(0, 0, 0, .45),            /* 底部暗棱 */
+    0 10px 22px rgba(0, 0, 0, .55),          /* 微投影 */
+    0 0 34px rgba(120, 170, 255, .16);       /* 冷调氛围辉光 */
+}
+
+.splash-ch {
+  display: inline-block;
+  will-change: transform, opacity, filter;
+  opacity: 0;
+}
+
+/* ---- `o` 双环几何造型（磁力碰撞 + 眨眼 + 七彩棱镜光晕的载体） ---- */
+.splash-oo {
+  position: relative;
+  width: .62em;
+  height: .62em;
+  margin: 0 .035em;
+  border-radius: 50%;
+  will-change: transform, filter;
+}
+.splash-oo .oo-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: .085em solid rgba(226, 236, 250, .88);
+  box-shadow:
+    inset 0 .02em 0 rgba(255, 255, 255, .30),   /* 内壁高光 */
+    0 .03em 0 rgba(0, 0, 0, .40),               /* 下沿暗棱（浮雕厚度） */
+    0 .06em .18em rgba(0, 0, 0, .45);           /* 微投影 */
+  transform-origin: 50% 50%;
+}
+/* 高光眼神点（blink 期间由 rAF 的纵向位移驱动上挑/下沉） */
+.splash-oo .oo-eye {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: .16em;
+  height: .16em;
+  margin: -.08em 0 0 -.08em;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #FFFFFF 0%, #CFE1FF 46%, rgba(150, 190, 255, .82) 100%);
+  box-shadow: 0 0 .12em rgba(190, 220, 255, .9);
+}
+
+/* ---- 白金流光扫掠（--sweep 由 rAF 0→100% 驱动；非整体闪烁） ---- */
+.splash-title::after {
+  content: "";
+  position: absolute;
+  inset: -.16em -.08em;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0) calc(var(--sweep, 0%) - 26%),
+    rgba(255, 246, 222, .58) calc(var(--sweep, 0%) - 9%),
+    rgba(255, 255, 255, .92) var(--sweep, 0%),
+    rgba(255, 246, 222, .52) calc(var(--sweep, 0%) + 9%),
+    rgba(255, 255, 255, 0) calc(var(--sweep, 0%) + 26%),
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 260% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  mix-blend-mode: screen;
+  animation: splash-sweep 2s linear infinite;
+  opacity: .9;
+}
+/* 流光遮罩裁切到字面（只扫字不扫底） */
+.splash-brand { isolation: isolate; }
+@keyframes splash-sweep {
+  0%   { background-position: 130% 0; }
+  100% { background-position: -60% 0; }
+}
+
+/* 副标题 GAMES —— 宽字距形成品牌节奏 */
+.splash-sub {
+  margin-top: .55em;
+  font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: clamp(11px, 3.4vw, 16px);
+  font-weight: 500;
+  letter-spacing: .82em;
+  text-indent: .82em; /* 抵消尾字距，保持视觉居中 */
+  color: rgba(206, 220, 240, .72);
+  text-shadow: 0 0 14px rgba(130, 175, 255, .28);
+  opacity: 0;
+  animation: splash-sub-in .7s ease-out .34s forwards;
+}
+@keyframes splash-sub-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-title::after { animation: none; }
+  .splash-sub { animation: none; opacity: 1; }
+}

@@ -106,8 +106,33 @@
       renderMuteBtn();
     }
 
-    /* 深链 ?level=N 优先；否则自动进 unlocked 关（Q3.6） */
-    loadLevel(deepId > 1 ? deepId : progress.unlocked);
+    /* Δ16c/T065: 玩家档案与经济态持久化（profile v2——与 progress v1 并存
+     * 不迁移; 纯读取，不改写任何关卡数据——FR-041 §4 铁律） */
+    try {
+      if (STM.Profile) {
+        STM.Profile.load();
+        var prof = STM.Profile.get();
+        /* Δ16c 音效粒度: BGM / SFX 独立开关（FR-040 §1）——单一 muted
+         * 开关仅在两粒度同时关闭时才生效，避免设置弹窗语义丢失 */
+        if (sound.setBgmMute) sound.setBgmMute(!prof.settings.bgm);
+        if (sound.setSfxMute) sound.setSfxMute(!prof.settings.sfx);
+      }
+    } catch (eP) { /* 存储不可用 → 内存态照常可玩（D-03） */ }
+
+    /* Δ16d/T066: HooLey Games 开机动画（FR-038——纯表现层）
+     * 关卡在其后加载（大厅落地口径由 T068 接管，此处以「淡入棋盘」为
+     * 过渡落点）; 动画 MUST NOT 触碰进度/棱晶/拼图态——本调用不写任何
+     * 持久化状态。首次点击/按键可跳过，落点与自然播完一致。 */
+    var startGame = function () {
+      /* 深链 ?level=N 优先；否则自动进 unlocked 关（Q3.6） */
+      loadLevel(deepId > 1 ? deepId : progress.unlocked);
+    };
+    if (STM.Splash) {
+      /* sound 已创建 → 注入供开机和弦音（playBootChime）使用 */
+      STM.Splash.show({ sound: sound, onDone: startGame });
+    } else {
+      startGame();
+    }
   }
 
   function onMuteDown() {

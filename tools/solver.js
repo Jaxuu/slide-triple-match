@@ -843,6 +843,22 @@ function runFull(seed) {
   var failedIds = [];
   var records = [];
 
+  /* Δ16a/T067 门禁: 关卡总数必须恰为 72（FR-008 Δ16 扩容口径）——
+   * 防止 levels.js 被截断/漏生成而门禁仍然"全绿"的静默失败 */
+  var EXPECTED_TOTAL = 72;
+  if (levels.length !== EXPECTED_TOTAL) {
+    console.error('  ✗ 关卡总数 ' + levels.length + ' ≠ ' + EXPECTED_TOTAL + '（Δ16a 72 关扩容口径不符）');
+    gate = 1;
+  }
+  /* id 连续性（L(i).id === i+1——契约 level-data.md §2） */
+  for (var idc = 0; idc < levels.length; idc++) {
+    if (levels[idc].id !== idc + 1) {
+      console.error('  ✗ id 不连续: index ' + idc + ' = ' + levels[idc].id);
+      gate = 1;
+      break;
+    }
+  }
+
   /* 第一遍: validateLevel + solve */
   var i;
   for (i = 0; i < levels.length; i++) {
@@ -980,6 +996,18 @@ function runFull(seed) {
 
   /* 曲线门（Δ13/Δ16a 波浪架构: 章均值单调 + 全章 minMoves 斜率 + 7/7/8 波浪锯齿——72 关/3×24 大阶段口径） */
   var cg = curveGates(embedded);
+
+  /* Δ16a/T067 门禁: 曲线门统计 MUST 覆盖全域 L1~L72（章均值单调 + 斜率 ≥0
+   * + L4~L72「2 简 1 难」7/7/8 波浪锯齿）——覆盖数不足即门禁失败 */
+  var chTotal = CFG.CHAPTERS.reduce(function (a, c) { return a + (c.levels[1] - c.levels[0] + 1); }, 0);
+  cg.covered = embedded.length;
+  cg.expected = EXPECTED_TOTAL;
+  cg.chapterSpan = chTotal;
+  if (embedded.length !== EXPECTED_TOTAL || chTotal !== EXPECTED_TOTAL) {
+    console.error('  ✗ 曲线门覆盖不全: 实测 ' + embedded.length + '/' + EXPECTED_TOTAL +
+      ' 关，章区间合计 ' + chTotal + ' 关（Δ16a 3×24 章区间口径不符）');
+    gate = 1;
+  }
   console.log('curveGate: chMonotonic=' + cg.chMonotonic + ' slope14=' + cg.slope14.toFixed(2) + ' waveZigzag=' + cg.ch5Zigzag);
   if (!cg.chMonotonic) { console.error('  ✗ 曲线门-1: 章均值非单调不减'); gate = 1; }
   if (cg.slope14 < 0) { console.error('  ✗ 曲线门-2: 全章 minMoves 斜率 < 0'); gate = 1; }
@@ -987,7 +1015,7 @@ function runFull(seed) {
 
   /* 报告写盘 */
   var report = {
-    schemaVersion: 2, /* Δ15: +dispersion 字段组（向后兼容旧报告读取） */
+    schemaVersion: 3, /* Δ16a/T067: 72 关口径（Δ15 v2 加 dispersion 字段组——仍向后兼容旧报告读取） */
     generatedAt: new Date().toISOString(),
     seed: seed == null ? null : seed,
     nodeBudget: CFG.BUDGET,

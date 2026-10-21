@@ -12,7 +12,8 @@
  *   · BGM 专用 gain 节点与 SFX 链路隔离（互不串音）
  *   · 首次交互（PointerEvent/keydown 任一）后自动播放（autoplay 合规
  *     ——首次交互前 MUST NOT 发声）
- *   · setMuted(true) → BGM 与 SFX 同步静音（既有开关联动）
+ *   · Δ16c: BGM / SFX 静音粒度分离（setBgmMute / setSfxMute——FR-040 §1
+ *     三开关音频侧口径）; setMuted() 保留为兼容包装（同时置两者）
  *   · visibilitychange→hidden 暂停 / 恢复续播
  * ========================================================= */
 (function (global) {
@@ -26,6 +27,13 @@
     var master = null;
     var noiseBuf = null;
     var muted = !!opts.muted;
+
+    /* ---------- Δ16c: BGM / SFX 独立静音（FR-040 §1 三个开关的音频侧口径）
+     * Δ14 原为单一 muted 同步控两者；Δ16 拆为 bgmMuted / sfxMuted 粒度。
+     * muted 保留为派生兼容位（= bgmMuted || sfxMuted），既有单开关闭子行为
+     * 与 setMuted() 语义零变化；新增 setBgmMuted / setSfxMuted 粒度接口。 */
+    var bgmMuted = opts.bgmMuted != null ? !!opts.bgmMuted : muted;
+    var sfxMuted = opts.sfxMuted != null ? !!opts.sfxMuted : muted;
 
     /* ---------- BGM 专用链路（与 SFX 隔离——FR-037 §BGM gain） ---------- */
     var bgmGain = null;        /* BGM 音量节点（SFX 走 master 压缩总线） */
@@ -64,14 +72,17 @@
       for (var i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
       if (ctx.state === 'suspended') ctx.resume();
       unlocked = true;
-      /* 首次交互后自动开启 BGM（若未静音——FR-037 §2 autoplay 合规） */
-      if (!muted) startBgm();
+      /* 首次交互后自动开启 BGM（若 BGM 未静音——FR-037 §2 autoplay 合规;
+       * Δ16c: 只看 BGM 粒度，SFX 静音不影响 BGM 起播） */
+      if (!bgmMuted) startBgm();
     }
 
     /* ---------- 基础合成原语（SFX） ---------- */
-    /* 单振荡器音符（type, 频率扫频 f0→f1, 时长, 峰值音量, 起始延迟） */
-    function tone(type, f0, f1, dur, vol, delay) {
-      if (!ctx || muted) return;
+    /* 单振荡器音符（type, 频率扫频 f0→f1, 时长, 峰值音量, 起始延迟, 声道）
+     * Δ16c: channel = 'bgm' | 'sfx'（默认 'sfx'）——BGM/SFX 静音粒度分离 */
+    function tone(type, f0, f1, dur, vol, delay, channel) {
+      if (!ctx) return;
+      if (channel === 'bgm' ? bgmMuted : sfxMuted) return;
       var t0 = ctx.currentTime + (delay || 0);
       var osc = ctx.createOscillator();
       var g = ctx.createGain();
@@ -87,7 +98,7 @@
 
     /* 噪声冲击（时长, 峰值, 高通频率） */
     function noise(dur, vol, delay, highpass) {
-      if (!ctx || muted || !noiseBuf) return;
+      if (!ctx || sfxMuted || !noiseBuf) return; /* Δ16c: 噪声仅 SFX 链路使用 */
       var t0 = ctx.currentTime + (delay || 0);
       var src = ctx.createBufferSource();
       src.buffer = noiseBuf;
@@ -230,7 +241,7 @@
       if (global.document && global.document.hidden) {
         stopBgm();
         if (ctx.state === 'running') ctx.suspend();
-      } else if (unlocked && !muted) {
+      } else if (unlocked && !bgmMuted) {
         if (ctx.state === 'suspended') ctx.resume();
         startBgm(); /* 恢复续播（bgmNextBeat 重锚当前时间） */
       }
@@ -284,22 +295,77 @@
 
     /* 事件 → 音效映射（game-session.md §5 全表；GameState onEvent 转发） */
     function play(name, arg) {
-      if (muted) return;
+      if (sfxMuted) return;
       if (!ctx) unlock(); /* 已在用户手势内调用时直接初始化 */
       var fn = SFX[name];
       if (fn) fn(arg);
     }
 
-    /* 静音联动: SFX 与 BGM 同开关（FR-037 §3——BGM gain 归零/恢复） */
-    function setMuted(m) {
-      muted = !!m;
+    /* =========================================================
+     * Δ16d/T066: 开机合成和弦音 playBootChime()
+     * 温润空灵短促和弦 ≈0.35s，Web Audio 纯代码实时合成（**零音频文件**
+     * ——宪章 III 音频红线不破）:
+     *   主琶音 C5 → E5 → C6 (523.25 / 659.25 / 1046.5 Hz 正弦+三角泛音)
+     *   + 柔和高频清脆铃音（C6 倍频三角波，极短衰减）
+     *   包络柔和（attack 12ms / 指数衰减），总长 0.4s 不刺耳
+     * autoplay 合规（FR-038 §4）: ctx 未解锁（首次交互前）时**静默返回
+     * false 不发声**——由 splash 在首次 pointerdown/keydown 后补发。
+     * 静音口径（SFX 粒度）: sfxMuted 时不响；bgmMuted 不影响本次和弦。
+     * ========================================================= */
+    function playBootChime() {
+      if (!ctx || !unlocked || sfxMuted) return false;
+      try {
+        var t0 = ctx.currentTime + 0.01;
+        var notes = [
+          { f: 523.25, v: 0.16, d: 0.30, type: 'sine' },
+          { f: 659.25, v: 0.13, d: 0.30, type: 'sine' },
+          { f: 1046.5, v: 0.10, d: 0.40, type: 'sine' }
+        ];
+        for (var i = 0; i < notes.length; i++) {
+          var nt = notes[i];
+          var startAt = t0 + i * 0.06; /* 轻柔琶音间隔 60ms */
+          tone(nt.type, nt.f, nt.f, nt.d, nt.v, startAt - ctx.currentTime);
+          /* 三角泛音层（同频 2 倍微弱叠音增厚） */
+          tone('triangle', nt.f * 2, nt.f * 2, nt.d * 0.7, nt.v * 0.25, startAt - ctx.currentTime);
+        }
+        /* 柔和高频清脆铃音（轻装饰——非刺耳） */
+        tone('triangle', 2093.0, 2093.0, 0.14, 0.05, 0.26);
+        return true;
+      } catch (err) {
+        return false; /* 合成失败静默降级——不阻塞开机动画 */
+      }
+    }
+
+    /* 静音联动（Δ16c）: BGM 与 SFX 粒度独立（FR-040 §1）:
+     * BGM 走 bgmGain 归零/恢复 + 停调度续播；SFX 走 sfxMuted 门控。
+     * setMuted() 为兼容包装（同时置两者——既有单开关行为不变）。 */
+    function applyBgmMute() {
       if (!ctx || !bgmGain) return;
-      bgmGain.gain.setTargetAtTime(muted ? 0 : 0.16, ctx.currentTime, 0.08);
-      if (muted) {
-        stopBgm(); /* 静音即停调度（恢复时续播） */
-      } else if (unlocked) {
+      bgmGain.gain.setTargetAtTime(bgmMuted ? 0 : 0.16, ctx.currentTime, 0.08);
+      if (bgmMuted) {
+        stopBgm();
+      } else if (unlocked && !bgmMuted) {
         startBgm();
       }
+    }
+
+    function setBgmMute(m) {
+      bgmMuted = !!m;
+      muted = bgmMuted || sfxMuted;
+      applyBgmMute();
+    }
+
+    function setSfxMute(m) {
+      sfxMuted = !!m;
+      muted = bgmMuted || sfxMuted;
+    }
+
+    /* 兼容: 单开关 = 同时置两者（Δ14 既有口径，M4 调试面板仍走此） */
+    function setMuted(m) {
+      muted = !!m;
+      bgmMuted = !!m;
+      sfxMuted = !!m;
+      applyBgmMute();
     }
 
     function isMuted() { return muted; }
@@ -308,7 +374,10 @@
     return {
       unlock: unlock,
       play: play,
+      playBootChime: playBootChime,
       setMuted: setMuted,
+      setBgmMute: setBgmMute,
+      setSfxMute: setSfxMute,
       isMuted: isMuted,
       isBgmPlaying: isBgmPlaying
     };
