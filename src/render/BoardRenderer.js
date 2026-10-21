@@ -1714,9 +1714,37 @@
     return STM.BackdropStage;
   })();
 
+  /* Δ17/T068+T069: 玩家萌宠头像 HTML（大厅头像按钮 / 档案弹窗网格 / 结算铭牌共用）
+   * 与 chipSVG 的区别: chipSVG 消费「当前关花色 → 图鉴 id」映射；本函数直接
+   * 接收 profile 存的 avatar suit 编号（0~44），不受关卡映射影响。
+   * 渲染来源链与棋盘完全同源（FR-040 §2 / FR-033 §6）:
+   *   ① sheet1~3 切片 DataURL → ② 切片 canvas 直绘 → ③ 原生全彩 Emoji */
+  function petAvatarHTML(bid) {
+    if (Bestiary && !IconAssets) return '';
+    if (typeof bid !== 'number' || isNaN(bid)) bid = 0;
+    IconAssets.ensureLoaded();
+    var slice = IconAssets.sliceCanvasOf(bid);
+    var name = Bestiary ? ((Bestiary.entry(bid) || {}).name || '') : '';
+    if (slice) {
+      var url = dockIconDataURL(bid); /* DataURL 记忆化，跨会话零重复导出 */
+      if (url) {
+        return '<img class="pet-avatar-img" src="' + url + '" alt="' + name +
+          '" draggable="false"/>';
+      }
+      return '<canvas class="pet-avatar-img" width="256" height="256" data-bid="' +
+        bid + '" aria-label="' + name + '"></canvas>';
+    }
+    /* Emoji 兜底（sheet 未覆盖该条目） */
+    if (Bestiary && Bestiary.EMOJI && Bestiary.EMOJI.length === 45) {
+      return '<span class="pet-avatar-emoji">' + Bestiary.emojiOf(bid) + '</span>';
+    }
+    return '';
+  }
+
   STM.createBoardRenderer = createBoardRenderer;
   STM.SUITS = SUITS;
   STM.chipSVG = chipSVG;
+  STM.petAvatarHTML = petAvatarHTML; /* Δ17: 萌宠头像统一出口 */
   STM.paintDockIcons = paintDockIcons; /* Δ15b3e: file:// canvas 兜底绘制 */
   STM.dockIconDataURL = dockIconDataURL;
   STM.IconAssets = IconAssets;

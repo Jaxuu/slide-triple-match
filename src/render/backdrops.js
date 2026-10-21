@@ -818,12 +818,52 @@
     drawParticles(ctx, TONE[toneIdx].kind, W, H, tMs);
   }
 
+  /* =========================================================
+   * Δ17/T068 §4: 2×2 四象限切片工具（棱晶星盘晶片 / 结算层复用）
+   *   · 与局内背景**同源同文件同缓存链**（FR-035 §6 铁律）——直接消费
+   *     probeBgImage 的会话级缓存记录，MUST NOT 新建 Image（MUST NOT
+   *     重复解码、MUST NOT 产生额外网络请求）
+   *   · cover 裁切口径与 drawBackdrop 一致（短边铺满 → 居中裁切），
+   *     保证「局内所见背景 = 星盘晶片所拼出的大图」完全相同
+   *   · 纯绘制函数（零 DOM 依赖），返回 true = 已绘制贴图切片，
+   *     false = 贴图未就绪（调用方 MUST 走盲盒/兜底分支）
+   * ========================================================= */
+  function drawQuadrant(ctx, paintingIdx, quad, dx, dy, dw, dh) {
+    if (!ctx || typeof ctx.drawImage !== 'function') return false;
+    /* ci: 该画卷首个三关循环的起点（0-based）→ 命中同一张 bg{n} 缓存 */
+    var ci = (Math.min(6, Math.max(1, paintingIdx | 0)) - 1) * 4;
+    var rec = probeBgImage(ci);
+    if (!rec || rec.state !== 'ready' || !rec.img) return false;
+    /* quad: 0=左上 1=右上 2=左下 3=右下 */
+    var q = Math.min(3, Math.max(0, quad | 0));
+    var qx = q % 2, qy = (q - (q % 2)) / 2;
+    try {
+      var iw = rec.img.naturalWidth || rec.img.width;
+      var ih = rec.img.naturalHeight || rec.img.height;
+      if (!(iw > 0) || !(ih > 0)) return false;
+      /* 该象限在「整幅画卷 2dw×2dh 坐标系」中的位置；cover 缩放按整幅
+       * 尺寸计算，短边铺满 + 居中裁切（与 drawBackdrop 同算法） */
+      var cw = dw * 2, ch = dh * 2;                 /* 整幅画卷的显示尺寸 */
+      var scale = Math.max(cw / iw, ch / ih);
+      var fw = iw * scale, fh = ih * scale;         /* 贴图缩放后的实际尺寸 */
+      var ox = (cw - fw) / 2, oy = (ch - fh) / 2;   /* 居中裁切的溢出量 */
+      ctx.drawImage(rec.img,
+        ox + qx * dw, oy + qy * dh, dw, dh,         /* 源: 本象限矩形 */
+        dx, dy, dw, dh);                            /* 目标: 晶片矩形 */
+      return true;
+    } catch (errQ) {
+      rec.state = 'failed'; /* 绘制异常 → 后续调用方自动降级 */
+      return false;
+    }
+  }
+
   STM.Backdrops = {
     SCENES: SCENES,
     cycleIndexOf: cycleIndexOf,
     paintingOf: paintingOf,
     drawBackdrop: drawBackdrop,
     drawBackdropAnim: drawBackdropAnim,
+    drawQuadrant: drawQuadrant,
     bgImageIndexOf: bgImageIndexOf,
     probeBgImage: probeBgImage,
     onBgReady: onBgReady

@@ -65,6 +65,85 @@
   /* =========================================================
    * T020: boot 流程与 LEVELS.length 动态化（Δ4——禁止硬编码关数）
    * ========================================================= */
+  /* =========================================================
+   * Δ16e/T068 §1: 应用级场景状态机
+   *   BOOT → SPLASH → LOBBY → GAME → (RESULT →) LOBBY / GAME
+   * 大厅与局内**互斥切换**（Edge Case 铁律：MUST NOT 出现大厅与局内并存
+   * 的叠加态，模态弹窗除外）——本函数是唯一的场景切换入口。
+   * ========================================================= */
+  var SCENE = { BOOT: 'BOOT', SPLASH: 'SPLASH', LOBBY: 'LOBBY', GAME: 'GAME', RESULT: 'RESULT' };
+  var scene = SCENE.BOOT;
+
+  function isScene(s) { return scene === s; }
+
+  /* 进入主大厅（大厅与局内互斥——隐藏 HUD/棋盘/Dock/道具栏与旧结算层） */
+  function enterLobby(opts) {
+    opts = opts || {};
+    if (hideOverlay) hideOverlay();
+    var app = global.document.getElementById('app');
+    if (app) app.classList.add('scene-lobby');
+    scene = SCENE.LOBBY;
+    stopBgStage();
+    if (STM.Lobby) {
+      STM.Lobby.show({
+        unlocked: opts.unlocked || progress.unlocked,
+        level: opts.level || progress.last || progress.unlocked,
+        debugOpen: els.debugPanel ? !els.debugPanel.hidden : false,
+        handlers: lobbyHandlers()
+      });
+    }
+  }
+
+  /* 进入局内（隐藏大厅；HUD/棋盘/Dock/道具栏恢复） */
+  function enterGame(id) {
+    var app = global.document.getElementById('app');
+    if (app) app.classList.remove('scene-lobby');
+    if (STM.Lobby) STM.Lobby.hide();
+    scene = SCENE.GAME;
+    loadLevel(id);
+  }
+
+  function lobbyHandlers() {
+    return {
+      onSettings: function () { openSettingsModal(false); },
+      onProfile: function () { openProfileModal(function () { if (STM.Lobby) STM.Lobby.refresh({ unlocked: progress.unlocked }); }); },
+      onPlay: function (id) { enterGame(id); },
+      onToggleDebug: function () {
+        /* 大厅与局内共用同一份调试面板开关状态（Edge Case 铁律） */
+        if (!els.debugPanel) return false;
+        els.debugPanel.hidden = !els.debugPanel.hidden;
+        return !els.debugPanel.hidden;
+      }
+    };
+  }
+
+  /* ---------- Δ16e/T069: 设置 / 个人信息弹窗入口 ---------- */
+  function openSettingsModal(inGame) {
+    if (!STM.Modals) return null;
+    return STM.Modals.openSettings(!!inGame, {
+      /* 与 FR-037 的 BGM/音效静音联动口径一致（BGM 与 SFX 独立粒度） */
+      onAudio: function () {
+        try {
+          var s = STM.Profile.get().settings;
+          if (sound.setBgmMute) sound.setBgmMute(!s.bgm);
+          if (sound.setSfxMute) sound.setSfxMute(!s.sfx);
+        } catch (e) { /* 存储不可用 → 内存态照常（D-03） */ }
+      },
+      onBackToLobby: function () { enterLobby({ unlocked: progress.unlocked, level: progress.last }); },
+      onRestart: function () { enterGame(currentId); }
+    });
+  }
+
+  function openProfileModal(onChange) {
+    if (!STM.Modals) return null;
+    return STM.Modals.openProfile({
+      onChange: function () {
+        /* 头像在所有引用处同步生效（单一数据源——大厅/结算/失败页） */
+        if (onChange) onChange();
+      }
+    });
+  }
+
   function boot() {
     cacheEls();
     var LEVELS = STM.LEVELS || [];
@@ -120,12 +199,14 @@
     } catch (eP) { /* 存储不可用 → 内存态照常可玩（D-03） */ }
 
     /* Δ16d/T066: HooLey Games 开机动画（FR-038——纯表现层）
-     * 关卡在其后加载（大厅落地口径由 T068 接管，此处以「淡入棋盘」为
-     * 过渡落点）; 动画 MUST NOT 触碰进度/棱晶/拼图态——本调用不写任何
-     * 持久化状态。首次点击/按键可跳过，落点与自然播完一致。 */
+     * Δ17/T068: 落点改为**主大厅**（FR-039——开机后与每关结算后的必经枢纽）
+     * 动画 MUST NOT 触碰进度/棱晶/拼图态——本调用不写任何持久化状态。
+     * 首次点击/按键可跳过，落点与自然播完一致（均进入大厅）。 */
+    scene = SCENE.SPLASH;
     var startGame = function () {
-      /* 深链 ?level=N 优先；否则自动进 unlocked 关（Q3.6） */
-      loadLevel(deepId > 1 ? deepId : progress.unlocked);
+      /* 深链 ?level=N 优先；否则进入大厅（大厅内 `关卡 X` 按钮再进局内） */
+      if (deepId > 1) enterGame(deepId);
+      else enterLobby({ unlocked: progress.unlocked, level: progress.last });
     };
     if (STM.Splash) {
       /* sound 已创建 → 注入供开机和弦音（playBootChime）使用 */
@@ -302,6 +383,14 @@
     if (STM.BackdropStage && typeof STM.BackdropStage.onReady === 'function') {
       STM.BackdropStage.onReady(function () { paintBg(); });
     }
+  }
+
+  /* Δ17/T068 §1: 进入大厅时停掉局内背景舞台（互斥——避免大厅与局内叠加） */
+  function stopBgStage() {
+    bgRunning = false;
+    if (bgRaf) { cancelAnimationFrame(bgRaf); bgRaf = 0; }
+    /* 背景画布保留但清空，避免大厅透出上一关背景 */
+    if (bgCtx) bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
   }
 
   /* ---------- 关卡加载（全部关卡总数引用动态取 LEVELS.length——Δ4） ---------- */

@@ -81,7 +81,7 @@
   </div>
 </div>
 
-<!-- 固定 classic script 加载序（D-01）：profile(Δ16c) → levels → RulesEngine → GameState → bestiary(Δ14) → backdrops(Δ14) → BoardRenderer → SoundManager → splash(Δ16d) → main -->
+<!-- 固定 classic script 加载序（D-01）：profile(Δ16c) → levels → RulesEngine → GameState → bestiary(Δ14) → backdrops(Δ14) → BoardRenderer → SoundManager → splash(Δ16d) → modals(Δ16e) → lobby(Δ16e) → result(Δ16g) → fail(Δ16g) → main -->
 <script defer src="src/core/profile.js"></script>
 <script defer src="src/data/levels.js"></script>
 <script defer src="src/core/RulesEngine.js"></script>
@@ -91,6 +91,10 @@
 <script defer src="src/render/BoardRenderer.js"></script>
 <script defer src="src/audio/SoundManager.js"></script>
 <script defer src="src/ui/splash.js"></script>
+<script defer src="src/ui/modals.js"></script>
+<script defer src="src/ui/lobby.js"></script>
+<script defer src="src/ui/result.js"></script>
+<script defer src="src/ui/fail.js"></script>
 <script defer src="src/main.js"></script>
 </body>
 </html>

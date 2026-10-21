@@ -737,3 +737,502 @@ html, body {
   .splash-title::after { animation: none; }
   .splash-sub { animation: none; opacity: 1; }
 }
+
+/* =========================================================
+ * Δ17/T068: Glide Critters 主大厅（FR-039）
+ * 六区上中下分区布局 100% 保留（视觉皮肤原创重制）
+ *
+ * 原创性红线（Edge Cases「外围 UI 竞品视觉元素清零红线」）:
+ * 本节 MUST NOT 出现浅蓝竖条纹木墙 / 室内盆栽 / 木桌 / 风景木质相框 /
+ * 天蓝丝带横幅 / 金色庆典号角 / 天蓝圆弧顶盖（含任何变体形态）。
+ * ========================================================= */
+:root {
+  /* 棱晶星盘 / 奶油果冻 / 琥珀金 —— Δ17 新增色板（全部原创取值） */
+  --prism-violet: #8F6FD6;
+  --prism-violet-deep: #4A3482;
+  --prism-glow: #C9AEFF;
+  --amber: #E8A33D;
+  --amber-hi: #FFD98A;
+  --cream: #FFF6E8;
+  --cream-deep: #F0E2CC;
+  --portal-glow: 1;
+}
+
+#lobby {
+  position: absolute;
+  inset: 0;
+  z-index: 3; /* 高于 #hud/#board-wrap（z-index:2）——大厅与局内互斥 */
+  overflow: hidden;
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+#lobby[hidden] { display: none !important; }
+
+.lobby-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+}
+
+/* 六区定位：仅上/中/下 + 左/右分区，几何与功能语义自 Δ16 保留 */
+.lobby-zone { position: absolute; z-index: 1; }
+.lobby-zone-topleft     { top: max(14px, env(safe-area-inset-top)); left: 12px; display: flex; gap: 8px; }
+.lobby-zone-topright    { top: max(14px, env(safe-area-inset-top)); right: 12px; }
+.lobby-zone-midtop      { top: 11%; left: 0; right: 0; text-align: center; }
+.lobby-zone-center      { top: 22%; left: 0; right: 0; display: flex; justify-content: center; }
+.lobby-zone-midbottom   { bottom: 15%; left: 0; right: 0; display: flex; justify-content: center; }
+.lobby-zone-bottomleft  { bottom: max(14px, env(safe-area-inset-bottom)); left: 12px; display: flex; align-items: center; gap: 8px; }
+
+/* ---------- 顶部左区：设置 / 调试 圆钮 ---------- */
+.lobby-round-btn {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .55);
+  background: rgba(24, 32, 52, .42);
+  backdrop-filter: blur(6px);
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--ink);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .28);
+}
+.lobby-btn-debug.is-on {
+  border-color: var(--amber-hi);
+  background: rgba(232, 163, 61, .55);
+  box-shadow: 0 0 12px rgba(255, 217, 138, .70);
+}
+
+/* ---------- 顶部右区：棱晶货币栏 ---------- */
+.lobby-shards {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(46, 36, 84, .70), rgba(26, 20, 52, .70));
+  border: 1.5px solid var(--prism-glow);
+  font-weight: 700;
+  font-size: clamp(13px, 3.6vw, 17px);
+  color: #FFF;
+  text-shadow: 0 0 8px rgba(201, 174, 255, .8);
+}
+.lobby-shards-icon { filter: drop-shadow(0 0 5px rgba(201, 174, 255, .9)); }
+
+/* ---------- 中上区：3D 浮雕徽标（原创风翼母题） ---------- */
+.lobby-brand {
+  display: inline-flex; align-items: center; gap: 10px;
+  position: relative;
+}
+.lobby-brand-name {
+  font-size: clamp(24px, 7.6vw, 40px);
+  font-weight: 800;
+  letter-spacing: .02em;
+  background: linear-gradient(180deg, #FFFFFF 0%, #FFF0CF 42%, var(--amber) 72%, #C87F22 100%);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+  -webkit-text-stroke: 1.5px rgba(120, 78, 20, .45);
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .45));
+}
+/* 纯白流线型滑行风翼（呼应 Δ17 结算铭牌母题） */
+.lobby-brand-wing {
+  width: 34px; height: 16px;
+  background: linear-gradient(120deg, rgba(255,255,255,.96), rgba(198, 226, 255, .35));
+  clip-path: polygon(100% 50%, 0 0, 28% 50%, 0 100%);
+}
+.lobby-brand-wing:last-child { transform: scaleX(-1); }
+.lobby-brand-pet {
+  position: absolute;
+  left: 50%; bottom: -22px;
+  transform: translateX(-50%);
+  width: 40px; height: 40px;
+  border-radius: 50% 50% 46% 46%;
+  background: radial-gradient(circle at 34% 30%, #FFF 0%, var(--prism-glow) 40%, var(--prism-violet) 100%);
+  box-shadow: 0 0 14px rgba(201, 174, 255, .85);
+  border: 2px solid rgba(255, 255, 255, .8);
+}
+
+/* ---------- 中心区：棱晶星盘 / 时空传送门（Δ17 FR-039 §5） ----------
+ * 替代 Δ16 的「2×2 风景木质拼图相框」：齿轮+风翼纹饰环形底座 + 能量晶片 */
+.portal {
+  position: relative;
+  width: min(78vw, 340px);
+  aspect-ratio: 1;
+  margin-top: 26px; /* 让出顶部悬浮铭牌空间 */
+  display: grid;
+  place-items: center;
+}
+
+/* 顶部悬浮胶囊铭牌：大陆名称 + 充能进度 X/4 */
+.portal-plaque {
+  position: absolute;
+  top: -34px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 18px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--amber-hi), var(--amber) 55%, #C87F22);
+  border: 2px solid rgba(255, 255, 255, .78);
+  color: #4A2E08;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255,255,255,.7);
+}
+.portal-plaque-name { font-size: clamp(12px, 3.4vw, 16px); }
+.portal-plaque-prog {
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: rgba(74, 46, 8, .30);
+  font-size: clamp(11px, 3.0vw, 14px);
+}
+
+/* 外圈星盘底座（琥珀金 + 虹彩棱镜） */
+.portal-ring {
+  position: absolute; inset: 0;
+  border-radius: 26%;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255, 236, 190, .95), rgba(232, 163, 61, .70) 42%, rgba(126, 84, 30, .82) 100%);
+  box-shadow:
+    0 0 calc(26px * var(--portal-glow)) rgba(201, 174, 255, .70),
+    inset 0 3px 10px rgba(255, 255, 255, .55),
+    inset 0 -5px 14px rgba(70, 42, 8, .55);
+}
+/* 8 齿机械齿轮刻纹 */
+.portal-gears { position: absolute; inset: 0; }
+.portal-gear {
+  position: absolute;
+  width: 15%; height: 7%;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #FFE9B8, #B07C2E);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+}
+.portal-gear-0 { top: -3%;   left: 42.5%; }
+.portal-gear-1 { top: 6%;    right: 1%;  transform: rotate(45deg);  }
+.portal-gear-2 { top: 46%;   right: -4%; transform: rotate(90deg); }
+.portal-gear-3 { bottom: 6%; right: 1%;  transform: rotate(135deg); }
+.portal-gear-4 { bottom: -3%; left: 42.5%; transform: rotate(180deg); }
+.portal-gear-5 { bottom: 6%; left: 1%;   transform: rotate(225deg); }
+.portal-gear-6 { top: 46%;   left: -4%;  transform: rotate(270deg); }
+.portal-gear-7 { top: 6%;    left: 1%;   transform: rotate(315deg); }
+
+/* 风翼纹饰（左右各一，贴合底座圆角） */
+.portal-wing {
+  position: absolute; top: 50%;
+  width: 30%; height: 15%;
+  background: linear-gradient(100deg, rgba(255,255,255,.95), rgba(200, 228, 255, .30));
+  transform: translateY(-50%);
+}
+.portal-wing-l { left: -8%; clip-path: polygon(100% 50%, 30% 0, 62% 50%, 30% 100%); }
+.portal-wing-r { right: -8%; clip-path: polygon(0 50%, 70% 0, 38% 50%, 70% 100%); }
+
+/* 2×2 能量晶片 */
+.portal-grid {
+  position: relative;
+  width: 74%; height: 74%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 3%;
+  padding: 2px;
+}
+.portal-chip {
+  position: relative;
+  overflow: hidden;
+  border-radius: 22%;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .30);
+  /* 已点亮：随辉光节拍轻微呼吸 */
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.30),
+              0 0 calc(14px * var(--portal-glow)) rgba(201, 174, 255, .55);
+}
+.portal-chip-cv { width: 100%; height: 100%; display: block; }
+
+/* 棱晶色散边缘高光（仅已点亮） */
+.portal-chip-shine {
+  position: absolute; inset: 0;
+  display: none;
+  background: linear-gradient(128deg, rgba(255,255,255,.34) 0%, transparent 38%, transparent 62%, rgba(160, 200, 255, .30) 100%);
+}
+.portal-chip.is-lit .portal-chip-shine { display: block; }
+
+/* 盲盒态标记 + 解锁关卡标注 */
+.portal-chip-lock { display: none; }
+.portal-chip.is-blind .portal-chip-lock {
+  display: block;
+  position: absolute; left: 50%; top: 38%;
+  transform: translate(-50%, -50%);
+  font-size: clamp(15px, 4.4vw, 22px);
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,.6));
+}
+.portal-chip-caption {
+  position: absolute; left: 0; right: 0; bottom: 4%;
+  text-align: center;
+  font-size: clamp(9px, 2.6vw, 12px);
+  font-weight: 700;
+  color: #EFE6FF;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
+  pointer-events: none;
+}
+.portal-chip.is-lit .portal-chip-caption { display: none; }
+
+/* 左右切换按钮 */
+.portal-nav { position: absolute; inset: 0; pointer-events: none; }
+.portal-nav-btn {
+  position: absolute; top: 50%;
+  transform: translateY(-50%);
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .70);
+  background: linear-gradient(180deg, rgba(74, 52, 130, .82), rgba(42, 28, 78, .82));
+  color: #FFF;
+  font-size: 24px; line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .40);
+}
+.portal-nav-prev { left: -46px; }
+.portal-nav-next { right: -46px; }
+.portal-nav-btn:disabled { opacity: .32; cursor: default; }
+
+/* ---------- 中下区：翠绿胶囊大按钮（文案严格 `关卡 X`） ---------- */
+.lobby-btn-level {
+  padding: 15px 52px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #7FE0A8 0%, var(--accent) 52%, #2E8C5D 100%);
+  color: #06281A;
+  font-size: clamp(19px, 5.6vw, 26px);
+  font-weight: 800;
+  letter-spacing: .04em;
+  cursor: pointer;
+  box-shadow: 0 7px 0 #256B47, 0 12px 22px rgba(0, 0, 0, .42);
+  transition: transform .10s ease-out, box-shadow .10s ease-out;
+}
+.lobby-btn-level:active {
+  transform: translateY(4px);
+  box-shadow: 0 3px 0 #256B47, 0 6px 14px rgba(0, 0, 0, .42);
+}
+
+/* ---------- 左下角：玩家头像 + 昵称 ---------- */
+.lobby-avatar {
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, .88);
+  background: radial-gradient(circle at 34% 30%, #FFF 0%, var(--prism-glow) 46%, var(--prism-violet) 100%);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .40);
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+  display: grid; place-items: center;
+}
+.lobby-avatar-img { display: grid; place-items: center; width: 100%; height: 100%; }
+.lobby-avatar-img .pet-avatar-img,
+.lobby-avatar-img .pet-avatar-emoji { width: 100%; height: 100%; object-fit: cover; font-size: 24px; line-height: 1; }
+.lobby-nick {
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--amber-hi), var(--amber));
+  color: #4A2E08;
+  font-weight: 700;
+  font-size: clamp(12px, 3.4vw, 15px);
+  box-shadow: 0 3px 9px rgba(0, 0, 0, .35);
+}
+
+/* ---------- 窄屏微调 ---------- */
+@media (max-width: 360px) {
+  .portal { width: 84vw; margin-top: 22px; }
+  .portal-nav-prev { left: -6px; }
+  .portal-nav-next { right: -6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .portal-chip { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .30); }
+}
+
+/* ---------- Δ17/T068 §1: 场景互斥（大厅 ⇄ 局内，禁止叠加态） ----------
+ * 大厅显示时隐藏局内的 HUD / 棋盘 / Dock / 道具栏 / 调试面板。
+ * 弹窗（模态）在两层之上，不受此规则影响（Edge Case 铁律例外）。 */
+#app.scene-lobby #hud,
+#app.scene-lobby #board-wrap,
+#app.scene-lobby #dock,
+#app.scene-lobby #items,
+#app.scene-lobby #debug-panel,
+#app.scene-lobby #result-overlay,
+#app.scene-lobby #bg-canvas,
+#app.scene-lobby #fx-canvas,
+#app.scene-lobby #challenge-banner {
+  display: none !important;
+}
+
+/* =========================================================
+ * Δ17/T069: 奶油果冻质感弹窗（FR-040 §0 共用视觉基底）
+ *   3D 奶油白圆角软胶卡片 + 琥珀金胶囊标题铭牌 + 棱晶圆角拨片开关
+ * 原创性红线: MUST NOT 使用天蓝圆弧顶盖等竞品标志性载体
+ * ========================================================= */
+#modal-root {
+  position: absolute;
+  inset: 0;
+  z-index: 20; /* 高于大厅（3）与局内层（2）——模态跨场景常驻 */
+  display: grid;
+  place-items: center;
+}
+#modal-root[hidden] { display: none !important; }
+
+.modal-scrim {
+  position: absolute; inset: 0;
+  background: rgba(12, 10, 28, .62);
+  backdrop-filter: blur(3px);
+}
+
+/* 3D 奶油白圆角软胶卡片：顶部高光 + 柔和内阴影 → 软胶/果冻立体感 */
+.jelly-card {
+  position: relative;
+  width: min(86vw, 380px);
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 44px 20px 20px;
+  border-radius: 30px;
+  background: linear-gradient(170deg, #FFFDF8 0%, var(--cream) 46%, var(--cream-deep) 100%);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, .95),   /* 顶部高光 */
+    inset 0 -8px 18px rgba(186, 154, 108, .30), /* 底部柔和内阴影 */
+    0 16px 40px rgba(0, 0, 0, .48);
+  animation: jelly-in .28s cubic-bezier(.2, 1.3, .5, 1);
+}
+@keyframes jelly-in {
+  from { opacity: 0; transform: translateY(18px) scale(.94); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 琥珀金胶囊标题铭牌（替代天蓝圆弧顶盖） */
+.jelly-plaque {
+  position: absolute;
+  top: -17px; left: 50%;
+  transform: translateX(-50%);
+  padding: 7px 30px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--amber-hi), var(--amber) 58%, #C87F22);
+  border: 2px solid rgba(255, 255, 255, .82);
+  color: #4A2E08;
+  font-weight: 800;
+  font-size: clamp(15px, 4.2vw, 19px);
+  white-space: nowrap;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, .40), inset 0 1px 0 rgba(255,255,255,.72);
+}
+.jelly-subtitle {
+  margin: 0 0 12px;
+  text-align: center;
+  font-size: clamp(11px, 3.0vw, 13px);
+  color: #9A8464;
+}
+.jelly-body { display: flex; flex-direction: column; gap: 10px; }
+
+/* 设置行 */
+.jelly-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 15px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .68);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 2px 5px rgba(150, 120, 80, .14);
+  cursor: pointer;
+}
+.jelly-row.is-disabled { opacity: .62; cursor: default; }
+.jelly-row-label { flex: 1; font-size: clamp(13px, 3.6vw, 16px); color: #4A3A22; }
+.jelly-row-hint { font-size: clamp(10px, 2.8vw, 12px); color: #A08A68; }
+
+/* 棱晶圆角拨片开关（滑块态虹彩微光） */
+.prism-toggle {
+  position: relative;
+  width: 54px; height: 30px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #D8CBB8, #B9A88E);
+  box-shadow: inset 0 2px 5px rgba(90, 70, 40, .34);
+  transition: background .22s ease, box-shadow .22s ease;
+  flex: none;
+}
+.prism-toggle input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.prism-toggle-knob {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, #FFFFFF, #EFE4D2);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, .32);
+  transition: transform .22s cubic-bezier(.3, 1.4, .5, 1);
+}
+.prism-toggle.is-on {
+  background: linear-gradient(180deg, var(--prism-glow), var(--prism-violet));
+  box-shadow: inset 0 2px 5px rgba(52, 34, 96, .40), 0 0 12px rgba(201, 174, 255, .80);
+}
+.prism-toggle.is-on .prism-toggle-knob { transform: translateX(24px); }
+
+/* 昵称输入框 */
+.jelly-field { display: flex; align-items: center; gap: 10px; padding: 8px 4px; }
+.jelly-field-label { font-size: clamp(13px, 3.6vw, 16px); color: #4A3A22; }
+.jelly-input {
+  flex: 1;
+  padding: 9px 14px;
+  border: 2px solid rgba(232, 163, 61, .60);
+  border-radius: 14px;
+  background: #FFF;
+  font-size: clamp(13px, 3.6vw, 16px);
+  color: #3A2C16;
+  font-family: inherit;
+}
+.jelly-input:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 3px rgba(232,163,61,.22); }
+
+/* 萌宠头像选择网格（45 选 1） */
+.avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 7px;
+  margin: 4px 0 6px;
+}
+.avatar-cell {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 2.5px solid rgba(255, 255, 255, .78);
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #FFF, var(--prism-glow) 52%, var(--prism-violet));
+  overflow: hidden;
+  cursor: pointer;
+  display: grid; place-items: center;
+}
+.avatar-cell .pet-avatar-img,
+.avatar-cell .pet-avatar-emoji { width: 100%; height: 100%; object-fit: cover; font-size: 17px; line-height: 1; }
+.avatar-cell.is-selected {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 2px rgba(232, 163, 61, .45), 0 0 12px rgba(255, 217, 138, .90);
+}
+.avatar-tick {
+  position: absolute; right: -1px; bottom: -1px;
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  background: var(--amber);
+  color: #fff;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 15px;
+  text-align: center;
+  opacity: 0;
+}
+.avatar-cell.is-selected .avatar-tick { opacity: 1; }
+
+/* 按钮 */
+.jelly-btn {
+  padding: 12px;
+  border: none;
+  border-radius: 18px;
+  font-family: inherit;
+  font-size: clamp(14px, 3.8vw, 17px);
+  font-weight: 700;
+  cursor: pointer;
+}
+.jelly-btn-primary {
+  background: linear-gradient(180deg, #7FE0A8, var(--accent) 55%, #2E8C5D);
+  color: #06281A;
+  box-shadow: 0 4px 0 #256B47, 0 8px 16px rgba(0, 0, 0, .30);
+}
+.jelly-btn-secondary {
+  background: linear-gradient(180deg, #FFFFFF, #EFE2CC);
+  color: #5A4526;
+  box-shadow: 0 3px 0 #CDB894, 0 6px 12px rgba(0, 0, 0, .20);
+}
+.jelly-btn:active { transform: translateY(3px); }
