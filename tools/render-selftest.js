@@ -575,8 +575,6 @@ function scenarioBackdropStage() {
     /Math\.max\(2,\s*global\.devicePixelRatio\s*\|\|\s*1\)/.test(src));
   check('Bug B: 显式高质量插值（imageSmoothingQuality=high）',
     src.indexOf("imageSmoothingQuality = 'high'") !== -1);
-  check('Bug B: 棋盘正方形锁定（resize 回写 canvas.style 宽高）',
-    src.indexOf('canvas.style.height') !== -1);
 
   /* Δ15b3e（Bug A 修复）: Dock 与棋盘同源——DataURL 缓存 + canvas 兜底 */
   var BR = STM;
@@ -608,6 +606,34 @@ function scenarioBackdropStage() {
     boardRule.indexOf('backdrop-filter') === -1);
   check('Bug B: #board 底板透明（无灰白雾遮罩）',
     /background:\s*transparent/.test(boardRule));
+
+  /* Δ15b3f（回归守卫）: 棋盘尺寸负反馈棘轮——
+   * 原实现读 canvas.clientWidth 再写回 canvas.style.width，每次 refresh
+   * 掉 2~4px（实测 20 步 480px→176px）。三条铁律：
+   *   ① JS 侧绝不写 canvas.style.width/height
+   *   ② 尺寸来源只能是父容器 #board-wrap（canvas.parentElement）
+   *   ③ 正方形状由 CSS 的 aspect-ratio 单向声明。
+   * 断言在**剥离注释后**的源码上做——注释中引用了被禁的 API 名字，
+   * 直接 grep 会误判。 */
+  var srcCode = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  check('Δ15b3f: JS 不回写 canvas.style 宽高（切断尺寸负反馈棘轮）',
+    srcCode.indexOf('canvas.style.width') === -1 && srcCode.indexOf('canvas.style.height') === -1);
+  check('Δ15b3f: 尺寸来源为父容器 canvas.parentElement',
+    /var wrap = canvas\.parentElement/.test(srcCode));
+  check('Δ15b3f: 边长下限 280（防极小屏塌缩）',
+    /Math\.max\(280,\s*Math\.floor\(Math\.min\(/.test(srcCode));
+  check('Δ15b3f: setBitmapSize 幂等（尺寸未变直接返回，不重置画布）',
+    /side === lastSideCss/.test(srcCode));
+  check('Δ15b3f: 每帧 draw 开头绝对重置变换矩阵 setTransform',
+    /ctx\.setTransform\(1, 0, 0, 1, 0, 0\)/.test(srcCode));
+  check('Δ15b3f: 全文件无 ctx.scale 累加调用（变换只经 setTransform 绝对赋值）',
+    srcCode.indexOf('ctx.scale(') === -1);
+  check('Δ15b3f: #board CSS 正方形状由 aspect-ratio + width 声明',
+    /aspect-ratio:\s*1\s*\/\s*1/.test(boardRule) && /width:\s*calc\(100% - 12px\)/.test(boardRule));
+  check('Δ15b3f: #dock 固定死高度（chip 进出不挤压棋盘）',
+    /height:\s*clamp\(48px/.test((css.match(/#dock\s*\{[^}]*\}/) || [''])[0]));
+  check('Δ15b3f: #hud 固定死高度（combo 文案不撑大）',
+    /height:\s*clamp\(44px/.test((css.match(/#hud\s*\{[^}]*\}/) || [''])[0]));
 }
 
 /* ---- 主入口 ---- */
