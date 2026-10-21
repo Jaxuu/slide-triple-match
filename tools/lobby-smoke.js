@@ -333,13 +333,17 @@ async function main() {
       name: (b.querySelector('.portal-board-name')||{}).textContent,
       range: (b.querySelector('.portal-board-range')||{}).textContent,
       note: (b.querySelector('.portal-board-note-text')||{}).textContent,
+      noteLines: b.querySelectorAll('.portal-board-note-text').length,
       btn: (b.querySelector('.result-btn')||{}).textContent
     };
   })()`);
   check('J1 满充能 → 传送门展板出现', !!full.art);
   check('J2 时空传送门光柱', !!full.beam);
   check('J3 大陆名称', !!full.name, full.name);
-  check('J4 `关卡 X-Y` 徽章', full.range === '关卡 1-12', full.range);
+  /* Δ19：预告区指向**下一片**大陆（本次刚拼齐的是 bg1 = L1-12，
+   * 故预告徽章 MUST 为下一片的 `关卡 13-24`，而非刚完成的那一片） */
+  check('J4 `关卡 X-Y` 徽章指向下一片大陆', full.range === '关卡 13-24', full.range);
+  check('J5b 手账文案为两行', full.noteLines === 2, 'lines=' + full.noteLines);
   check('J5 萌宠探险手账文案', !!full.note && full.note.length > 4);
   check('J6 `继续` 按钮', full.btn === '继续', full.btn);
 
