@@ -56,6 +56,16 @@
     /* 奶油果冻软胶卡片（Δ17 共用视觉基底） */
     var card = h('div', 'jelly-card fail-card', r);
 
+    /* 右上角返回主大厅按钮（T074 ③「重新开始：重置本关（右上角提供返回主大厅
+     * 按钮）」）——置于**覆盖层**右上角（不放进卡片内，避免与居中的标题铭牌
+     * 重叠）；底部按钮区仍只有两个大按钮、无多余小字 */
+    var back = h('button', 'fail-back-lobby', r, '‹ 返回主大厅');
+    back.type = 'button';
+    back.setAttribute('aria-label', '返回主大厅');
+    back.addEventListener('click', function () {
+      if (opts.onLobby) opts.onLobby();
+    });
+
     /* ① 顶部: 温和鼓励文案（零倒计时——XX% 为通关率暗示值） */
     var plaque = h('div', 'jelly-plaque', card, '差一点就过关了！');
     plaque.classList.add('fail-plaque');
@@ -104,7 +114,6 @@
     });
     return card;
   }
-
   /* 余额不足提示（FR-041 §3：明确提示，不扣费） */
   function notifyInsufficient() {
     if (!visible) return;

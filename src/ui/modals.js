@@ -77,6 +77,15 @@
     body.className = 'jelly-body';
     card.appendChild(body);
 
+    /* 右上角圆润关闭按钮（ESC / 点遮罩 / 点此按钮 三条退出路径） */
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'jelly-close';
+    closeBtn.setAttribute('aria-label', '关闭');
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', close);
+    card.appendChild(closeBtn);
+
     r.appendChild(card);
     return { root: r, scrim: scrim, card: card, body: body };
   }
@@ -232,15 +241,17 @@
     nickWrap.appendChild(input);
     ui.body.appendChild(nickWrap);
 
-    /* ② 萌宠头像选择网格（45 选 1，选中打勾高亮） */
+    /* ② 萌宠头像选择网格（45 选 1，选中打勾高亮）
+     *    选中态暂存于 pendingAvatar —— 由底部「确认」按钮统一落库
+     *    （FR-040 §2：确认 = 保存点；关闭不落库） */
     var grid = document.createElement('div');
     grid.className = 'avatar-grid';
-    var cur = prof.avatar;
+    var pendingAvatar = prof.avatar;
     for (var bid = 0; bid <= 44; bid++) {
       (function (id) {
         var cell = document.createElement('button');
         cell.type = 'button';
-        cell.className = 'avatar-cell' + (id === cur ? ' is-selected' : '');
+        cell.className = 'avatar-cell' + (id === pendingAvatar ? ' is-selected' : '');
         cell.setAttribute('aria-label', '头像 ' + (id + 1));
         /* 复用已加载的 sheet1~3 切片（与大厅头像按钮/结算铭牌同源） */
         cell.innerHTML = STM.petAvatarHTML ? STM.petAvatarHTML(id) : '';
@@ -249,12 +260,11 @@
         tick.textContent = '✓';
         cell.appendChild(tick);
         cell.addEventListener('click', function () {
-          cur = P.setAvatar(id);
+          pendingAvatar = id;
           var all = grid.querySelectorAll('.avatar-cell');
           for (var i = 0; i < all.length; i++) {
             all[i].classList.toggle('is-selected', all[i] === cell);
           }
-          if (handlers.onChange) handlers.onChange();
         });
         grid.appendChild(cell);
       })(bid);
@@ -263,7 +273,14 @@
     /* Δ17: file:// 下 canvas 占位需补绘（否则头像网格全空白） */
     if (STM.paintAvatarCanvases) STM.paintAvatarCanvases(grid);
 
-    buildButton(ui.body, '完成', 'jelly-btn-primary', close);
+    /* 底部「确认」按钮：保存昵称 + 头像，并全局同步刷新所有引用处
+     * （大厅头像按钮 / 结算铭牌 / 失败页 / 传送门展板——单一数据源） */
+    buildButton(ui.body, '确认', 'jelly-btn-primary', function () {
+      commit();                          /* 提交输入框中尚未失焦的昵称 */
+      P.setAvatar(pendingAvatar);        /* 头像落库（确认 = 保存点） */
+      close();
+      if (handlers.onConfirm) handlers.onConfirm();
+    });
     return ui;
   }
 

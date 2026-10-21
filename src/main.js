@@ -139,8 +139,22 @@
       onChange: function () {
         /* 头像在所有引用处同步生效（单一数据源——大厅/结算/失败页） */
         if (onChange) onChange();
+      },
+      /* 「确认」= 保存点：全局刷新所有引用头像的地方 */
+      onConfirm: function () {
+        syncAvatarEverywhere();
       }
     });
+  }
+
+  /* 全局同步头像（大厅头像按钮 / 徽标探头 / 结算铭牌 / 失败页 / 传送门展板）
+   * —— 单一数据源（profile v2），零副本不同步（FR-040 §2） */
+  function syncAvatarEverywhere() {
+    try {
+      if (STM.Lobby && STM.Lobby.isVisible && STM.Lobby.isVisible()) {
+        STM.Lobby.refresh({ unlocked: progress.unlocked });
+      }
+    } catch (e) { /* 存储不可用 → 内存态照常（D-03） */ }
   }
 
   function boot() {
@@ -278,6 +292,48 @@
       d.getElementById('app').appendChild(t);
     }
     return t;
+  }
+
+  /* ---------- Δ18/T071: 棱晶飘字（`-50 💎` 扣费反馈） ----------
+   * 纯 DOM 飘字（一次性元素 + CSS 动画，动画结束自动移除）——
+   * 不复用 toast（toast 为居中横幅语义，与飘字不同）。 */
+  function spawnShardFloat(text, anchorEl) {
+    var d = global.document;
+    var app = d.getElementById('app');
+    if (!app) return null;
+    var f = d.createElement('div');
+    f.className = 'shard-float';
+    f.textContent = text;
+    f.setAttribute('aria-hidden', 'true');
+    /* 锚定道具按钮（无锚点则落在视口中下部） */
+    var x = 0, y = 0;
+    if (anchorEl && anchorEl.getBoundingClientRect) {
+      var r = anchorEl.getBoundingClientRect();
+      x = r.left + r.width / 2;
+      y = r.top;
+    } else {
+      x = (app.clientWidth || 360) / 2;
+      y = (app.clientHeight || 640) * 0.72;
+    }
+    f.style.left = x + 'px';
+    f.style.top = y + 'px';
+    app.appendChild(f);
+    /* 动画结束移除（animationend 为主，setTimeout 为兜底） */
+    var kill = function () {
+      if (f.parentNode) f.parentNode.removeChild(f);
+    };
+    if (f.addEventListener) f.addEventListener('animationend', kill, { once: true });
+    global.setTimeout(kill, 1400);
+    return f;
+  }
+
+  /* 余额不足 → 按钮轻晃（拒绝扣费、拒绝消耗——FR-041 §2） */
+  function shakeItemBtn(btnId) {
+    var btn = global.document.getElementById(btnId);
+    if (!btn) return;
+    btn.classList.remove('is-denied');
+    void btn.offsetWidth; /* 强制重排以重启动画 */
+    btn.classList.add('is-denied');
   }
 
   function showError(msg) {
@@ -599,10 +655,12 @@
   function buyItemAndUse(item, tileId) {
     if (!session || !STM.Profile) return false;
     var cost = ITEM_PRICE;
+    var btnId = item === 'undo' ? 'item-undo' : 'item-wrench';
     if (!STM.Profile.spendShards(cost)) {
-      /* 余额不足 → 明确提示，零扣费零消耗（余额恒 ≥0） */
+      /* 余额不足 → 明确提示，零扣费零消耗（余额恒 ≥0）+ 按钮轻晃 */
       toast('棱晶不足，需要 ' + cost + ' 💎');
       sound.play('blocked');
+      shakeItemBtn(btnId);
       return false;
     }
     var r = session.buyItemUse(item, tileId, cost);
@@ -610,6 +668,7 @@
       /* 生效失败 → 退还已扣的棱晶（扣费与生效必须原子，不得白扣） */
       STM.Profile.addShards(cost);
       toast('本次无法使用该道具');
+      shakeItemBtn(btnId);
       return false;
     }
     sound.play('match');
@@ -617,6 +676,8 @@
     renderDock();
     renderHud();
     renderItems();
+    /* 扣费飘字 `-50 💎`（锚定触发道具按钮） */
+    spawnShardFloat('-' + cost + ' 💎', global.document.getElementById(btnId));
     toast('已消耗 ' + cost + ' 💎 使用一次' + (item === 'undo' ? '撤回' : '扳手'));
     return true;
   }
@@ -664,6 +725,7 @@
       if (!STM.Profile || STM.Profile.get().shards < ITEM_PRICE) {
         toast('棱晶不足，需要 ' + ITEM_PRICE + ' 💎');
         sound.play('blocked');
+        shakeItemBtn('item-wrench');
         return;
       }
     }
@@ -1307,5 +1369,12 @@
     boot();
   }
 
-  STM.main = { boot: boot, loadLevel: loadLevel, session: function () { return session; }, progress: progress };
+  STM.main = {
+    boot: boot,
+    loadLevel: loadLevel,
+    enterGame: enterGame,   /* Δ18: 场景入口（大厅 → 局内）——供测试与深链复用 */
+    enterLobby: enterLobby, /* Δ18: 场景入口（局内 → 大厅） */
+    session: function () { return session; },
+    progress: progress
+  };
 })(typeof window !== 'undefined' ? window : globalThis);

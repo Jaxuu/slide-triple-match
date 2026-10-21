@@ -34,6 +34,18 @@
   var STAR_TICK_MS = 120;   /* 星盘辉光呼吸节拍 */
   var BUDGET_LETTERS = 24;  /* 预算提示（实现期自检用） */
 
+  /* 七彩切面棱晶 SVG（棱晶货币栏图标——程序化切面，零外部资源） */
+  var GEM_SVG =
+    '<svg class="lobby-gem" viewBox="0 0 32 32" aria-hidden="true">' +
+    '<polygon points="16,2 28,9 28,17 16,30 4,17 4,9" fill="#8F6FD6" opacity=".32"/>' +
+    '<polygon points="16,2 28,9 16,14" fill="#FF6B9D"/>' +
+    '<polygon points="16,2 16,14 4,9" fill="#FFC53D"/>' +
+    '<polygon points="4,9 16,14 9,30" fill="#7AE582"/>' +
+    '<polygon points="16,14 28,9 23,30" fill="#4CC8F5"/>' +
+    '<polygon points="9,30 16,14 23,30" fill="#A78BFA"/>' +
+    '<polygon points="16,2 22,5.5 16,9 10,5.5" fill="#FFFFFF" opacity=".9"/>' +
+    '</svg>';
+
   /* ---------- 运行时状态 ---------- */
   var root = null;          /* #lobby 根节点 */
   var bgCanvas = null;      /* 大厅背景画布（贴图或程序化兜底） */
@@ -78,7 +90,7 @@
     el.bgCanvas = root.querySelector('.lobby-bg');
     el.btnSettings = root.querySelector('.lobby-btn-settings');
     el.btnDebug = root.querySelector('.lobby-btn-debug');
-    el.shards = root.querySelector('.lobby-shards-value');
+    el.shardsValue = root.querySelector('.lobby-shards-value');
     el.portalName = root.querySelector('.portal-plaque-name');
     el.portalProg = root.querySelector('.portal-plaque-prog');
     el.btnPrev = root.querySelector('.portal-nav-prev');
@@ -87,6 +99,7 @@
     el.btnLevelText = root.querySelector('.lobby-btn-level-text');
     el.btnAvatar = root.querySelector('.lobby-avatar');
     el.nick = root.querySelector('.lobby-nick');
+    el.brandPet = root.querySelector('.lobby-brand-pet');
     el.chips = Array.prototype.slice.call(root.querySelectorAll('.portal-chip'));
     chipCanvases = [];
     for (var i = 0; i < el.chips.length; i++) {
@@ -117,23 +130,41 @@
     bDebug.setAttribute('aria-label', '调试面板开关');
     bDebug.textContent = '🛠';
 
-    /* ③ 顶部右区: 棱晶货币栏 */
+    /* ③ 顶部右区: 棱晶货币栏（深色磨砂胶囊 + 七彩切面棱晶 SVG） */
     var topR = h('div', 'lobby-zone lobby-zone-topright', r);
     var shardBar = h('div', 'lobby-shards', topR);
     shardBar.setAttribute('aria-label', '棱晶余额');
-    h('span', 'lobby-shards-icon', shardBar).textContent = '💎';
+    var gemWrap = h('span', 'lobby-shards-icon', shardBar);
+    gemWrap.innerHTML = GEM_SVG;
     h('span', 'lobby-shards-value', shardBar).textContent = '0';
 
     /* ④ 中上区: Glide Critters 原创 3D 浮雕徽标
-     *    原创性红线（FR-039 §4）: MUST NOT 抄袭外部竞品地球仪/小鸟构图 */
+     *    原创性红线（FR-039 §4）: MUST NOT 抄袭外部竞品地球仪/小鸟构图
+     *    双层立体 3D 卡通字: Glide = 琥珀暖金渐变立体字;
+     *    Critters = 薄荷翠绿胶囊底托字。两侧舒展纯白「滑行风翼」+ 棱镜星芒;
+     *    玩家选中的 3D 萌宠头像从标题上方探出并随呼吸轻微浮动。 */
     var midT = h('div', 'lobby-zone lobby-zone-midtop', r);
     var brand = h('div', 'lobby-brand', midT);
-    brand.innerHTML =
-      '<span class="lobby-brand-wing" aria-hidden="true"></span>' +
-      '<span class="lobby-brand-name">Glide Critters</span>' +
-      '<span class="lobby-brand-wing" aria-hidden="true"></span>';
+    /* 棱镜星芒（徽标背后的方向星芒装饰） */
+    h('span', 'lobby-brand-burst', brand).setAttribute('aria-hidden', 'true');
+    /* 左侧纯白滑行风翼 */
+    var wingL = h('span', 'lobby-brand-wing lobby-brand-wing-l', brand);
+    wingL.setAttribute('aria-hidden', 'true');
+    /* 玩家萌宠从标题上方探出（呼吸浮动） */
     var pet = h('span', 'lobby-brand-pet', brand);
     pet.setAttribute('aria-hidden', 'true');
+    /* 双层立体字: Glide（琥珀暖金渐变）+ Critters（薄荷翠绿胶囊底托）
+     *    —— .lobby-brand-name 为整体容器（文案 = "Glide Critters"） */
+    var nameWrap = h('span', 'lobby-brand-name', brand);
+    var wordGlide = h('i', 'lobby-brand-glide', nameWrap);
+    wordGlide.textContent = 'Glide';
+    /* 词间空格（纯空白文本节点——flex 布局忽略它，但保持整体文案 = "Glide Critters"） */
+    nameWrap.appendChild(d.createTextNode(' '));
+    var wordCritters = h('i', 'lobby-brand-critters', nameWrap);
+    wordCritters.textContent = 'Critters';
+    /* 右侧纯白滑行风翼 */
+    var wingR = h('span', 'lobby-brand-wing lobby-brand-wing-r', brand);
+    wingR.setAttribute('aria-hidden', 'true');
 
     /* ⑤ 中心区: 【棱晶星盘 / 时空传送门】(Δ17) —— 齿轮+风翼纹饰底座
      *    + 2×2 能量晶片 + 顶部悬浮胶囊铭牌 + 左右切换 */
@@ -504,20 +535,20 @@
       prog = pp[idx - 1] || 0;
     }
     var range = (P && P.PAINTING_RANGES && P.PAINTING_RANGES[idx - 1]) || [1, 12];
-    /* 困难位关（每第 3 关）逐块点亮 → 第 k 块的解锁关卡 = range[0] + 3*(k-1) */
-    var nextLevel = null;
-    if (prog < 4) nextLevel = range[0] + prog * 3;
-    return { progress: prog, range: range, nextLevel: nextLevel, index: idx };
+    return { progress: prog, range: range, index: idx };
   }
 
-  /* 已唤醒（至少点亮 1 块）的大陆索引列表——左右切换只在其中循环 */
-  function awakenedList() {
-    var P = STM.Profile;
-    if (!P) return [1];
-    var pp = P.get().paintingProgress || [];
-    var list = [];
-    for (var i = 0; i < 6; i++) if ((pp[i] || 0) > 0) list.push(i + 1);
-    return list.length ? list : [1];
+  /* 第 q 块晶片的充能关卡（逐块独立——各晶片标注自己的充能关卡）。
+   * 困难位关 = 每第 3 关（L3/L6/L9/L12…）→ 第 q 块 = range[0] + 2 + 3*q
+   * 例：第 1 大陆 → L3 / L6 / L9 / L12 */
+  function chargeLevelOf(st, quad) {
+    return st.range[0] + 2 + 3 * quad;
+  }
+
+  /* 可翻阅的大陆索引列表——Δ18: 全部 6 大奇幻大陆均可翻阅
+   * （旧口径为「仅已唤醒的大陆」，本轮按最新需求放开为全量 6 大陆） */
+  function browsableList() {
+    return [1, 2, 3, 4, 5, 6];
   }
 
   function renderChips() {
@@ -527,11 +558,13 @@
       var lit = q < st.progress; /* 点亮顺序 = 象限顺序 0→3（节奏确定性） */
       chip.classList.toggle('is-lit', lit);
       chip.classList.toggle('is-blind', !lit);
+      /* 第 4 块（q === 3）= 满充能大奖位——额外挂 is-bonus 标记 */
+      chip.classList.toggle('is-bonus', q === 3);
       drawChip(chipCanvases[q], browsingIdx, q, lit);
       var cap = chip.querySelector('.portal-chip-caption');
       if (cap) {
-        /* 未点亮标注解锁关卡；已点亮留空（不遮挡图景） */
-        cap.textContent = lit ? '' : (st.nextLevel ? '解锁 L' + st.nextLevel : '');
+        /* 未点亮标注充能关卡；已点亮留空（不遮挡图景） */
+        cap.textContent = lit ? '' : chipCaption(q, st);
       }
     }
     /* 顶部悬浮胶囊铭牌：大陆名称 + 充能进度 */
@@ -540,16 +573,25 @@
     if (el.portalName) el.portalName.textContent = name;
     if (el.portalProg) el.portalProg.textContent = st.progress + '/4';
 
-    /* 左右切换可用性：已唤醒大陆数 ≤1 时禁用 */
-    var list = awakenedList();
+    /* 左右切换可用性：Δ18 起 6 大大陆恒可翻阅 → 箭头恒可用 */
+    var list = browsableList();
     var canSwitch = list.length > 1;
     if (el.btnPrev) el.btnPrev.disabled = !canSwitch;
     if (el.btnNext) el.btnNext.disabled = !canSwitch;
   }
 
+  /* 未点亮晶片的标注文案（逐块独立——各晶片标注自己的充能关卡）：
+   *   · 第 q 块 → `第 X 关充能`（X = 点亮该块的困难位关卡号）
+   *   · 第 4 块（q=3）→ 额外追加满充能大奖预览 `💎 ×150` */
+  function chipCaption(quad, st) {
+    var lv = chargeLevelOf(st, quad);
+    if (quad === 3) return '第 ' + lv + ' 关充能 · 💎 ×150';
+    return '第 ' + lv + ' 关充能';
+  }
+
   /* 左右切换：在已唤醒大陆之间循环（Δ17 新增浏览语义） */
   function stepPainting(dir) {
-    var list = awakenedList();
+    var list = browsableList();
     if (list.length <= 1) return;
     var pos = list.indexOf(browsingIdx);
     if (pos < 0) { browsingIdx = list[0]; renderChips(); return; }
@@ -568,9 +610,26 @@
     var P = STM.Profile;
     if (!P) return;
     var prof = P.get();
-    if (el.shards) el.shards.textContent = String(prof.shards);
     if (el.btnDebug) el.btnDebug.classList.toggle('is-on', debugOpenState);
     if (el.nick) el.nick.textContent = prof.nickname;
+    /* 棱晶余额 + 数量弹跳动效（余额变化时触发一次——纯 CSS 动画，零 JS 计时器） */
+    if (el.shardsValue) {
+      var cur = String(prof.shards);
+      el.shardsValue.textContent = cur;
+      if (el.shardsValue.getAttribute('data-val') !== cur) {
+        el.shardsValue.setAttribute('data-val', cur);
+        el.shardsValue.classList.remove('is-bump');
+        /* 强制重排以重启动画（改 class 不生效时用偏移量触发） */
+        void el.shardsValue.offsetWidth;
+        el.shardsValue.classList.add('is-bump');
+      }
+    }
+    /* 徽标处萌宠探头（当前选中的 3D 萌宠切片——与头像按钮同源） */
+    if (el.brandPet && STM.petAvatarHTML) {
+      el.brandPet.innerHTML = STM.petAvatarHTML(prof.avatar);
+      /* Δ17: file:// 下 toDataURL 不可用 → canvas 占位需补绘（否则空白） */
+      if (STM.paintAvatarCanvases) STM.paintAvatarCanvases(el.brandPet);
+    }
     if (el.btnAvatar) {
       var img = el.btnAvatar.querySelector('.lobby-avatar-img');
       /* 头像切片复用已加载的 sheet1~3（FR-040 §2）——与档案弹窗同源 */
@@ -632,12 +691,12 @@
      * clientWidth/Height；hidden 态下布局盒为 0，画布无从绘制。 */
     r.hidden = false;
     visible = true;
-    /* 默认选中当前关归属的大陆（FR-044 §5） */
+    /* 默认选中当前关归属的大陆（FR-044 §5）——Δ18 起左右可翻阅全部 6 大陆，
+     * 默认落点仍为「当前所在关归属的大陆」 */
     var cur = paintingState(browsingIdx);
     if (cur.progress === 0) {
       var want = STM.Backdrops && STM.Backdrops.paintingOf ? STM.Backdrops.paintingOf(opts.level || 1) : 1;
-      var list = awakenedList();
-      browsingIdx = list.indexOf(want) >= 0 ? want : list[0];
+      browsingIdx = Math.min(6, Math.max(1, want));
     }
     bindEvents(opts.handlers);
     if (typeof opts.debugOpen === 'boolean') debugOpenState = opts.debugOpen;
@@ -703,6 +762,6 @@
     refresh: refresh,
     isVisible: function () { return visible; },
     paintingState: paintingState,
-    awakenedList: awakenedList
+    browsableList: browsableList
   };
 })(typeof window !== 'undefined' ? window : globalThis);

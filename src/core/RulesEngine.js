@@ -830,8 +830,10 @@
       return { events: events, removed: 0, suits: [] };
     }
 
-    /* ② 每个花色取够 3 块：Dock 滞留块优先，差额由板面同花色配对块补足；
-     *    板面不足 3 时取该花色全部可用块（成组消除，不留非 3 倍数余数） */
+    /* ② 每个花色取够 3 块：Dock 滞留块优先，差额由板面**存活**同花色配对块
+     *    补足；板面不足 3 时取该花色全部存活块（成组消除，不留非 3 倍数余数）。
+     *    板面候选 MUST 过滤 `removed` —— 已飞出棋盘的滑块不在板上，
+     *    选中它们会既不消块也不消除（幽灵块）并破坏花色守恒。 */
     var removedIds = [];
     var removedTiles = [];
     for (var k = 0; k < suits.length; k++) {
@@ -842,12 +844,14 @@
       for (i = 0; i < state.dock.length; i++) {
         if (state.dock[i].s === suit && ids.length < MATCH_N) ids.push(state.dock[i].id);
       }
-      /* 差额由板面补足 */
+      /* 差额由板面补足（仅存活块——`removed` 者已不在棋盘上） */
       if (ids.length < MATCH_N) {
         for (i = 0; i < state.tiles.length; i++) {
-          if (state.tiles[i].s === suit && ids.length < MATCH_N) {
-            ids.push(state.tiles[i].id);
-            tiles.push(state.tiles[i]);
+          var bt = state.tiles[i];
+          if (bt.removed) continue;
+          if (bt.s === suit && ids.length < MATCH_N) {
+            ids.push(bt.id);
+            tiles.push(bt);
           }
         }
       }
@@ -860,11 +864,31 @@
       removedTiles = removedTiles.concat(tiles);
     }
 
-    /* ③ 板面移除被净化的配对块（按 id 建索引表，保证 O(n)） */
+    /* ③ 板面移除被净化的配对块。
+     *    铁律：`state.tiles` 的**数组下标 == 滑块 id**（init 阶段按 TileSpec
+     *    顺序建表，canTap/applyTap/restore 均以 `tiles[id]` 寻址）。故此处
+     *    MUST NOT 用 `filter` 压缩数组——那会让下标与 id 脱钩，导致复活后
+     *    玩家点击命中**错误**的滑块，且 `tiles[id]` 越界取到 undefined。
+     *    正确做法 = 原地置 `removed` 标记（与 removeFromBoard 同构），
+     *    数组长度与下标恒定不变。 */
     if (removedTiles.length) {
-      var kill = {};
-      for (i = 0; i < removedTiles.length; i++) kill[removedTiles[i].id] = true;
-      state.tiles = state.tiles.filter(function (t) { return !kill[t.id]; });
+      for (i = 0; i < removedTiles.length; i++) removedTiles[i].removed = true;
+    }
+
+    /* ③b 同步维护 `state.board[r][c]` 栈数组。
+     *    `board` 是射线阻挡 / 栈顶判定的**唯一事实源**（castRay、isTopOfStack
+     *    均读它）。若只置 `removed` 而不从栈里摘除，被净化的滑块会继续
+     *    挡光、继续占据栈顶 → 复活后大量滑块变成「点不动的死块」。
+     *    栈内摘除后若该格空了，须把 board[r][c] 置 null（与 removeFromBoard
+     *    的口径一致，否则空数组会被 castRay 当作有效占格）。 */
+    for (i = 0; i < removedTiles.length; i++) {
+      var rt = removedTiles[i];
+      var cell = state.board[rt.r] && state.board[rt.r][rt.c];
+      if (!cell || !cell.length || cell.prism) continue;
+      for (var ci = 0; ci < cell.length; ci++) {
+        if (cell[ci] === rt) { cell.splice(ci, 1); break; }
+      }
+      if (!cell.length) state.board[rt.r][rt.c] = null;
     }
 
     /* ④ 腾空 Dock */
