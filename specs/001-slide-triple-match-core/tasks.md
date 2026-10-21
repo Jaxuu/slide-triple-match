@@ -2,7 +2,9 @@
 description: "Task list for feature implementation（四里程碑门禁式）"
 ---
 
-# Tasks: Slide & Triple（滑块三消）— 完整 H5 游戏与 60 关递进关卡系统（Δ13 扩容后）
+# Tasks: Slide & Triple（滑块三消）— 完整 H5 游戏与 72 关递进关卡系统（Δ16 扩容后）
+
+> ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: 关卡总数 60→72 扩容 + 三大阶段重划为 24/24/24 + 6 幅风景画卷 × 12 关拼图节奏 + 背景贴图口径由 bg{1..20}/20 景重排为 bg{1..6}/6 幅；新增 US6 与 FR-038~FR-044——HooLey 开机动画、Glide Critters 主大厅、设置/个人信息弹窗、棱晶经济与局内道具购买闭环、通关结算与画卷解锁展板、失败与棱晶复活界面、画卷拼图进度系统；新增 SC-009~SC-011、实体×4、Edge Cases 与假设若干). Run `/speckit.refine.propagate` to update this task list.
 
 > **Propagated**: 2026-10-20 — Δ14（US5《万物出发！》）refine 传播：插入 Phase 5.5 / Milestone 3.5（T052a~T052f 表现层任务组）+ 门禁表/依赖图/故事映射同步；**已勾选的 Phase 1~Phase 5（T001~T052）任务零改动**，Phase 6（T053~T059）与 Phase 7 顺延保留在后。原 refine 指令的 Δ7~Δ10 编号与实现期变更记录冲突，编入 Δ14a~Δ14d（见 plan.md 传播注记）。
 

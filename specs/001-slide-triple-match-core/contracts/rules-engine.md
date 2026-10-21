@@ -1,5 +1,7 @@
 # Contract: RulesEngine（前后端共用纯函数规则引擎）
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: **FR-043 §3 棱晶复活需新增"净化消除"规则语义（Dock 滞留滑块 + 板面同花色配对块成组消除、恢复生命值）——本契约为 RulesEngine 唯一潜在变更点**；FR-032 前后端口径一致铁律不破：FR-041 §4 棱晶/拼图进度/玩家档案均为独立于关卡数据的本地持久化状态，RulesEngine 判定语义除复活净化外零变化)。Run `/speckit.refine.propagate` to update this document.
+
 > ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——图鉴/背景/横幅/BGM 均为渲染与音频层，FR-033 §5 明确 RulesEngine 以 suit 整数为准、口径不变；预期无接口变更，propagate 时复核)；Δ15: 空间聚散度为生成/验证层指标，RulesEngine 口径零变化（贴图/Emoji/聚散度均不改 suit 整数判定）；预期无接口变更，propagate 时复核。Run `/speckit.refine.propagate` to update this document.
 
 **Feature**: `001-slide-triple-match-core` | **文件**: `src/core/RulesEngine.js` | **加载方**: 浏览器（classic script → `STM.RulesEngine`）+ Node（`require`，UMD 双导出，D-02）

@@ -1,5 +1,7 @@
 # Contract: Level Pipeline（离线关卡流水线）
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: **tools/expand-60.js 需扩展以尾部增量生成 L61~L72 共 12 关（既有 60 关零改写）**；Solver 验证报告口径 60/60→72/72；Generator 沿用 FR-008 后期档位参数；FR-029 §4 聚散度末档延展至 L72)。Run `/speckit.refine.propagate` to update this document.
+
 > ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——FR-033 §3 明确图鉴为纯渲染层映射、levels.js 不变更，流水线无重生成需求；预期无接口变更，propagate 时复核)；Δ15: FR-029/FR-030 Generator 花色分配新增空间打散三档曲线与 Solver 聚散度核验指标、重打散迁移工具需求（对既有 60 关执行一次性迁移 + 全量重验证）。Run `/speckit.refine.propagate` to update this document.
 
 **Feature**: `001-slide-triple-match-core` | **文件**: `tools/level-config.js`, `tools/generator.js`, `tools/solver.js` | **运行环境**: Node ≥ 18（CommonJS，零 npm 依赖——宪章 II：Node 仅限此二工具 + 配置）

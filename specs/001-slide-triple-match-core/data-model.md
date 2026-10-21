@@ -1,6 +1,6 @@
 # Data Model: Slide & Triple（滑块三消）
 
-> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5 新增实体 Bestiary Entry / Eco Background / Stage Suit Mapping——FR-033~037；Δ15: FR-033 §6/FR-035 §3 实体渲染来源链改外部贴图→Emoji/程序化双兜底、新增 Spatial Dispersion Profile 实体、Solver Report 增列聚散度指标；Bestiary 条目 Canvas 程序化主载体地位移除)。Run `/speckit.refine.propagate` to update this document.
+> ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: 新增实体 Painting Progress / Prism Balance / Player Profile；Level 与 Solver Report 实体口径由 60 关改为 72 关；Eco Background 实体由 20 景重排为 6 幅画卷 × 12 关；Stage Suit Mapping 阶段边界重划为 L1~24 / L25~48 / L49~72；Spatial Dispersion Profile 末档延展至 L72)。Run `/speckit.refine.propagate` to update this document.
 
 **Feature**: `001-slide-triple-match-core` | **Phase**: 1 | **Date**: 2026-10-17
 
