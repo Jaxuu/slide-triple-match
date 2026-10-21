@@ -857,6 +857,31 @@
     }
   }
 
+  /* 整幅画卷绘制（Δ17/T073 传送门开启展板）——cover 铺满到目标矩形。
+   * 与 drawQuadrant 区分: 本函数画**整幅**，用于全屏展板的大陆全貌；
+   * drawQuadrant 画 2×2 中的**单块象限**，用于星盘晶片。
+   * cover 口径与 drawBackdrop 一致（短边铺满 + 居中裁切）。 */
+  function drawWhole(ctx, paintingIdx, dx, dy, dw, dh) {
+    if (!ctx || typeof ctx.drawImage !== 'function') return false;
+    var ci = (Math.min(6, Math.max(1, paintingIdx | 0)) - 1) * 4;
+    var rec = probeBgImage(ci);
+    if (!rec || rec.state !== 'ready' || !rec.img) return false;
+    try {
+      var iw = rec.img.naturalWidth || rec.img.width;
+      var ih = rec.img.naturalHeight || rec.img.height;
+      if (!(iw > 0) || !(ih > 0)) return false;
+      /* cover: 源图按比例放大到覆盖 dw×dh，多余部分居中裁掉 */
+      var scale = Math.max(dw / iw, dh / ih);
+      var sw = dw / scale, sh = dh / scale;      /* 可见的源图区域 */
+      var sx = (iw - sw) / 2, sy = (ih - sh) / 2;
+      ctx.drawImage(rec.img, sx, sy, sw, sh, dx, dy, dw, dh);
+      return true;
+    } catch (errW) {
+      rec.state = 'failed';
+      return false;
+    }
+  }
+
   STM.Backdrops = {
     SCENES: SCENES,
     cycleIndexOf: cycleIndexOf,
@@ -864,6 +889,7 @@
     drawBackdrop: drawBackdrop,
     drawBackdropAnim: drawBackdropAnim,
     drawQuadrant: drawQuadrant,
+    drawWhole: drawWhole,
     bgImageIndexOf: bgImageIndexOf,
     probeBgImage: probeBgImage,
     onBgReady: onBgReady

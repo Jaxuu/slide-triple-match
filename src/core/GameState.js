@@ -300,6 +300,23 @@
       return { ok: true, result: r, cost: cost };
     }
 
+    /* ---- Δ16g/T074: 棱晶复活（成组净化消除，FR-043 §3/§4） ----
+     * 语义: Dock 全部滞留滑块 + 板面同花色配对块成组消除（恒为 3 的倍数）
+     * → 腾空 Dock → 恢复 3 生命 → 续局（**不重置棋盘**）。
+     * 与 Solver 共用 RE.applyPurify（FR-032 铁律不破）。 */
+    function purify() {
+      var res = RE.applyPurify(engine);
+      var i;
+      for (i = 0; i < res.events.length; i++) emit(res.events[i]);
+      /* rail 失效（净化改变了板面与 Dock —— 保守置 off） */
+      onRail = false;
+      /* 复活后回到可操作态（此前为 LOST_* —— 终局态须重新开闸） */
+      phase = PHASE.READY;
+      emitPhase();
+      emit({ e: 'purify', removed: res.removed, suits: res.suits });
+      return res;
+    }
+
     /* ---- 引擎态直访（Renderer 轮询用） ---- */
     function engineState() { return engine; }
 
@@ -308,6 +325,7 @@
       tap: tap,
       useItem: useItem,
       buyItemUse: buyItemUse,
+      purify: purify,
       reset: reset,
       state: state,
       onRail: onRailCheck,
