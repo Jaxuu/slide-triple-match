@@ -9,16 +9,16 @@
  *     · L1 固定 5×5（新手引导: 底层满铺 + 局部 2 层堆叠, 27 或 30 块）
  *     · L2 固定 6×6（进阶过渡: 底层满铺 + 2 层堆叠, 42 或 45 块）
  *     · L3 = 新手循环 1 的困难关（7×7, z0 满铺 + 局部 2~3 层, 54~60 块, 无机关）
- *     · L4~L60 = 循环 2~20, 严格「2 简 1 难」波浪（7×7/7×7/8×8）:
- *       挑战位 = (levelId-4) % 3 === 2（L6/L9/…/L51/L54/L57/L60 共 19 个 8×8）
+ *     · L4~L72 = 循环 2~24, 严格「2 简 1 难」波浪（7×7/7×7/8×8）:
+ *       挑战位 = (levelId-4) % 3 === 2（L6/L9/…/L72 共 23 个 8×8; 加 L3 硬编码位 = 24 个挑战位关）
  *   纵向难度演进（L1→L60 总体稳步提高, 覆盖局部波浪）:
  *     · 前期 L4~16: 堆叠 2~3 层（7×7 约 54~63 块, 8×8 约 69~78 块）
  *     · 中期 L17~36: 堆叠 3~4 层（7×7 约 63~75 块, 8×8 约 78~90 块）
- *     · 后期 L37~60: 最高 5 层 z=0..4（7×7 约 72~84 块, 8×8 87~105 块）
+ *     · 后期 L37~72: 最高 5 层 z=0..4（7×7 约 72~84 块, 8×8 87~105 块）
  *   机制引入: gear L7+ / ice L12+ / chain L22+ / prism L32+（Δ13: 原 L6/L11/L21/L31
  *   随 +1 平移——与拼接数据一致; 新手循环 1（L1~L3）零机关）
  *   花色: 7×7 简单关较低（3~7）, 8×8 挑战关较高（最高 8）, 随关号递增
- *   章区间（Δ13 3×20 大阶段）: ch1 L1-20 / ch2 L21-40 / ch3 L41-60
+ *   章区间（Δ16 3×24 大阶段）: ch1 L1-24 / ch2 L25-48 / ch3 L49-72
  *   注: 拼接交付物中 damageOnBlock 实际自新 L17 起（原 L16 平移的历史批次痕迹;
  *   本章表描述全新再生成口径——ch1 全 false）
  * ========================================================= */
@@ -27,7 +27,7 @@
 var CHAPTERS = [
   {
     id: 1,
-    levels: [1, 20],
+    levels: [1, 24],   /* Δ16a: 3×24 大阶段（Δ13 原 [1,20]） */
     /* 网格由 waveGrid() 铁律决定（L1=5×5, L2=6×6, L3=新手难关 7×7, L4+ 7/7/8 波浪）——grid 字段为
      * 兼容旧字段保留（L2 之前插值用），实际 n 以 waveGrid 输出为准 */
     grid: [5, 6],
@@ -46,7 +46,7 @@ var CHAPTERS = [
   },
   {
     id: 2,
-    levels: [21, 40],
+    levels: [25, 48],  /* Δ16a: 3×24 大阶段（Δ13 原 [21,40]） */
     grid: [7, 8],
     suits: [5, 7],
     tiles: [63, 90],
@@ -63,7 +63,7 @@ var CHAPTERS = [
   },
   {
     id: 3,
-    levels: [41, 60],
+    levels: [49, 72],  /* Δ16a: 3×24 大阶段（Δ13 原 [41,60]） */
     grid: [7, 8],
     suits: [6, 8],
     tiles: [72, 105],
@@ -102,12 +102,12 @@ var SCORE_WEIGHTS = {
  *   完全分散 = 两两曼哈顿 ≥2
  * 档位（trip = 三连簇占比上限; pair = 双连坐目标占比带;
  *   minPairMin/minPairMax = 同花色三元组两两最小曼哈顿距离达标下限——
- *   L22~L60 恒 ≥2、8×8 关优先 ≥3）
+ *   L22~L72 恒 ≥2、8×8 关优先 ≥3）
  * ========================================================= */
 var DISPERSION_TIERS = [
   { from: 1,  to: 6,   tripMax: 0.15, pairMin: 0.20, pairMax: 0.50, minPairMin: 1, minPairMax: 2 },
   { from: 7,  to: 21,  tripMax: 0.05, tripMaxPerLevel: 1, pairMin: 0.15, pairMax: 0.30, minPairMin: 2, minPairMax: 3 },
-  { from: 22, to: 60,  tripMax: 0,    pairMin: 0.00, pairMax: 0.15, minPairMin: 2, minPairMax: 3 }
+  { from: 22, to: 72,  tripMax: 0,   /* Δ16a: 末档延展至 L72（FR-029 §4 三连簇 0%） */    pairMin: 0.00, pairMax: 0.15, minPairMin: 2, minPairMax: 3 }
 ];
 
 /* Δ15a/FR-029 §5: 聚散度档位结构极限白名单（可解性不降级铁律优先）——
@@ -123,7 +123,7 @@ var DISPERSION_TIERS = [
  *       不可达; 200 种子最优 1 簇 = 1/24 = 4.2%） */
 var DISPERSION_STRUCTURAL_LIMITS = [1, 2, 41];
 
-/* Δ15a: 按 levelId 取聚散度档位（L1~L6 / L7~L21 / L22~L60） */
+/* Δ15a/Δ16a: 按 levelId 取聚散度档位（L1~L6 / L7~L21 / L22~L72） */
 function dispersionTierOf(levelId) {
   for (var i = 0; i < DISPERSION_TIERS.length; i++) {
     if (levelId >= DISPERSION_TIERS[i].from && levelId <= DISPERSION_TIERS[i].to) return DISPERSION_TIERS[i];
@@ -158,7 +158,7 @@ if (vErrs.length) {
 /* ---------- Δ13 网格铁律（waveGrid）----------
  * L1 = 5×5; L2 = 6×6; L3 = 7×7（新手循环 1 的困难关）;
  * L4+ = 3 关一循环（(id-4)%3===2 → 8×8 挑战关, 否则 7×7 简单关）
- * 挑战位: L6, L9, …, L51（= 原 L5/L8/…/L50 平移 +1）+ L54, L57, L60（循环 18~20） */
+ * 挑战位: L6, L9, …, L72（Δ16a 扩容后 23 个 8×8 位 + L3 硬编码位） */
 function waveGrid(levelId) {
   if (levelId === 1) return 5;
   if (levelId === 2) return 6;
@@ -171,13 +171,13 @@ function wavePos(levelId) {
   return (levelId - 4) % 3;
 }
 
-/* ---------- Δ13 tiles 预算（waveTiles）----------
+/* ---------- Δ13/Δ16a tiles 预算（waveTiles）----------
  * 阶段表（7×7 / 8×8 双轨）: 依 levelId 取阶段基准区间 + 关内渐进。
  * 恒对齐 3 的倍数; z=0 满铺铁律要求 tiles ≥ n*n - prisms。
  *   新 L3: 57（7×7 底 49 + 叠 8, 新手循环 1 的困难关）
  *   前期 L4~16:  7×7 [54,63]   8×8 [69,78]
  *   中期 L17~36: 7×7 [63,75]   8×8 [78,90]
- *   后期 L37~60: 7×7 [72,84]   8×8 [87,105]
+ *   后期 L37~72: 7×7 [72,84]   8×8 [87,105]（Δ16: L61~L72 沿用本档）
  * L1 = 27 或 30（5×5 底 25 + 叠 2~5）; L2 = 42 或 45（6×6 底 36 + 叠 6~9） */
 function waveTiles(levelId) {
   if (levelId === 1) return 30;   /* 5×5: 底 25 + 叠 5（新手引导, 局部 2 层） */
@@ -192,7 +192,7 @@ function waveTiles(levelId) {
   /* 关内渐进: 周期位置（简1→简2→挑战）+ 全局 frac 线性抬升; 档差拉大——
    * 简单关取区间低位（0.0~0.35）挑战关高位（0.6~1.0+0.15 抬升）→
    * 波浪锯齿显著性（简/难档 difficultyScore 分离，曲线门-3） */
-  var frac = (levelId - 4) / 56; /* 0..1 全局进度（L4~L60） */
+  var frac = (levelId - 4) / 68; /* 0..1 全局进度（L4~L72——Δ16a 扩容后全域） */
   var v = lo + (hi - lo) * (isChallenge ? (0.6 + 0.4 * frac) : (0.0 + 0.35 * frac));
   /* 挑战关再抬一档（阶段内偏上界）; 简单关取低位 */
   if (isChallenge) v += (hi - lo) * 0.15;
@@ -200,8 +200,8 @@ function waveTiles(levelId) {
   return Math.round(v / 3) * 3;
 }
 
-/* ---------- Δ13 zMax（waveZMax）----------
- * 新 L3 = 3; 前期 L4~16 = 2~3 / 中期 L17~36 = 3~4 / 后期 L37~60 = 4~5;
+/* ---------- Δ13/Δ16a zMax（waveZMax）----------
+ * 新 L3 = 3; 前期 L4~16 = 2~3 / 中期 L17~36 = 3~4 / 后期 L37~72 = 4~5;
  * 挑战关偏高, 简单关偏低; L1/L2 = 2 */
 function waveZMax(levelId) {
   if (levelId <= 2) return 2;

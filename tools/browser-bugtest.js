@@ -140,9 +140,17 @@ async function main() {
     await sleep(1200);
   }
 
-  /* 4. 页面就绪探针 */
-  var probe = await c.send('Runtime.evaluate', { expression:
-    'typeof STM === "object" && STM.main && STM.main.session ? "READY" : "NOT_READY"', returnByValue: true });
+  /* 4. 页面就绪探针
+   * Δ16d: 开机动画 2.0s + 淡出 0.38s 后才载入关卡（FR-038 时序）——改为轮询
+   * 真实就绪信号 STM.main.session() 返回真会话（STM.main.session 恒为函数
+   * 对象，真值性判断在关卡未载入时亦为真，会误报 READY） */
+  var READY_EXPR = '(function(){try{return (typeof STM === "object" && STM.main && STM.main.session && STM.main.session()) ? "READY" : "NOT_READY";}catch(e){return "NOT_READY";}})()';
+  var probe = { result: { value: 'NOT_READY' } };
+  for (var wp = 0; wp < 160; wp++) {
+    probe = await c.send('Runtime.evaluate', { expression: READY_EXPR, returnByValue: true });
+    if (probe.result.value === 'READY') break;
+    await sleep(50);
+  }
   console.log('page state:', probe.result.value, '| level:', LEVEL, PRE_FIX ? '(PRE-FIX CODE)' : '(FIXED CODE)');
   if (probe.result.value !== 'READY') {
     var errs = await c.send('Runtime.evaluate', { expression: 'JSON.stringify(window.__stmErrors)', returnByValue: true });

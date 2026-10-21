@@ -1,5 +1,5 @@
 /* =========================================================
- * Slide & Triple — Eco Backdrops《万物出发！》20 景生态背景（Δ14c / T052d / FR-035）
+ * Slide & Triple — Eco Backdrops《万物出发！》6 幅风景画卷生态背景（Δ14c / T052d / FR-035；Δ16b 重排为 6 幅 × 12 关）
  * classic script；向 window.STM 挂载 STM.Backdrops（D-01）
  * 纯程序化多层风景（天空渐变/远景剪影/中景/近景 ≥3 层——宪章 III 零图片）
  *
@@ -637,9 +637,9 @@
 
   /* =========================================================
    * Δ15b/T052j: 贴图优先背景层（宪章 III v2.0.0——外部贴图 + 强制兜底）
-   * · 6 张去水印 9:16 背景图映射 20 循环（用户口径——覆盖 T052j 原文
-   *   bg{cycleIndex+1} 的 1~20 一一对应: 0~3→bg1, 4~6→bg2, 7~10→bg3,
-   *   11~13→bg4, 14~16→bg5, 17~19→bg6）
+   * · 6 张去水印 9:16 背景图映射 24 循环（Δ16b 收窄口径——覆盖 Δ14/T052j
+   *   的 20 景一一对应: 0~3→bg1, 4~7→bg2, 8~11→bg3, 12~15→bg4,
+   *   16~19→bg5, 20~23→bg6; 每幅画卷覆盖 4 个三关循环 = 12 关）
    * · 逐景独立判定: Image onerror/未就绪 → 该景降级程序化绘制
    *   （PAINT 函数为兜底渲染源——T052d 产出降格复用）
    * · 会话级缓存: 探测结果缓存（同景不重复探测、不闪烁——三态:
@@ -654,13 +654,15 @@
     if (typeof fn === 'function') bgReadyListeners.push(fn);
   }
 
+  /* Δ16b: 6 幅画卷 × 每幅 4 个三关循环 = 24 循环（0~23）
+   * 0~3→bg1 / 4~7→bg2 / 8~11→bg3 / 12~15→bg4 / 16~19→bg5 / 20~23→bg6 */
   function bgImageIndexOf(ci) {
-    if (ci <= 3) return 1;
-    if (ci <= 6) return 2;
-    if (ci <= 10) return 3;
-    if (ci <= 13) return 4;
-    if (ci <= 16) return 5;
-    return 6;
+    return Math.min(6, Math.max(1, Math.floor(Math.min(23, Math.max(0, ci)) / 4) + 1));
+  }
+
+  /* Δ16b 铁律: 画卷序号 = floor((level.id-1)/12)+1（与 FR-044 拼图同源） */
+  function paintingOf(levelId) {
+    return Math.min(6, Math.max(1, Math.floor(((levelId || 1) - 1) / 12) + 1));
   }
 
   function probeBgImage(ci) {
@@ -688,8 +690,9 @@
     return rec;
   }
   function cycleIndexOf(levelId) {
-    /* 60 关闭环: >60 的 id 钳制回 19（Math.min 防越界——SC-008 0 遗漏 0 冲突） */
-    return Math.min(19, Math.max(0, Math.floor(((levelId || 1) - 1) / 3)));
+    /* Δ16: 72 关闭环 —— 24 个三关循环（0~23）; >72 的 id 钳制回 23
+     * （Math.min 防越界——SC-008 0 遗漏 0 冲突） */
+    return Math.min(23, Math.max(0, Math.floor(((levelId || 1) - 1) / 3)));
   }
 
   /* =========================================================
@@ -709,7 +712,7 @@
   ];
 
   function drawToneOverlay(ctx, ci, W, H) {
-    var t = TONE[Math.min(5, Math.max(0, (ci <= 3 ? 0 : ci <= 6 ? 1 : ci <= 10 ? 2 : ci <= 13 ? 3 : ci <= 16 ? 4 : 5)))];
+    var t = TONE[Math.min(5, Math.max(0, Math.floor(Math.min(23, Math.max(0, ci)) / 4)))];
     var g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, t.grad);
     g.addColorStop(0.72, t.bot);
@@ -773,13 +776,13 @@
   /* =========================================================
    * 背景渲染入口（BoardRenderer 消费）—— Δ15b: 贴图优先 + 程序化兜底
    * drawBackdrop(ctx, levelId, W, H) —— 静态一次性绘制
-   * cycleIndex = Math.floor((level.id - 1) / 3)（FR-035 §2 铁律）
+   * cycleIndex = Math.floor((level.id - 1) / 3)（FR-035 §2 铁律，Δ16b 0~23）
    * drawBackdropAnim(ctx, levelId, W, H, tMs) —— 粒子/光影动态层
    *   （BoardRenderer 每帧调——低开销 14 粒纯函数）
    * ========================================================= */
   function drawBackdrop(ctx, levelId, W, H) {
     var ci = cycleIndexOf(levelId);
-    var scene = SCENES[Math.min(19, ci)];
+    var scene = SCENES[Math.min(23, ci)];
     var rec = probeBgImage(ci);
     if (rec.state === 'ready' && rec.img) {
       /* 贴图 cover 满铺（9:16 源对 9:16 画布——同比例直接铺满无裁切;
@@ -811,15 +814,82 @@
 
   function drawBackdropAnim(ctx, levelId, W, H, tMs) {
     var ci = cycleIndexOf(levelId);
-    var toneIdx = ci <= 3 ? 0 : ci <= 6 ? 1 : ci <= 10 ? 2 : ci <= 13 ? 3 : ci <= 16 ? 4 : 5;
+    var toneIdx = Math.min(5, Math.max(0, Math.floor(Math.min(23, Math.max(0, ci)) / 4)));
     drawParticles(ctx, TONE[toneIdx].kind, W, H, tMs);
+  }
+
+  /* =========================================================
+   * Δ17/T068 §4: 2×2 四象限切片工具（棱晶星盘晶片 / 结算层复用）
+   *   · 与局内背景**同源同文件同缓存链**（FR-035 §6 铁律）——直接消费
+   *     probeBgImage 的会话级缓存记录，MUST NOT 新建 Image（MUST NOT
+   *     重复解码、MUST NOT 产生额外网络请求）
+   *   · cover 裁切口径与 drawBackdrop 一致（短边铺满 → 居中裁切），
+   *     保证「局内所见背景 = 星盘晶片所拼出的大图」完全相同
+   *   · 纯绘制函数（零 DOM 依赖），返回 true = 已绘制贴图切片，
+   *     false = 贴图未就绪（调用方 MUST 走盲盒/兜底分支）
+   * ========================================================= */
+  function drawQuadrant(ctx, paintingIdx, quad, dx, dy, dw, dh) {
+    if (!ctx || typeof ctx.drawImage !== 'function') return false;
+    /* ci: 该画卷首个三关循环的起点（0-based）→ 命中同一张 bg{n} 缓存 */
+    var ci = (Math.min(6, Math.max(1, paintingIdx | 0)) - 1) * 4;
+    var rec = probeBgImage(ci);
+    if (!rec || rec.state !== 'ready' || !rec.img) return false;
+    /* quad: 0=左上 1=右上 2=左下 3=右下 */
+    var q = Math.min(3, Math.max(0, quad | 0));
+    var qx = q % 2, qy = (q - (q % 2)) / 2;
+    try {
+      var iw = rec.img.naturalWidth || rec.img.width;
+      var ih = rec.img.naturalHeight || rec.img.height;
+      if (!(iw > 0) || !(ih > 0)) return false;
+      /* 该象限在「整幅画卷 2dw×2dh 坐标系」中的位置；cover 缩放按整幅
+       * 尺寸计算，短边铺满 + 居中裁切（与 drawBackdrop 同算法） */
+      var cw = dw * 2, ch = dh * 2;                 /* 整幅画卷的显示尺寸 */
+      var scale = Math.max(cw / iw, ch / ih);
+      var fw = iw * scale, fh = ih * scale;         /* 贴图缩放后的实际尺寸 */
+      var ox = (cw - fw) / 2, oy = (ch - fh) / 2;   /* 居中裁切的溢出量 */
+      ctx.drawImage(rec.img,
+        ox + qx * dw, oy + qy * dh, dw, dh,         /* 源: 本象限矩形 */
+        dx, dy, dw, dh);                            /* 目标: 晶片矩形 */
+      return true;
+    } catch (errQ) {
+      rec.state = 'failed'; /* 绘制异常 → 后续调用方自动降级 */
+      return false;
+    }
+  }
+
+  /* 整幅画卷绘制（Δ17/T073 传送门开启展板）——cover 铺满到目标矩形。
+   * 与 drawQuadrant 区分: 本函数画**整幅**，用于全屏展板的大陆全貌；
+   * drawQuadrant 画 2×2 中的**单块象限**，用于星盘晶片。
+   * cover 口径与 drawBackdrop 一致（短边铺满 + 居中裁切）。 */
+  function drawWhole(ctx, paintingIdx, dx, dy, dw, dh) {
+    if (!ctx || typeof ctx.drawImage !== 'function') return false;
+    var ci = (Math.min(6, Math.max(1, paintingIdx | 0)) - 1) * 4;
+    var rec = probeBgImage(ci);
+    if (!rec || rec.state !== 'ready' || !rec.img) return false;
+    try {
+      var iw = rec.img.naturalWidth || rec.img.width;
+      var ih = rec.img.naturalHeight || rec.img.height;
+      if (!(iw > 0) || !(ih > 0)) return false;
+      /* cover: 源图按比例放大到覆盖 dw×dh，多余部分居中裁掉 */
+      var scale = Math.max(dw / iw, dh / ih);
+      var sw = dw / scale, sh = dh / scale;      /* 可见的源图区域 */
+      var sx = (iw - sw) / 2, sy = (ih - sh) / 2;
+      ctx.drawImage(rec.img, sx, sy, sw, sh, dx, dy, dw, dh);
+      return true;
+    } catch (errW) {
+      rec.state = 'failed';
+      return false;
+    }
   }
 
   STM.Backdrops = {
     SCENES: SCENES,
     cycleIndexOf: cycleIndexOf,
+    paintingOf: paintingOf,
     drawBackdrop: drawBackdrop,
     drawBackdropAnim: drawBackdropAnim,
+    drawQuadrant: drawQuadrant,
+    drawWhole: drawWhole,
     bgImageIndexOf: bgImageIndexOf,
     probeBgImage: probeBgImage,
     onBgReady: onBgReady

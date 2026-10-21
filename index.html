@@ -7,6 +7,21 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+<!-- Δ16d/T066: HooLey Games 品牌开机动画（FR-038——纯表现层，首次点击/按键可跳过） -->
+<div id="splash-screen">
+  <div class="splash-brand">
+    <div class="splash-title" aria-label="HooLey">
+      <span class="splash-ch" data-ch="0">H</span>
+      <span class="splash-ch splash-oo" data-ch="1"><i class="oo-ring"></i><i class="oo-eye"></i></span>
+      <span class="splash-ch splash-oo" data-ch="2"><i class="oo-ring"></i><i class="oo-eye"></i></span>
+      <span class="splash-ch" data-ch="3">l</span>
+      <span class="splash-ch" data-ch="4">e</span>
+      <span class="splash-ch" data-ch="5">y</span>
+    </div>
+    <div class="splash-sub">GAMES</div>
+  </div>
+</div>
+
 <div id="app">
   <header id="hud">
     <div class="hud-left">
@@ -38,17 +53,6 @@
     </button>
   </div>
 
-  <div id="result-overlay" hidden>
-    <div class="result-card">
-      <h2 id="result-title"></h2>
-      <p id="result-detail"></p>
-      <div class="result-actions">
-        <button id="result-retry" type="button">重玩</button>
-        <button id="result-next" type="button">下一关</button>
-      </div>
-    </div>
-  </div>
-
   <div id="debug-panel" hidden>
     <h3>🛠 评委调试面板</h3>
     <div class="row">
@@ -66,7 +70,8 @@
   </div>
 </div>
 
-<!-- 固定 classic script 加载序（D-01）：levels → RulesEngine → GameState → bestiary(Δ14) → backdrops(Δ14) → BoardRenderer → SoundManager → main -->
+<!-- 固定 classic script 加载序（D-01）：profile(Δ16c) → levels → RulesEngine → GameState → bestiary(Δ14) → backdrops(Δ14) → BoardRenderer → SoundManager → splash(Δ16d) → modals(Δ16e) → lobby(Δ16e) → result(Δ16g) → fail(Δ16g) → main -->
+<script defer src="src/core/profile.js"></script>
 <script defer src="src/data/levels.js"></script>
 <script defer src="src/core/RulesEngine.js"></script>
 <script defer src="src/core/GameState.js"></script>
@@ -74,6 +79,11 @@
 <script defer src="src/render/backdrops.js"></script>
 <script defer src="src/render/BoardRenderer.js"></script>
 <script defer src="src/audio/SoundManager.js"></script>
+<script defer src="src/ui/splash.js"></script>
+<script defer src="src/ui/modals.js"></script>
+<script defer src="src/ui/lobby.js"></script>
+<script defer src="src/ui/result.js"></script>
+<script defer src="src/ui/fail.js"></script>
 <script defer src="src/main.js"></script>
 </body>
 </html>

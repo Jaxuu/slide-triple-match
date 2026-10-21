@@ -1,6 +1,6 @@
 # Research: Slide & Triple（滑块三消）— 技术决策记录
 
-> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5《万物出发！》新增——FR-033~037；Δ15: ① FR-029/FR-030/FR-011 空间聚散度三档曲线与存量关花色重打散迁移；② FR-033 §6/FR-035 §3 本地贴图+Emoji/程序化双兜底渲染链（宪章 III v2.0.0）；③ FR-034 §3 方向角标重做（锐利三角、猪鼻子禁令）)。Run `/speckit.refine.propagate` to update this document.
+> ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: ① 关卡 60→72 扩容与三大阶段重划 24/24/24；② 背景贴图口径由 bg{1..20}/20 景重排为 bg{1..6}/6 幅 × 12 关；③ US6 新增 FR-038~FR-044——HooLey 开机动画、Glide Critters 主大厅、设置/个人信息弹窗、棱晶经济与道具购买闭环、通关结算与画卷解锁展板、失败与棱晶复活界面、画卷拼图进度系统；④ 新增 SC-009~SC-011)。Run `/speckit.refine.propagate` to update this document.
 
 **Feature**: `001-slide-triple-match-core` | **Phase**: 0 | **Date**: 2026-10-17
 

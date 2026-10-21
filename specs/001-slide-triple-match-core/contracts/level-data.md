@@ -1,5 +1,7 @@
 # Contract: Level Data（`src/data/levels.js` 数据契约）
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: **FR-008 Δ16 扩容铁律——既有 L1~L60 零改写、仅尾部增量生成 L61~L72 共 12 关**；关卡总数 60→72、章节区间重划为 3×24；`solutionMoves` 报告口径 72/72)；Δ14: US5——FR-033 §3/§4 明确图鉴映射不改写 levels.js 的 suit 字段与花色数 K，Δ13 保留铁律延续；预期无 schema 变更，propagate 时复核)；Δ15: FR-029 §6 存量 60 关花色重打散迁移将改写 levels.js 同花色落位与 solutionMoves（结构字段不变、Solver 全量重验证后交付）——Δ13 逐字节保留预期就此受控让位。Run `/speckit.refine.propagate` to update this document.
+
 > ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——FR-033 §3/§4 明确图鉴映射不改写 levels.js 的 suit 字段与花色数 K，Δ13 保留铁律延续；预期无 schema 变更，propagate 时复核)；Δ15: FR-029 §6 存量 60 关花色重打散迁移将改写 levels.js 同花色落位与 solutionMoves（结构字段不变、Solver 全量重验证后交付）——Δ13 逐字节保留预期就此受控让位。Run `/speckit.refine.propagate` to update this document.
 
 **Feature**: `001-slide-triple-match-core` | **文件**: `src/data/levels.js` | **生产者**: `tools/generator.js`（M3）/ 手工（M1~M2 测试关） | **消费者**: 前端运行时（classic script）、`tools/solver.js`（CommonJS require）

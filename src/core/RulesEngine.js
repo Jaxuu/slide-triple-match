@@ -795,6 +795,87 @@
 
   /* ---------- 道具（T030: applyItem——wrench; stage/stageTile 已随暂存区移除） ---------- */
 
+  /* =========================================================
+   * Δ16g/T074 §4: applyPurify —— 棱晶复活的**唯一新增规则语义**
+   *
+   * 语义（FR-043 §1/§3/§4）:
+   *   将 Dock 内**所有滞留滑块**连同棋盘上**同花色配对滑块**一并净化
+   *   消除 → 腾空 Dock → 恢复 3 点生命 → 续局（不重置棋盘）。
+   *
+   * 花色守恒铁律（FR-043 §4 + Edge Case「复活后花色守恒与槽位状态」）:
+   *   每个被净化的花色 MUST 以 **3 的倍数**成组消除；配对块不足 3 时
+   *   以该花色的全部板面配对块成组消除，MUST NOT 留下「余数非 3 倍数」
+   *   的非法态。
+   *
+   * 不变量（MUST NOT 改变的口径）: 三消 / 射线 / 齿轮 / 冰封 / 锁链 /
+   * 棱镜 / 死局判定逐条不变——本函数只新增净化消除与生命值恢复。
+   *
+   * 前后端共用（FR-032 铁律）: 前端与 Solver 消费同一实现。
+   * ========================================================= */
+  function applyPurify(state) {
+    var events = [];
+    if (!state || !Array.isArray(state.dock)) return { events: events, removed: 0, suits: [] };
+
+    /* ① 收集待净化的花色集合（Dock 内全部滞留滑块的花色） */
+    var suitSet = {};
+    var i, s;
+    for (i = 0; i < state.dock.length; i++) {
+      s = state.dock[i].s;
+      suitSet[s] = true;
+    }
+    var suits = Object.keys(suitSet).map(function (k) { return parseInt(k, 10); });
+    if (!suits.length) {
+      /* Dock 本就为空 → 仍恢复生命（保证「点了复活」总有实效） */
+      state.lives = state.cfg.lives;
+      return { events: events, removed: 0, suits: [] };
+    }
+
+    /* ② 每个花色取够 3 块：Dock 滞留块优先，差额由板面同花色配对块补足；
+     *    板面不足 3 时取该花色全部可用块（成组消除，不留非 3 倍数余数） */
+    var removedIds = [];
+    var removedTiles = [];
+    for (var k = 0; k < suits.length; k++) {
+      var suit = suits[k];
+      var ids = [];
+      var tiles = [];
+      /* 先取 Dock 内该花色的块 */
+      for (i = 0; i < state.dock.length; i++) {
+        if (state.dock[i].s === suit && ids.length < MATCH_N) ids.push(state.dock[i].id);
+      }
+      /* 差额由板面补足 */
+      if (ids.length < MATCH_N) {
+        for (i = 0; i < state.tiles.length; i++) {
+          if (state.tiles[i].s === suit && ids.length < MATCH_N) {
+            ids.push(state.tiles[i].id);
+            tiles.push(state.tiles[i]);
+          }
+        }
+      }
+      if (!ids.length) continue; /* 该花色已无处可取（理论上不会发生） */
+      /* 成组消除事件（与 settleMatches 同构，保持渲染层事件口径一致） */
+      state.combo = (state.combo || 0) + 1;
+      events.push({ e: 'match', suit: suit, ids: ids.slice(), combo: state.combo, gain: 0, purify: true });
+      events.push({ e: 'remove', ids: ids.slice(), purify: true });
+      removedIds = removedIds.concat(ids);
+      removedTiles = removedTiles.concat(tiles);
+    }
+
+    /* ③ 板面移除被净化的配对块（按 id 建索引表，保证 O(n)） */
+    if (removedTiles.length) {
+      var kill = {};
+      for (i = 0; i < removedTiles.length; i++) kill[removedTiles[i].id] = true;
+      state.tiles = state.tiles.filter(function (t) { return !kill[t.id]; });
+    }
+
+    /* ④ 腾空 Dock */
+    state.dock = [];
+
+    /* ⑤ 恢复 3 点生命（FR-043 §3） */
+    state.lives = state.cfg.lives;
+
+    return { events: events, removed: removedIds.length, suits: suits };
+  }
+
   /* ---------- 导出 ---------- */
   return {
     DIR_VEC: DIR_VEC,
@@ -806,6 +887,7 @@
     canTap: canTap,
     applyTap: applyTap,
     applyItem: applyItem,
+    applyPurify: applyPurify,
     terminal: terminal,
     deadlockSuspect: deadlockSuspect,
     enumerateTaps: enumerateTaps,

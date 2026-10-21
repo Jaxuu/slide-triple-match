@@ -274,6 +274,49 @@
 
     /* （tapStaged 已随暂存区功能移除——滑块只在棋盘 ↔ Dock 单向守恒流转） */
 
+    /* ---- Δ16f/T071: 棱晶购买道具（FR-041 §2）
+     *   扣费与生效 MUST 为**原子操作**（Edge Case「棱晶余额不足与购买竞态」）：
+     *   余额恰好等于价格时扣费后归零、道具仍正常生效，MUST NOT 因余额为 0
+     *   而误判为「不足」。扣费由调用方（main.js）在**先扣成功后**调用本
+     *   函数——本函数负责「把购买出来的那一次」真正用掉，保证计数不出现
+     *   「扣了钱没生效」或「生效了没扣钱」的中间态。
+     *   返回 { ok, reason }：ok=false 时调用方 MUST NOT 已扣费。 */
+    function buyItemUse(item, tileId, cost) {
+      if (phase !== PHASE.READY) return { ok: false, reason: 'locked' };
+      if (!engine.items) engine.items = { undo: 0, wrench: 0 };
+      /* 购买 = 免费次数用尽后，用棱晶临时补出一次可立即使用的次数 */
+      engine.items[item] = (engine.items[item] || 0) + 1;
+      var r = useItem(item, tileId);
+      if (!r || (r.type !== 'undo' && r.type !== 'invalid')) {
+        /* 生效失败（例：undo 无快照可回滚）→ 回滚刚补的次数，MUST NOT
+         * 让余额付出而道具未用（FR-041 §2 确定性铁律） */
+        engine.items[item] = Math.max(0, engine.items[item] - 1);
+        return { ok: false, reason: (r && r.type) || 'unavailable' };
+      }
+      if (r.type === 'invalid') {
+        engine.items[item] = Math.max(0, engine.items[item] - 1);
+        return { ok: false, reason: 'invalid' };
+      }
+      return { ok: true, result: r, cost: cost };
+    }
+
+    /* ---- Δ16g/T074: 棱晶复活（成组净化消除，FR-043 §3/§4） ----
+     * 语义: Dock 全部滞留滑块 + 板面同花色配对块成组消除（恒为 3 的倍数）
+     * → 腾空 Dock → 恢复 3 生命 → 续局（**不重置棋盘**）。
+     * 与 Solver 共用 RE.applyPurify（FR-032 铁律不破）。 */
+    function purify() {
+      var res = RE.applyPurify(engine);
+      var i;
+      for (i = 0; i < res.events.length; i++) emit(res.events[i]);
+      /* rail 失效（净化改变了板面与 Dock —— 保守置 off） */
+      onRail = false;
+      /* 复活后回到可操作态（此前为 LOST_* —— 终局态须重新开闸） */
+      phase = PHASE.READY;
+      emitPhase();
+      emit({ e: 'purify', removed: res.removed, suits: res.suits });
+      return res;
+    }
+
     /* ---- 引擎态直访（Renderer 轮询用） ---- */
     function engineState() { return engine; }
 
@@ -281,6 +324,8 @@
     var api = {
       tap: tap,
       useItem: useItem,
+      buyItemUse: buyItemUse,
+      purify: purify,
       reset: reset,
       state: state,
       onRail: onRailCheck,

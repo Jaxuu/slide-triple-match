@@ -376,49 +376,11 @@ html, body {
 /* 扳手目标选择模式（M2 启用，M1 预留样式） */
 #items button.targeting { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(255,197,61,.4); }
 
-/* ---------- 结算浮层 ---------- */
-#result-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(10, 15, 21, .72);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 30;
-  animation: fade-in .25s ease-out;
-}
-@keyframes fade-in { from { opacity: 0; } }
-.result-card {
-  width: min(82%, 340px);
-  background: linear-gradient(165deg, var(--panel), #1a2530);
-  border: 1px solid #354558;
-  border-radius: 16px;
-  padding: 26px 22px;
-  text-align: center;
-  box-shadow: 0 24px 80px rgba(0,0,0,.6);
-}
-.result-card h2 { margin: 0 0 6px; font-size: clamp(20px, 6cqw, 28px); }
-.result-card p { margin: 0 0 18px; color: var(--ink-dim); font-size: clamp(13px, 3.5cqw, 15px); }
-.result-card h2.win { color: var(--accent); }
-.result-card h2.lose { color: var(--danger); }
-.result-card h2.clear { color: var(--gold); }
-.result-actions { display: flex; gap: 10px; justify-content: center; }
-.result-actions button {
-  flex: 1;
-  max-width: 140px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid #3a4a5c;
-  background: #2a3644;
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform .15s, background .15s;
-}
-.result-actions button:active { transform: scale(.96); }
-.result-actions #result-next { background: var(--accent); border-color: var(--accent); color: #0b1a12; }
+/* ---------- 结算浮层 ----------
+ * Δ17/T070: 旧 #result-overlay 结算浮层已退役 —— 结算层改由 STM.Result
+ * （双风翼棱晶能量铭牌）接管、失败页由 STM.Fail 接管（FR-042 / FR-043）。
+ * 保留本占位注释以说明样式归属迁移，避免后续误加同名样式。
+ * ---------- */
 
 /* ---------- 调试面板（M4 主功能；M1 骨架隐藏） ---------- */
 #debug-panel {
@@ -591,3 +553,1031 @@ html, body {
   78%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   100% { opacity: 0; transform: translate(-50%, -52%) scale(.96); }
 }
+
+/* =========================================================
+ * Δ16d/T066: HooLey Games 品牌开机动画（FR-038）
+ * · 黑曜石径向微光渐变（严禁纯黑 #000000 死黑——中心微光、四周沉黑）
+ * · HooLey 浮雕艺术字（多层描边 + 高光 + 微投影）+ 宽字距 GAMES
+ * · 中间两 `o` 双环几何造型（内含高光眼神点），磁力弹跳碰撞吸附 +
+ *   俏皮眨动一次 + 七彩棱镜光晕（变形由 rAF 驱动，纯 transform/opacity）
+ * · 白金流光自左向右扫掠字面（渐变遮罩位移 --sweep，clip-path 硬边——
+ *   非整体闪烁）
+ * · 约 2.0s 后平滑淡出并卸载；零布局抖动（全程不触发布局属性）
+ * ========================================================= */
+#splash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 42%, #181E29 0%, #0B0E14 60%, #05070A 100%);
+  overflow: hidden;
+  transition: opacity .38s ease, visibility .38s ease;
+}
+#splash-screen.splash-fading {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.splash-brand {
+  position: relative;
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 主标题 HooLey —— 原创浮雕艺术字（多层描边 + 顶部高光 + 微投影） */
+.splash-title {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .04em;
+  font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: clamp(52px, 17vw, 104px);
+  font-weight: 800;
+  letter-spacing: .01em;
+  line-height: 1;
+  color: #EEF3FA;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, .34),        /* 顶部高光棱 */
+    0 -1px 0 rgba(0, 0, 0, .45),            /* 底部暗棱 */
+    0 10px 22px rgba(0, 0, 0, .55),          /* 微投影 */
+    0 0 34px rgba(120, 170, 255, .16);       /* 冷调氛围辉光 */
+}
+
+.splash-ch {
+  display: inline-block;
+  will-change: transform, opacity, filter;
+  opacity: 0;
+}
+
+/* ---- `o` 双环几何造型（磁力碰撞 + 眨眼 + 七彩棱镜光晕的载体） ---- */
+.splash-oo {
+  position: relative;
+  width: .62em;
+  height: .62em;
+  margin: 0 .035em;
+  border-radius: 50%;
+  will-change: transform, filter;
+}
+.splash-oo .oo-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: .085em solid rgba(226, 236, 250, .88);
+  box-shadow:
+    inset 0 .02em 0 rgba(255, 255, 255, .30),   /* 内壁高光 */
+    0 .03em 0 rgba(0, 0, 0, .40),               /* 下沿暗棱（浮雕厚度） */
+    0 .06em .18em rgba(0, 0, 0, .45);           /* 微投影 */
+  transform-origin: 50% 50%;
+}
+/* 高光眼神点（blink 期间由 rAF 的纵向位移驱动上挑/下沉） */
+.splash-oo .oo-eye {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: .16em;
+  height: .16em;
+  margin: -.08em 0 0 -.08em;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #FFFFFF 0%, #CFE1FF 46%, rgba(150, 190, 255, .82) 100%);
+  box-shadow: 0 0 .12em rgba(190, 220, 255, .9);
+}
+
+/* ---- 白金流光扫掠（--sweep 由 rAF 0→100% 驱动；非整体闪烁） ---- */
+.splash-title::after {
+  content: "";
+  position: absolute;
+  inset: -.16em -.08em;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0) calc(var(--sweep, 0%) - 26%),
+    rgba(255, 246, 222, .58) calc(var(--sweep, 0%) - 9%),
+    rgba(255, 255, 255, .92) var(--sweep, 0%),
+    rgba(255, 246, 222, .52) calc(var(--sweep, 0%) + 9%),
+    rgba(255, 255, 255, 0) calc(var(--sweep, 0%) + 26%),
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 260% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  mix-blend-mode: screen;
+  animation: splash-sweep 2s linear infinite;
+  opacity: .9;
+}
+/* 流光遮罩裁切到字面（只扫字不扫底） */
+.splash-brand { isolation: isolate; }
+@keyframes splash-sweep {
+  0%   { background-position: 130% 0; }
+  100% { background-position: -60% 0; }
+}
+
+/* 副标题 GAMES —— 宽字距形成品牌节奏 */
+.splash-sub {
+  margin-top: .55em;
+  font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: clamp(11px, 3.4vw, 16px);
+  font-weight: 500;
+  letter-spacing: .82em;
+  text-indent: .82em; /* 抵消尾字距，保持视觉居中 */
+  color: rgba(206, 220, 240, .72);
+  text-shadow: 0 0 14px rgba(130, 175, 255, .28);
+  opacity: 0;
+  animation: splash-sub-in .7s ease-out .34s forwards;
+}
+@keyframes splash-sub-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-title::after { animation: none; }
+  .splash-sub { animation: none; opacity: 1; }
+}
+
+/* =========================================================
+ * Δ17/T068: Glide Critters 主大厅（FR-039）
+ * 六区上中下分区布局 100% 保留（视觉皮肤原创重制）
+ *
+ * 原创性红线（Edge Cases「外围 UI 竞品视觉元素清零红线」）:
+ * 本节 MUST NOT 出现浅蓝竖条纹木墙 / 室内盆栽 / 木桌 / 风景木质相框 /
+ * 天蓝丝带横幅 / 金色庆典号角 / 天蓝圆弧顶盖（含任何变体形态）。
+ * ========================================================= */
+:root {
+  /* 棱晶星盘 / 奶油果冻 / 琥珀金 —— Δ17 新增色板（全部原创取值） */
+  --prism-violet: #8F6FD6;
+  --prism-violet-deep: #4A3482;
+  --prism-glow: #C9AEFF;
+  --amber: #E8A33D;
+  --amber-hi: #FFD98A;
+  --cream: #FFF6E8;
+  --cream-deep: #F0E2CC;
+  --portal-glow: 1;
+}
+
+#lobby {
+  position: absolute;
+  inset: 0;
+  /* Δ17/T068: #app 为 flex column 容器——大厅须脱离文档流并显式撑满，
+     否则作为 flex 子项无布局盒，clientWidth/Height = 0（背景与切片无从绘制） */
+  width: 100%;
+  height: 100%;
+  z-index: 3; /* 高于 #hud/#board-wrap（z-index:2）——大厅与局内互斥 */
+  overflow: hidden;
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+#lobby[hidden] { display: none !important; }
+
+.lobby-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+}
+
+/* 六区定位：仅上/中/下 + 左/右分区，几何与功能语义自 Δ16 保留 */
+.lobby-zone { position: absolute; z-index: 1; }
+.lobby-zone-topleft     { top: max(14px, env(safe-area-inset-top)); left: 12px; display: flex; gap: 8px; }
+.lobby-zone-topright    { top: max(14px, env(safe-area-inset-top)); right: 12px; }
+.lobby-zone-midtop      { top: 11%; left: 0; right: 0; text-align: center; }
+.lobby-zone-center      { top: 22%; left: 0; right: 0; display: flex; justify-content: center; }
+.lobby-zone-midbottom   { bottom: 15%; left: 0; right: 0; display: flex; justify-content: center; }
+.lobby-zone-bottomleft  { bottom: max(14px, env(safe-area-inset-bottom)); left: 12px; display: flex; align-items: center; gap: 8px; }
+
+/* ---------- 顶部左区：设置 / 调试 圆钮 ---------- */
+.lobby-round-btn {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .55);
+  background: rgba(24, 32, 52, .42);
+  backdrop-filter: blur(6px);
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--ink);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .28);
+}
+.lobby-btn-debug.is-on {
+  border-color: var(--amber-hi);
+  background: rgba(232, 163, 61, .55);
+  box-shadow: 0 0 12px rgba(255, 217, 138, .70);
+}
+
+/* ---------- 顶部右区：棱晶货币栏 ---------- */
+.lobby-shards {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(46, 36, 84, .70), rgba(26, 20, 52, .70));
+  border: 1.5px solid var(--prism-glow);
+  font-weight: 700;
+  font-size: clamp(13px, 3.6vw, 17px);
+  color: #FFF;
+  text-shadow: 0 0 8px rgba(201, 174, 255, .8);
+}
+.lobby-shards-icon { filter: drop-shadow(0 0 5px rgba(201, 174, 255, .9)); }
+
+/* ---------- 中上区：3D 浮雕徽标（原创风翼母题） ---------- */
+.lobby-brand {
+  display: inline-flex; align-items: center; gap: 10px;
+  position: relative;
+}
+.lobby-brand-name {
+  font-size: clamp(24px, 7.6vw, 40px);
+  font-weight: 800;
+  letter-spacing: .02em;
+  background: linear-gradient(180deg, #FFFFFF 0%, #FFF0CF 42%, var(--amber) 72%, #C87F22 100%);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+  -webkit-text-stroke: 1.5px rgba(120, 78, 20, .45);
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .45));
+}
+/* 纯白流线型滑行风翼（呼应 Δ17 结算铭牌母题） */
+.lobby-brand-wing {
+  width: 34px; height: 16px;
+  background: linear-gradient(120deg, rgba(255,255,255,.96), rgba(198, 226, 255, .35));
+  clip-path: polygon(100% 50%, 0 0, 28% 50%, 0 100%);
+}
+.lobby-brand-wing:last-child { transform: scaleX(-1); }
+.lobby-brand-pet {
+  position: absolute;
+  left: 50%; bottom: -22px;
+  transform: translateX(-50%);
+  width: 40px; height: 40px;
+  border-radius: 50% 50% 46% 46%;
+  background: radial-gradient(circle at 34% 30%, #FFF 0%, var(--prism-glow) 40%, var(--prism-violet) 100%);
+  box-shadow: 0 0 14px rgba(201, 174, 255, .85);
+  border: 2px solid rgba(255, 255, 255, .8);
+}
+
+/* ---------- 中心区：棱晶星盘 / 时空传送门（Δ17 FR-039 §5） ----------
+ * 替代 Δ16 的「2×2 风景木质拼图相框」：齿轮+风翼纹饰环形底座 + 能量晶片 */
+.portal {
+  position: relative;
+  width: min(78vw, 340px);
+  aspect-ratio: 1;
+  margin-top: 26px; /* 让出顶部悬浮铭牌空间 */
+  display: grid;
+  place-items: center;
+}
+
+/* 顶部悬浮胶囊铭牌：大陆名称 + 充能进度 X/4 */
+.portal-plaque {
+  position: absolute;
+  top: -34px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 18px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--amber-hi), var(--amber) 55%, #C87F22);
+  border: 2px solid rgba(255, 255, 255, .78);
+  color: #4A2E08;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255,255,255,.7);
+}
+.portal-plaque-name { font-size: clamp(12px, 3.4vw, 16px); }
+.portal-plaque-prog {
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: rgba(74, 46, 8, .30);
+  font-size: clamp(11px, 3.0vw, 14px);
+}
+
+/* 外圈星盘底座（琥珀金 + 虹彩棱镜） */
+.portal-ring {
+  position: absolute; inset: 0;
+  border-radius: 26%;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255, 236, 190, .95), rgba(232, 163, 61, .70) 42%, rgba(126, 84, 30, .82) 100%);
+  box-shadow:
+    0 0 calc(26px * var(--portal-glow)) rgba(201, 174, 255, .70),
+    inset 0 3px 10px rgba(255, 255, 255, .55),
+    inset 0 -5px 14px rgba(70, 42, 8, .55);
+}
+/* 8 齿机械齿轮刻纹 */
+.portal-gears { position: absolute; inset: 0; }
+.portal-gear {
+  position: absolute;
+  width: 15%; height: 7%;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #FFE9B8, #B07C2E);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+}
+.portal-gear-0 { top: -3%;   left: 42.5%; }
+.portal-gear-1 { top: 6%;    right: 1%;  transform: rotate(45deg);  }
+.portal-gear-2 { top: 46%;   right: -4%; transform: rotate(90deg); }
+.portal-gear-3 { bottom: 6%; right: 1%;  transform: rotate(135deg); }
+.portal-gear-4 { bottom: -3%; left: 42.5%; transform: rotate(180deg); }
+.portal-gear-5 { bottom: 6%; left: 1%;   transform: rotate(225deg); }
+.portal-gear-6 { top: 46%;   left: -4%;  transform: rotate(270deg); }
+.portal-gear-7 { top: 6%;    left: 1%;   transform: rotate(315deg); }
+
+/* 风翼纹饰（左右各一，贴合底座圆角） */
+.portal-wing {
+  position: absolute; top: 50%;
+  width: 30%; height: 15%;
+  background: linear-gradient(100deg, rgba(255,255,255,.95), rgba(200, 228, 255, .30));
+  transform: translateY(-50%);
+}
+.portal-wing-l { left: -8%; clip-path: polygon(100% 50%, 30% 0, 62% 50%, 30% 100%); }
+.portal-wing-r { right: -8%; clip-path: polygon(0 50%, 70% 0, 38% 50%, 70% 100%); }
+
+/* 2×2 能量晶片 */
+.portal-grid {
+  position: relative;
+  width: 74%; height: 74%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 3%;
+  padding: 2px;
+}
+.portal-chip {
+  position: relative;
+  overflow: hidden;
+  border-radius: 22%;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .30);
+  /* 已点亮：随辉光节拍轻微呼吸 */
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.30),
+              0 0 calc(14px * var(--portal-glow)) rgba(201, 174, 255, .55);
+}
+.portal-chip-cv { width: 100%; height: 100%; display: block; }
+
+/* 棱晶色散边缘高光（仅已点亮） */
+.portal-chip-shine {
+  position: absolute; inset: 0;
+  display: none;
+  background: linear-gradient(128deg, rgba(255,255,255,.34) 0%, transparent 38%, transparent 62%, rgba(160, 200, 255, .30) 100%);
+}
+.portal-chip.is-lit .portal-chip-shine { display: block; }
+
+/* 盲盒态标记 + 解锁关卡标注 */
+.portal-chip-lock { display: none; }
+.portal-chip.is-blind .portal-chip-lock {
+  display: block;
+  position: absolute; left: 50%; top: 38%;
+  transform: translate(-50%, -50%);
+  font-size: clamp(15px, 4.4vw, 22px);
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,.6));
+}
+.portal-chip-caption {
+  position: absolute; left: 0; right: 0; bottom: 4%;
+  text-align: center;
+  font-size: clamp(9px, 2.6vw, 12px);
+  font-weight: 700;
+  color: #EFE6FF;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
+  pointer-events: none;
+}
+.portal-chip.is-lit .portal-chip-caption { display: none; }
+
+/* 左右切换按钮 */
+.portal-nav { position: absolute; inset: 0; pointer-events: none; }
+.portal-nav-btn {
+  position: absolute; top: 50%;
+  transform: translateY(-50%);
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .70);
+  background: linear-gradient(180deg, rgba(74, 52, 130, .82), rgba(42, 28, 78, .82));
+  color: #FFF;
+  font-size: 24px; line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .40);
+}
+.portal-nav-prev { left: -46px; }
+.portal-nav-next { right: -46px; }
+.portal-nav-btn:disabled { opacity: .32; cursor: default; }
+
+/* ---------- 中下区：翠绿胶囊大按钮（文案严格 `关卡 X`） ---------- */
+.lobby-btn-level {
+  padding: 15px 52px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #7FE0A8 0%, var(--accent) 52%, #2E8C5D 100%);
+  color: #06281A;
+  font-size: clamp(19px, 5.6vw, 26px);
+  font-weight: 800;
+  letter-spacing: .04em;
+  cursor: pointer;
+  box-shadow: 0 7px 0 #256B47, 0 12px 22px rgba(0, 0, 0, .42);
+  transition: transform .10s ease-out, box-shadow .10s ease-out;
+}
+.lobby-btn-level:active {
+  transform: translateY(4px);
+  box-shadow: 0 3px 0 #256B47, 0 6px 14px rgba(0, 0, 0, .42);
+}
+
+/* ---------- 左下角：玩家头像 + 昵称 ---------- */
+.lobby-avatar {
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, .88);
+  background: radial-gradient(circle at 34% 30%, #FFF 0%, var(--prism-glow) 46%, var(--prism-violet) 100%);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .40);
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+  display: grid; place-items: center;
+}
+.lobby-avatar-img { display: grid; place-items: center; width: 100%; height: 100%; }
+.lobby-avatar-img .pet-avatar-img,
+.lobby-avatar-img .pet-avatar-emoji { width: 100%; height: 100%; object-fit: cover; font-size: 24px; line-height: 1; }
+.lobby-nick {
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--amber-hi), var(--amber));
+  color: #4A2E08;
+  font-weight: 700;
+  font-size: clamp(12px, 3.4vw, 15px);
+  box-shadow: 0 3px 9px rgba(0, 0, 0, .35);
+}
+
+/* ---------- 窄屏微调 ---------- */
+@media (max-width: 360px) {
+  .portal { width: 84vw; margin-top: 22px; }
+  .portal-nav-prev { left: -6px; }
+  .portal-nav-next { right: -6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .portal-chip { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .30); }
+}
+
+/* ---------- Δ17/T068 §1: 场景互斥（大厅 ⇄ 局内，禁止叠加态） ----------
+ * 大厅显示时隐藏局内的 HUD / 棋盘 / Dock / 道具栏 / 调试面板。
+ * 弹窗（模态）在两层之上，不受此规则影响（Edge Case 铁律例外）。 */
+#app.scene-lobby #hud,
+#app.scene-lobby #board-wrap,
+#app.scene-lobby #dock,
+#app.scene-lobby #items,
+#app.scene-lobby #debug-panel,
+#app.scene-lobby #bg-canvas,
+#app.scene-lobby #fx-canvas,
+#app.scene-lobby #challenge-banner {
+  display: none !important;
+}
+
+/* =========================================================
+ * Δ17/T069: 奶油果冻质感弹窗（FR-040 §0 共用视觉基底）
+ *   3D 奶油白圆角软胶卡片 + 琥珀金胶囊标题铭牌 + 棱晶圆角拨片开关
+ * 原创性红线: MUST NOT 使用天蓝圆弧顶盖等竞品标志性载体
+ * ========================================================= */
+#modal-root {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 20; /* 高于大厅（3）与局内层（2）——模态跨场景常驻 */
+  display: grid;
+  place-items: center;
+}
+#modal-root[hidden] { display: none !important; }
+
+.modal-scrim {
+  position: absolute; inset: 0;
+  background: rgba(12, 10, 28, .62);
+  backdrop-filter: blur(3px);
+}
+
+/* 3D 奶油白圆角软胶卡片：顶部高光 + 柔和内阴影 → 软胶/果冻立体感 */
+.jelly-card {
+  position: relative;
+  width: min(86vw, 380px);
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 44px 20px 20px;
+  border-radius: 30px;
+  /* 纵向可滚动（档案网格），但不得裁切顶部铭牌 —— 溢出交由内层承担 */
+  overflow-x: visible;
+  background: linear-gradient(170deg, #FFFDF8 0%, var(--cream) 46%, var(--cream-deep) 100%);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, .95),   /* 顶部高光 */
+    inset 0 -8px 18px rgba(186, 154, 108, .30), /* 底部柔和内阴影 */
+    0 16px 40px rgba(0, 0, 0, .48);
+  animation: jelly-in .28s cubic-bezier(.2, 1.3, .5, 1);
+}
+@keyframes jelly-in {
+  from { opacity: 0; transform: translateY(18px) scale(.94); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 琥珀金胶囊标题铭牌（替代天蓝圆弧顶盖） */
+.jelly-plaque {
+  position: absolute;
+  top: -17px; left: 50%;
+  transform: translateX(-50%);
+  padding: 7px 30px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--amber-hi), var(--amber) 58%, #C87F22);
+  border: 2px solid rgba(255, 255, 255, .82);
+  color: #4A2E08;
+  font-weight: 800;
+  font-size: clamp(15px, 4.2vw, 19px);
+  white-space: nowrap;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, .40), inset 0 1px 0 rgba(255,255,255,.72);
+}
+.jelly-subtitle {
+  margin: 0 0 12px;
+  text-align: center;
+  font-size: clamp(11px, 3.0vw, 13px);
+  color: #9A8464;
+}
+.jelly-body { display: flex; flex-direction: column; gap: 10px; }
+
+/* 设置行 */
+.jelly-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 15px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .68);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 2px 5px rgba(150, 120, 80, .14);
+  cursor: pointer;
+}
+.jelly-row.is-disabled { opacity: .62; cursor: default; }
+.jelly-row-label { flex: 1; font-size: clamp(13px, 3.6vw, 16px); color: #4A3A22; }
+.jelly-row-hint { font-size: clamp(10px, 2.8vw, 12px); color: #A08A68; }
+
+/* 棱晶圆角拨片开关（滑块态虹彩微光） */
+.prism-toggle {
+  position: relative;
+  width: 54px; height: 30px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #D8CBB8, #B9A88E);
+  box-shadow: inset 0 2px 5px rgba(90, 70, 40, .34);
+  transition: background .22s ease, box-shadow .22s ease;
+  flex: none;
+}
+.prism-toggle input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.prism-toggle-knob {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, #FFFFFF, #EFE4D2);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, .32);
+  transition: transform .22s cubic-bezier(.3, 1.4, .5, 1);
+}
+.prism-toggle.is-on {
+  background: linear-gradient(180deg, var(--prism-glow), var(--prism-violet));
+  box-shadow: inset 0 2px 5px rgba(52, 34, 96, .40), 0 0 12px rgba(201, 174, 255, .80);
+}
+.prism-toggle.is-on .prism-toggle-knob { transform: translateX(24px); }
+
+/* 昵称输入框 */
+.jelly-field { display: flex; align-items: center; gap: 10px; padding: 8px 4px; }
+.jelly-field-label { font-size: clamp(13px, 3.6vw, 16px); color: #4A3A22; }
+.jelly-input {
+  flex: 1;
+  padding: 9px 14px;
+  border: 2px solid rgba(232, 163, 61, .60);
+  border-radius: 14px;
+  background: #FFF;
+  font-size: clamp(13px, 3.6vw, 16px);
+  color: #3A2C16;
+  font-family: inherit;
+}
+.jelly-input:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 3px rgba(232,163,61,.22); }
+
+/* 萌宠头像选择网格（45 选 1） */
+.avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 7px;
+  margin: 4px 0 6px;
+}
+.avatar-cell {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 2.5px solid rgba(255, 255, 255, .78);
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #FFF, var(--prism-glow) 52%, var(--prism-violet));
+  overflow: hidden;
+  cursor: pointer;
+  display: grid; place-items: center;
+}
+.avatar-cell .pet-avatar-img,
+.avatar-cell .pet-avatar-emoji { width: 100%; height: 100%; object-fit: cover; font-size: 17px; line-height: 1; }
+.avatar-cell.is-selected {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 2px rgba(232, 163, 61, .45), 0 0 12px rgba(255, 217, 138, .90);
+}
+.avatar-tick {
+  position: absolute; right: -1px; bottom: -1px;
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  background: var(--amber);
+  color: #fff;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 15px;
+  text-align: center;
+  opacity: 0;
+}
+.avatar-cell.is-selected .avatar-tick { opacity: 1; }
+
+/* 按钮 */
+.jelly-btn {
+  padding: 12px;
+  border: none;
+  border-radius: 18px;
+  font-family: inherit;
+  font-size: clamp(14px, 3.8vw, 17px);
+  font-weight: 700;
+  cursor: pointer;
+}
+.jelly-btn-primary {
+  background: linear-gradient(180deg, #7FE0A8, var(--accent) 55%, #2E8C5D);
+  color: #06281A;
+  box-shadow: 0 4px 0 #256B47, 0 8px 16px rgba(0, 0, 0, .30);
+}
+.jelly-btn-secondary {
+  background: linear-gradient(180deg, #FFFFFF, #EFE2CC);
+  color: #5A4526;
+  box-shadow: 0 3px 0 #CDB894, 0 6px 12px rgba(0, 0, 0, .20);
+}
+.jelly-btn:active { transform: translateY(3px); }
+
+/* ---------- Δ16f/T071: 道具购买角标（免费次数用尽 → `💎 50`） ---------- */
+#items button.is-buyable .item-count {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--prism-glow), var(--prism-violet));
+  border: 1.5px solid rgba(255, 255, 255, .8);
+  color: #FFF;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 0 10px rgba(201, 174, 255, .85);
+}
+#items button.is-buyable { border-color: var(--prism-glow); }
+#items button.is-buyable.selecting { box-shadow: 0 0 0 3px rgba(201, 174, 255, .55); }
+
+/* =========================================================
+ * Δ17/T072+T073: 通关结算层（双风翼棱晶能量铭牌）+ 传送门开启展板
+ * 原创性红线: MUST NOT 出现天蓝丝带横幅 / 金色庆典号角 / 礼花筒 /
+ * 风景木质相框等竞品标志性载体
+ * ========================================================= */
+#result-root {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  z-index: 25; /* 模态场景层——位于大厅(3)/局内(2) 之上 */
+  display: grid; place-items: center;
+}
+#result-root[hidden] { display: none !important; }
+
+.result-card-celebrate {
+  position: relative;
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 26px;
+  /* Δ17: 完全不透明底衬——结算层须遮蔽大厅/局内，MUST NOT 透出下层 */
+  background:
+    radial-gradient(circle at 50% 34%, #3E2B70 0%, #0C0920 74%, #08061A 100%);
+  padding: 20px;
+  overflow: hidden;
+}
+
+/* ---------- 【双风翼棱晶能量铭牌】（Δ17 原创构图） ---------- */
+.nameplate {
+  position: relative;
+  width: min(92vw, 400px);
+  padding: 62px 22px 30px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ① 纯白流线型滑行风翼（两侧舒展） */
+.plate-wing {
+  position: absolute; top: 16px;
+  width: 46%; height: 74px;
+  background: linear-gradient(115deg, rgba(255,255,255,.98) 0%, rgba(206, 232, 255, .70) 46%, rgba(160, 200, 255, .12) 100%);
+}
+.plate-wing-l { left: -6%; clip-path: polygon(100% 44%, 22% 0, 58% 40%, 30% 100%); }
+.plate-wing-r { right: -6%; clip-path: polygon(0 44%, 78% 0, 42% 40%, 70% 100%); filter: drop-shadow(0 0 10px rgba(190, 225, 255, .60)); }
+
+/* ② 七彩折射棱晶簇（承托铭牌） */
+.plate-cluster { position: absolute; bottom: 6px; left: 0; right: 0; height: 54px; }
+.plate-shard {
+  position: absolute;
+  bottom: 0; left: 50%;
+  width: 16px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  filter: drop-shadow(0 0 7px var(--h, #fff));
+}
+.plate-shard-0 { margin-left: -74px; height: 34px; transform: rotate(-17deg); }
+.plate-shard-1 { margin-left: -46px; height: 50px; transform: rotate(-7deg); }
+.plate-shard-2 { margin-left: -17px; height: 62px; }
+.plate-shard-3 { margin-left: 13px;  height: 54px; transform: rotate(8deg); }
+.plate-shard-4 { margin-left: 44px;  height: 44px; transform: rotate(15deg); }
+.plate-shard-5 { margin-left: 70px;  height: 30px; transform: rotate(21deg); }
+.plate-shard-6 { margin-left: -2px;  height: 40px; transform: rotate(-3deg); opacity: .7; }
+
+/* ③ 琥珀金渐变铭牌（居中承载赞美词） */
+.plate-bar {
+  position: relative; z-index: 2;
+  padding: 16px 34px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, var(--amber-hi) 0%, var(--amber) 48%, #C87F22 100%);
+  border: 3px solid rgba(255, 255, 255, .84);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .52), inset 0 2px 0 rgba(255,255,255,.72);
+  animation: plate-pop .52s cubic-bezier(.2, 1.5, .4, 1);
+}
+@keyframes plate-pop {
+  from { opacity: 0; transform: scale(.70) translateY(18px); }
+  to   { opacity: 1; transform: none; }
+}
+.plate-praise {
+  font-size: clamp(22px, 7vw, 34px);
+  font-weight: 900;
+  letter-spacing: .10em;
+  color: #4A2E08;
+  text-shadow: 0 1px 0 rgba(255,255,255,.55);
+}
+
+/* ④ 萌宠乘发光微缩滑板在铭牌顶端跃起 */
+.plate-rider {
+  position: absolute; z-index: 3;
+  top: -6px; left: 50%;
+  transform: translateX(-50%);
+  width: 56px; height: 56px;
+  animation: rider-hop 1.5s ease-in-out infinite;
+}
+.plate-pet {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255,255,255,.92);
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(0,0,0,.46);
+  display: grid; place-items: center;
+}
+.plate-pet .pet-avatar-img, .plate-pet .pet-avatar-emoji { width: 100%; height: 100%; object-fit: cover; font-size: 26px; line-height: 1; }
+.plate-board {
+  position: absolute; left: 50%; bottom: -12px;
+  transform: translateX(-50%);
+  width: 66px; height: 11px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255,255,255,.5), var(--prism-glow), rgba(255,255,255,.5));
+  box-shadow: 0 0 18px rgba(201, 174, 255, .95);
+  animation: board-glow 1.5s ease-in-out infinite;
+}
+@keyframes rider-hop {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  42%      { transform: translateX(-50%) translateY(-16px); }
+  70%      { transform: translateX(-50%) translateY(2px); }
+}
+@keyframes board-glow {
+  0%, 100% { opacity: .70; }
+  50%      { opacity: 1; }
+}
+
+/* ⑤ 棱晶星芒与光点粒子（原创程序化粒子） */
+.plate-sparks { position: absolute; inset: 0; pointer-events: none; }
+.spark {
+  position: absolute;
+  width: 7px; height: 7px;
+  left: var(--dx); top: var(--dy);
+  border-radius: 50%;
+  background: var(--amber-hi);
+  box-shadow: 0 0 10px rgba(255, 217, 138, .95);
+  animation: spark-fly 2.4s ease-out infinite;
+}
+.spark-1 { background: var(--prism-glow); box-shadow: 0 0 10px rgba(201,174,255,.95); }
+.spark-2 { background: #7AE582; box-shadow: 0 0 10px rgba(122,229,130,.9); }
+.spark-3 { background: #FF6B9D; box-shadow: 0 0 10px rgba(255,107,157,.9); }
+@keyframes spark-fly {
+  0%   { opacity: 0; transform: translateY(0) scale(.4); }
+  25%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-90px) scale(1.2); }
+}
+
+/* ---------- 中部：星盘晶片 + 棱晶飞入 ---------- */
+.result-mid { position: relative; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.result-chips {
+  width: 118px; height: 118px;
+  border-radius: 24%;
+  overflow: hidden;
+  box-shadow: 0 0 0 3px rgba(232,163,61,.85), 0 10px 26px rgba(0,0,0,.48);
+}
+.result-chipcv { width: 100%; height: 100%; display: block; }
+.result-chips.just-lit { animation: chip-flip .7s cubic-bezier(.3, 1.4, .5, 1); }
+@keyframes chip-flip {
+  0%   { transform: rotateY(90deg) scale(.6); opacity: .2; }
+  100% { transform: none; opacity: 1; }
+}
+.result-shards { display: flex; align-items: center; gap: 8px; }
+.shard-fly {
+  font-size: 30px; font-style: normal;
+  animation: shard-in .9s cubic-bezier(.3, 1.3, .4, 1);
+}
+@keyframes shard-in {
+  from { transform: translateY(-56px) scale(.5); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+.result-shard-amt {
+  font-size: clamp(22px, 6.4vw, 30px);
+  font-weight: 900;
+  color: var(--prism-glow);
+  text-shadow: 0 0 14px rgba(201, 174, 255, .95);
+}
+.result-shard-amt.is-flying { animation: amt-glow 1.6s ease-out; }
+@keyframes amt-glow {
+  0%   { transform: scale(1.5); }
+  40%  { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
+.result-foot { margin-top: 6px; }
+.result-btn {
+  padding: 15px 46px;
+  border: none; border-radius: 999px;
+  background: linear-gradient(180deg, #7FE0A8, var(--accent) 52%, #2E8C5D);
+  color: #06281A;
+  font-size: clamp(16px, 4.6vw, 20px);
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 6px 0 #256B47, 0 12px 22px rgba(0,0,0,.42);
+}
+.result-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #256B47; }
+
+/* ---------- Δ17/T073: 新奇幻大陆传送门开启展板 ---------- */
+.portal-board {
+  position: relative;
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end;
+  gap: 14px;
+  padding: 24px 18px 34px;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 40%, #2A1C58 0%, #0A0818 76%);
+}
+.portal-board-art { position: absolute; inset: 0; }
+.portal-board-cv { width: 100%; height: 100%; display: block; opacity: .92; }
+
+/* 时空传送门光柱（Δ17 原创构图） */
+.portal-beam {
+  position: absolute; left: 50%; top: 50%;
+  width: 62%; height: 120%;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(90deg, transparent, rgba(201,174,255,.34) 42%, rgba(255,217,138,.40) 58%, transparent);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  animation: beam-pulse 3.2s ease-in-out infinite;
+}
+@keyframes beam-pulse {
+  0%, 100% { opacity: .45; }
+  50%      { opacity: .95; }
+}
+
+.portal-board-info {
+  position: relative; z-index: 2;
+  width: min(92vw, 400px);
+  padding: 18px 20px;
+  border-radius: 22px;
+  text-align: center;
+  background: linear-gradient(180deg, rgba(20, 14, 44, .82), rgba(10, 8, 24, .90));
+  border: 2px solid rgba(201, 174, 255, .55);
+  box-shadow: 0 10px 30px rgba(0,0,0,.55);
+}
+.portal-board-name {
+  margin: 0 0 10px;
+  font-size: clamp(20px, 6.4vw, 28px);
+  font-weight: 800;
+  background: linear-gradient(180deg, #FFFFFF, var(--amber-hi) 55%, var(--amber));
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+}
+/* 关卡区间徽章 */
+.portal-board-badge { display: inline-block; margin-bottom: 10px; }
+.portal-board-range {
+  display: inline-block;
+  padding: 4px 16px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--amber-hi), var(--amber));
+  color: #4A2E08;
+  font-weight: 800;
+  font-size: clamp(12px, 3.6vw, 15px);
+  box-shadow: 0 3px 9px rgba(0,0,0,.4);
+}
+/* 萌宠探险手账文案 */
+.portal-board-note { margin: 0; }
+.portal-board-note-text {
+  margin: 0;
+  color: #DCD2F5;
+  font-size: clamp(12px, 3.4vw, 14px);
+  line-height: 1.65;
+}
+.portal-board-foot { position: relative; z-index: 2; margin-top: 6px; }
+
+/* =========================================================
+ * Δ16g/T074: 无倒计时失败界面（FR-043）
+ * 视觉沿用 Δ17 奶油果冻软胶卡片基底
+ * 无倒计时红线: MUST NOT 出现倒计时数字 / 剩余时间 / 限时话术
+ * ========================================================= */
+#fail-root {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  z-index: 26; /* 与结算层同级——失败页取代结算层出现 */
+  display: grid; place-items: center;
+  /* Δ17: 完全不透明底衬——失败页须遮蔽大厅/局内，MUST NOT 透出下层 */
+  background:
+    radial-gradient(circle at 50% 40%, #34246A 0%, #0C0918 74%, #070512 100%);
+}
+#fail-root[hidden] { display: none !important; }
+
+.fail-card {
+  display: flex; flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  /* 标题铭牌 absolute 定位于 top:-17px——必须放行溢出，否则被卡片裁切 */
+  overflow: visible;
+  padding-top: 46px;
+}
+.fail-plaque { background: linear-gradient(180deg, #FFD3C4, #F0906A 58%, #C05A34); }
+
+/* 温和鼓励文案（XX% = 通关率暗示值，非倒计时） */
+.fail-encourage {
+  margin: 0 0 2px;
+  font-size: clamp(13px, 3.7vw, 16px);
+  color: #7A5C36;
+  font-weight: 600;
+}
+.fail-reason { margin: 0; }
+
+/* 萌宠头像 + 委屈泪滴 */
+.fail-pet {
+  position: relative;
+  margin: 18px 0 10px;
+  width: 96px; height: 96px;
+}
+.fail-pet-face {
+  width: 100%; height: 100%;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, .9);
+  overflow: hidden;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .34);
+  display: grid; place-items: center;
+}
+.fail-pet-face .pet-avatar-img,
+.fail-pet-face .pet-avatar-emoji { width: 100%; height: 100%; object-fit: cover; font-size: 40px; line-height: 1; }
+/* 泪滴：生成—滑落—消散 */
+.fail-tear {
+  position: absolute;
+  top: 22%; left: 26%;
+  width: 11px; height: 15px;
+  background: radial-gradient(circle at 34% 28%, rgba(255,255,255,.95), rgba(130, 200, 255, .92));
+  border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .30);
+  animation: tear-fall 1.5s cubic-bezier(.4, 0, .8, 1) forwards;
+}
+@keyframes tear-fall {
+  0%   { opacity: 0; transform: translateY(0) scale(.5); }
+  22%  { opacity: 1; transform: translateY(4px) scale(1); }
+  100% { opacity: 0; transform: translateY(62px) scale(.85); }
+}
+
+.fail-foot {
+  display: flex; flex-direction: column;
+  gap: 10px; width: 100%;
+  margin-top: 14px;
+}
+.fail-revive.is-poor {
+  opacity: .5;
+  cursor: not-allowed;
+  box-shadow: 0 4px 0 #256B47;
+  filter: grayscale(.5);
+}
+/* 棱晶不足提示（FR-041 §3 明确提示，不扣费） */
+.fail-toast {
+  position: absolute;
+  left: 50%; bottom: 16%;
+  transform: translateX(-50%);
+  padding: 10px 24px;
+  border-radius: 999px;
+  background: rgba(20, 14, 44, .94);
+  border: 2px solid var(--prism-glow);
+  color: #FFF;
+  font-weight: 700;
+  font-size: clamp(13px, 3.6vw, 16px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
+  animation: toast-in .2s ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ---------- Δ17/T068: 大厅场景隐藏 M4 浮动调试抽屉按钮 ----------
+ * 大厅顶部左区已有自己的 🛠 开关（FR-039 §2，与局内共用同一状态）；
+ * M4 的 position:fixed 抽屉按钮与大厅开关位置重叠且 z-index 更高，
+ * 会拦截大厅按钮点击 —— 故大厅场景下隐藏（局内不受影响）。 */
+#app.scene-lobby #debug-toggle { display: none !important; }

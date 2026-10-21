@@ -1361,13 +1361,45 @@
     return n;
   }
 
+  /* Δ17/T068+T069+T072: 萌宠头像 canvas 直绘
+   * file:// 下 toDataURL 因跨源污染不可用（dockIconDataURL 返回 null），
+   * petAvatarHTML 退化为 <canvas data-bid> 占位——必须由本函数补绘，
+   * 否则大厅头像 / 档案网格 / 结算铭牌萌宠呈现为空白圆形。 */
+  function paintAvatarCanvases(scope) {
+    if (typeof document === 'undefined') return 0;
+    var root = scope || document;
+    var nodes = root.querySelectorAll('canvas.pet-avatar-img[data-bid]');
+    if (!nodes || !nodes.length) return 0;
+    var dpr = Math.max(1, global.devicePixelRatio || 1);
+    var n = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      var cv = nodes[i];
+      var bid = parseInt(cv.getAttribute('data-bid'), 10);
+      var slice = IconAssets.sliceCanvasOf(bid);
+      if (!slice) continue;
+      var cssW = cv.clientWidth || 48;
+      var px = Math.max(64, Math.round(cssW * dpr));
+      if (cv.width !== px) { cv.width = px; cv.height = px; }
+      var c2 = cv.getContext('2d');
+      if (!c2) continue;
+      c2.clearRect(0, 0, px, px);
+      c2.imageSmoothingEnabled = true;
+      c2.imageSmoothingQuality = 'high';
+      c2.drawImage(slice, 0, 0, px, px);
+      n++;
+    }
+    return n;
+  }
+
   /* =========================================================
    * Δ15b3: BackdropStage — 全视口背景舞台（贴图 + 氛围滤镜 + 前景粒子）
    * · 贴图: assets/bg/bg{1..6}.{png|jpg|jpeg|webp} 逐扩展探测，
    *   Image 相对路径（file:// 双击与静态服务一致——宪章 II/III）
-   * · 映射: cycleIndex = floor((level.id-1)/3)（0~19）→
-   *   0~3→bg1 / 4~6→bg2 / 7~10→bg3 / 11~13→bg4 / 14~16→bg5 / 17~19→bg6
-   * · 氛围: 20 循环逐环 20 档微调色温/明度（同图不同循环互异——
+   * · 映射（Δ16b）: cycleIndex = floor((level.id-1)/3)（0~23）→
+   *   画卷序号 = floor((level.id-1)/12)+1 → 0~3→bg1 / 4~7→bg2 /
+   *   8~11→bg3 / 12~15→bg4 / 16~19→bg5 / 20~23→bg6
+   *   （每幅画卷覆盖 4 个三关循环 = 12 关，与 FR-044 拼图节奏同源）
+   * · 氛围: 24 循环逐环 24 档微调色温/明度（同图不同循环互异——
    *   每过 3 关一换气氛），叠在贴图之上、粒子之下
    * · 粒子: 4 族前景环境粒子（meadow 绒毛+光斑 / sea 水泡+波光 /
    *   petal 樱瓣 / star 星尘+流星）——纯函数动画（相位由 (i,t) 决定，
@@ -1375,13 +1407,26 @@
    * · 兜底: 某张未加载成功 → 复用 bg1；全失败 → Canvas 渐变底色
    * ========================================================= */
   var BackdropStage = (function () {
-    var BG_INDEX = [1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6];
+    /* Δ16b: 6 幅画卷 × 每幅 4 个三关循环 = 24 循环（0~23） */
+    var CYCLES = 24;
+    var BG_INDEX = [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6];
     var EXT_ORDER = ['png', 'jpg', 'jpeg', 'webp'];
     var imgCache = {};   /* bg 序号 → { state:'loading'|'ready'|'failed', img } */
     var readyFns = [];   /* 贴图就绪回调（惰性换装——换装无闪烁） */
 
+    /* 三关循环序号（Δ16: 0~23 —— 24 个「两简一难」循环） */
+    function cycleOf(levelId) {
+      return Math.min(CYCLES - 1, Math.max(0, Math.floor(((levelId || 1) - 1) / 3)));
+    }
+
+    /* 画卷序号（Δ16b 铁律）: floor((level.id-1)/12)+1 → bg{1..6}
+     * 与 FR-044 拼图进度、大厅 2×2 拼图相框同源（零额外映射表） */
+    function paintingOf(levelId) {
+      return Math.min(6, Math.max(1, Math.floor(((levelId || 1) - 1) / 12) + 1));
+    }
+
     function bgIndexOf(ci) {
-      return BG_INDEX[Math.min(19, Math.max(0, ci))];
+      return BG_INDEX[Math.min(CYCLES - 1, Math.max(0, ci))];
     }
 
     /* 逐扩展探测一张底图（会话级缓存——同图不重复探测） */
@@ -1413,8 +1458,8 @@
     }
 
     /* =========================================================
-     * Δ15b3: 20 循环 × 20 档氛围光影（FR-035 §4 派生）
-     * 同一张底图在负责的 3~4 个循环中呈现不同气氛——每过 3 关
+     * Δ15b3/Δ16b: 24 循环 × 24 档氛围光影（FR-035 §4 派生）
+     * 同一张底图在负责的 4 个循环中呈现不同气氛——每过 3 关
      * 一次视觉新鲜感。字段:
      *   top/bot  垂直渐变叠加色（低透明度——保滑块对比度）
      *   tint     全局色温罩（着色/柔化）
@@ -1448,11 +1493,16 @@
       /* Cycle 17~19 —— bg6 奇幻星辰云海（奇幻远航终局） */
       { name: '银河初现', top: 'rgba(196,214,255,0.13)', bot: 'rgba(120,140,230,0.16)', tint: 'rgba(190,206,255,0.08)', veil: 0.17, lift: 0.02, warm: 0.00 },
       { name: '星海流光', top: 'rgba(170,196,255,0.14)', bot: 'rgba(96,116,214,0.18)', tint: 'rgba(168,192,255,0.09)', veil: 0.20, lift: 0.00, warm: 0.00 },
-      { name: '终局星辉', top: 'rgba(196,186,255,0.15)', bot: 'rgba(110,96,206,0.19)', tint: 'rgba(188,176,255,0.10)', veil: 0.22, lift: 0.00, warm: 0.02 }
+      { name: '终局星辉', top: 'rgba(196,186,255,0.15)', bot: 'rgba(110,96,206,0.19)', tint: 'rgba(188,176,255,0.10)', veil: 0.22, lift: 0.00, warm: 0.02 },
+      /* Δ16b Cycle 20~23 —— bg6 星穹极光之巅（奇幻远航后篇 L61~L72 终局四循环） */
+      { name: '极光初升', top: 'rgba(178,204,255,0.13)', bot: 'rgba(104,124,222,0.17)', tint: 'rgba(176,198,255,0.08)', veil: 0.18, lift: 0.01, warm: 0.00 },
+      { name: '虹光漫卷', top: 'rgba(186,178,255,0.14)', bot: 'rgba(96,110,210,0.18)', tint: 'rgba(184,176,255,0.09)', veil: 0.20, lift: 0.00, warm: 0.01 },
+      { name: '深空寂光', top: 'rgba(160,180,248,0.14)', bot: 'rgba(78,92,196,0.19)', tint: 'rgba(166,184,250,0.09)', veil: 0.21, lift: 0.00, warm: 0.00 },
+      { name: '万星加冕', top: 'rgba(204,196,255,0.16)', bot: 'rgba(116,100,214,0.20)', tint: 'rgba(196,186,255,0.11)', veil: 0.23, lift: 0.00, warm: 0.02 }
     ];
 
     function atmosOf(ci) {
-      return ATMOS[Math.min(19, Math.max(0, ci))];
+      return ATMOS[Math.min(CYCLES - 1, Math.max(0, ci))];
     }
 
     /* =========================================================
@@ -1607,11 +1657,11 @@
      * · 贴图: 9:16 源按 cover 等比铺满视口（短边铺满、居中——
      *   同比例时无裁切；非 9:16 时短边溢出裁切，不拉伸变形）
      * · 兜底: 贴图缺失 → Canvas 渐变底色（暖阳/海蓝/星夜三档）
-     * · 氛围: 20 档 ATMOS 叠加（渐变 + 色温罩 + 暗角）
+     * · 氛围: 24 档 ATMOS 叠加（渐变 + 色温罩 + 暗角）
      * · 粒子: 4 族环境粒子（低密度低透明度——不干扰操作视线）
      * ========================================================= */
     function drawStage(ctx, levelId, W, H, tMs, dpr) {
-      var ci = Math.min(19, Math.max(0, Math.floor(((levelId || 1) - 1) / 3)));
+      var ci = cycleOf(levelId); /* Δ16b: 三关循环序号（0~23） */
       var at = atmosOf(ci);
 
       /* 1) 底图（贴图优先 → bg1 复用 → 渐变兜底） */
@@ -1678,6 +1728,9 @@
     }
 
     STM.BackdropStage = {
+      CYCLES: CYCLES,
+      cycleOf: cycleOf,       /* Δ16b: 三关循环序号 0~23 */
+      paintingOf: paintingOf, /* Δ16b: 画卷序号 = floor((id-1)/12)+1 → bg{1..6} */
       bgIndexOf: bgIndexOf,
       probe: probe,
       onReady: onReady,
@@ -1691,9 +1744,38 @@
     return STM.BackdropStage;
   })();
 
+  /* Δ17/T068+T069: 玩家萌宠头像 HTML（大厅头像按钮 / 档案弹窗网格 / 结算铭牌共用）
+   * 与 chipSVG 的区别: chipSVG 消费「当前关花色 → 图鉴 id」映射；本函数直接
+   * 接收 profile 存的 avatar suit 编号（0~44），不受关卡映射影响。
+   * 渲染来源链与棋盘完全同源（FR-040 §2 / FR-033 §6）:
+   *   ① sheet1~3 切片 DataURL → ② 切片 canvas 直绘 → ③ 原生全彩 Emoji */
+  function petAvatarHTML(bid) {
+    if (Bestiary && !IconAssets) return '';
+    if (typeof bid !== 'number' || isNaN(bid)) bid = 0;
+    IconAssets.ensureLoaded();
+    var slice = IconAssets.sliceCanvasOf(bid);
+    var name = Bestiary ? ((Bestiary.entry(bid) || {}).name || '') : '';
+    if (slice) {
+      var url = dockIconDataURL(bid); /* DataURL 记忆化，跨会话零重复导出 */
+      if (url) {
+        return '<img class="pet-avatar-img" src="' + url + '" alt="' + name +
+          '" draggable="false"/>';
+      }
+      return '<canvas class="pet-avatar-img" width="256" height="256" data-bid="' +
+        bid + '" aria-label="' + name + '"></canvas>';
+    }
+    /* Emoji 兜底（sheet 未覆盖该条目） */
+    if (Bestiary && Bestiary.EMOJI && Bestiary.EMOJI.length === 45) {
+      return '<span class="pet-avatar-emoji">' + Bestiary.emojiOf(bid) + '</span>';
+    }
+    return '';
+  }
+
   STM.createBoardRenderer = createBoardRenderer;
   STM.SUITS = SUITS;
   STM.chipSVG = chipSVG;
+  STM.petAvatarHTML = petAvatarHTML; /* Δ17: 萌宠头像统一出口 */
+  STM.paintAvatarCanvases = paintAvatarCanvases; /* Δ17: file:// 跨源兜底直绘 */
   STM.paintDockIcons = paintDockIcons; /* Δ15b3e: file:// canvas 兜底绘制 */
   STM.dockIconDataURL = dockIconDataURL;
   STM.IconAssets = IconAssets;

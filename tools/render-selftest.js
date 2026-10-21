@@ -20,11 +20,28 @@ var RE = require('../src/core/RulesEngine.js');
 globalThis.STM = globalThis.STM || {};
 globalThis.STM.RulesEngine = RE; /* BoardRenderer/GameState 装载时读 STM.RulesEngine */
 require('../src/core/GameState.js');
+require('../src/core/profile.js'); /* Δ16c/T065: 玩家档案与经济态（纯数据层） */
 require('../src/render/bestiary.js'); /* Δ14: BoardRenderer 之前（装载序 D-01） */
 require('../src/render/backdrops.js'); /* Δ14/T052d: 生态背景池（BoardRenderer 消费） */
 require('../src/render/BoardRenderer.js');
+require('../src/audio/SoundManager.js'); /* Δ16c: BGM/SFX 粒度 + Δ16d 开机和弦音 */
+require('../src/ui/splash.js'); /* Δ16d/T066: HooLey Games 开机动画 */
 var STM = globalThis.STM;
-var LEVELS = require('../src/data/levels.js'); /* T052c: 60 关映射断言只读消费 */
+var LEVELS = require('../src/data/levels.js'); /* T052c: 72 关映射断言只读消费 */
+
+/* ---- Δ16c/T065: localStorage 内存桩（Node 无 DOM 存储——profile 全访问
+ * try/catch 须降级为内存态照常可玩，D-03 纪律延续） ---- */
+function mkStorage() {
+  var m = {};
+  return {
+    getItem: function (k) { return Object.prototype.hasOwnProperty.call(m, k) ? m[k] : null; },
+    setItem: function (k, v) { m[k] = String(v); },
+    removeItem: function (k) { delete m[k]; },
+    _dump: function () { return m; }
+  };
+}
+var memStore = mkStorage();
+globalThis.localStorage = memStore;
 
 /* ---- 浏览器环境桩（零依赖——不引任何 npm 包） ---- */
 var clockNow = 0;
@@ -236,13 +253,15 @@ function scenarioSuitMapping() {
     for (key in map) keys.push(parseInt(key, 10));
     /* K ≤ 池大小恒真 + 映射数 = 关卡花色数 */
     if (keys.length === 0 || keys.length > B.STAGES[B.stageOf(lv.id) - 1].poolMax) kOk = false;
-    /* 阶段边界: L21∈一 / L22∈二 / L42∈二 / L43∈三（spec FR-033: 阶段二 L22~L42 含 42；
-     * tasks.md 原文「L42∈阶段三」为笔误——21+21+18=60 关与 spec 区间自洽，以 spec 为准） */
+    /* Δ16a 阶段边界重划为 3×24: L24∈一 / L25∈二 / L48∈二 / L49∈三
+     * （spec FR-033 Δ16 修订: 阶段一 L1~L24 / 阶段二 L25~L48 / 阶段三 L49~L72；
+     *  区间按 level.id 判定，非 chapter） */
     var st = B.stageOf(lv.id);
-    if (lv.id === 21 && st !== 1) stage1Ok = false;
-    if (lv.id === 22 && st !== 2) stage2Ok = false;
-    if (lv.id === 42 && st !== 2) stage2Ok = false;
-    if (lv.id === 43 && st !== 3) stage3Ok = false;
+    if (lv.id === 24 && st !== 1) stage1Ok = false;
+    if (lv.id === 25 && st !== 2) stage2Ok = false;
+    if (lv.id === 48 && st !== 2) stage2Ok = false;
+    if (lv.id === 49 && st !== 3) stage3Ok = false;
+    if (lv.id === 72 && st !== 3) stage3Ok = false;
     /* 阶段池包含: 图案 id < 阶段池上限（阶段一 ≤14 / 二 ≤29 / 三 ≤44） */
     var poolCap = [15, 30, 45][st - 1];
     var inPool = true;
@@ -258,10 +277,10 @@ function scenarioSuitMapping() {
     var map2 = B.mappingForLevel(lv);
     for (key in map) { if (map[key] !== map2[key]) sameSuitOk = false; }
   }
-  check('60 关 K ≤ 阶段池大小恒真 + 映射数 = 花色数', kOk);
-  check('阶段边界正确（L21∈一/L22∈二/L42∈二/L43∈三——spec FR-033 id 区间非 chapter）',
+  check('72 关 K ≤ 阶段池大小恒真 + 映射数 = 花色数', kOk);
+  check('Δ16a 阶段边界正确（L24∈一/L25∈二/L48∈二/L49∈三/L72∈三——spec FR-033 3×24 id 区间非 chapter）',
     stage1Ok && stage2Ok && stage3Ok);
-  check('60 关图案均落在对应阶段池内', inPoolOk);
+  check('72 关图案均落在对应阶段池内', inPoolOk);
   check('同关内 suit→图案单射（唯一）', uniqueOk);
   check('同关同 suit 恒同图案（会话级缓存一致）', sameSuitOk);
 
@@ -274,7 +293,7 @@ function scenarioSuitMapping() {
     var m2 = B.mappingForLevel(lv);
     for (key in m1) { if (m1[key] !== m2[key]) detOk = false; }
   }
-  check('60 关映射确定性（清缓存二次计算一致——SC-007）', detOk);
+  check('72 关映射确定性（清缓存二次计算一致——SC-007）', detOk);
 
   /* 跳关/Undo 后以当前关 id 重算阶段（Edge Case「阶段边界换装」） */
   check('跳关重算: L21→阶段一池（≠chapter 2 错位）',
@@ -304,25 +323,26 @@ function scenarioSuitMapping() {
 
 /* ---- 场景 E: Δ14/T052d 背景层集成（真实关卡 × 20 循环全覆盖 + 8×8 满载） ---- */
 function scenarioEcoBackdrop() {
-  console.log('场景 E: 生态背景层集成（20 循环全覆盖 + 8×8×5 层满载稳定性）');
+  console.log('场景 E: 生态背景层集成（Δ16b 24 循环全覆盖 + 8×8×5 层满载稳定性）');
   var BD = STM.Backdrops;
   check('Backdrops 挂载于 STM（装载序 BoardRenderer 前）', !!BD && Array.isArray(BD.SCENES) && BD.SCENES.length === 20);
 
-  /* 20 景与 20 循环严格一一对应（SC-008: 0 遗漏 0 冲突——每 index 恰 3 关） */
+  /* Δ16b: 24 循环 × 每循环恰 3 关（SC-008: 0 遗漏 0 冲突）——72 关 = 24 循环 */
   var cover = {};
   var i, id;
-  for (id = 1; id <= 60; id++) {
+  for (id = 1; id <= LEVELS.length; id++) {
     var ci = BD.cycleIndexOf(id);
     cover[ci] = (cover[ci] || 0) + 1;
   }
   var keys = Object.keys(cover).map(Number).sort(function (a, b) { return a - b; });
-  var exact3 = keys.length === 20 && keys.every(function (k) { return cover[k] === 3; });
-  check('20 循环 × 每循环恰 3 关（0 遗漏 0 冲突）', exact3);
-  check('cycleIndex 钳制: L61+ → 19 / L0 → 0', BD.cycleIndexOf(61) === 19 && BD.cycleIndexOf(0) === 0);
+  var exact3 = keys.length === 24 && keys.every(function (k) { return cover[k] === 3; });
+  check('Δ16b: 24 循环 × 每循环恰 3 关（0 遗漏 0 冲突）', exact3);
+  check('Δ16b: cycleIndex 钳制: L73+ → 23 / L0 → 0', BD.cycleIndexOf(73) === 23 && BD.cycleIndexOf(0) === 0);
 
-  /* 20 景全部经真实渲染器数据流绘制（坐标有限性桩——含换关重绘路径） */
+  /* 24 循环全部经真实渲染器数据流绘制（坐标有限性桩——含换关重绘路径） */
   var okPaint = true;
-  var sampleIds = [1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37, 40, 43, 46, 49, 52, 55, 58];
+  var sampleIds = [];
+  for (var sc = 0; sc < 24; sc++) sampleIds.push(sc * 3 + 1);
   for (i = 0; i < sampleIds.length; i++) {
     var lv = LEVELS[sampleIds[i] - 1];
     var g = makeGame(lv);
@@ -353,24 +373,34 @@ function scenarioEcoBackdrop() {
   }
   check('L60 连点 12 步（fly/reveal/prism 动画 + 背景层并发）无异常', okSteps && played === 12);
 
-  /* 换关横幅挑战位（T052e 集成语义——挑战位恰为每循环第 3 关） */
+  /* 换关横幅挑战位（T052e 集成语义——挑战位恰为每循环第 3 关; Δ16a: 24 关） */
   var challenge = [];
-  for (id = 1; id <= 60; id++) if (id === 3 || (id - 4) % 3 === 2) challenge.push(id);
-  check('挑战位集合 20 关（L3 ∪ (id-4)%3==2——每循环 1 难关）', challenge.length === 20);
+  for (id = 1; id <= LEVELS.length; id++) if (id === 3 || (id - 4) % 3 === 2) challenge.push(id);
+  check('Δ16a: 挑战位集合 24 关（L3 ∪ (id-4)%3==2——每循环 1 难关）', challenge.length === 24);
+  check('Δ16a: 新增尾段挑战位恰为 L63/L66/L69/L72',
+    [63, 66, 69, 72].every(function (cid) { return challenge.indexOf(cid) >= 0; }));
   var perCycleOk = challenge.every(function (cid) {
     var cyc = BD.cycleIndexOf(cid);
     return cover[cyc] === 3; /* 难关属于恰含 3 关的循环 */
   });
   check('每个挑战位关归属其三关循环', perCycleOk);
 
-  /* Δ15b/T052j: 6 张贴图 → 20 循环映射断言（用户口径: 0~3→bg1 … 17~19→bg6） */
+  /* Δ16b: 6 张贴图 → 24 循环映射断言（每幅画卷覆盖 4 个三关循环 = 12 关） */
   var bgMapOk = [0, 1, 2, 3].every(function (c) { return BD.bgImageIndexOf(c) === 1; }) &&
-    [4, 5, 6].every(function (c) { return BD.bgImageIndexOf(c) === 2; }) &&
-    [7, 8, 9, 10].every(function (c) { return BD.bgImageIndexOf(c) === 3; }) &&
-    [11, 12, 13].every(function (c) { return BD.bgImageIndexOf(c) === 4; }) &&
-    [14, 15, 16].every(function (c) { return BD.bgImageIndexOf(c) === 5; }) &&
-    [17, 18, 19].every(function (c) { return BD.bgImageIndexOf(c) === 6; });
-  check('bg 贴图映射（0~3→1 / 4~6→2 / 7~10→3 / 11~13→4 / 14~16→5 / 17~19→6）', bgMapOk);
+    [4, 5, 6, 7].every(function (c) { return BD.bgImageIndexOf(c) === 2; }) &&
+    [8, 9, 10, 11].every(function (c) { return BD.bgImageIndexOf(c) === 3; }) &&
+    [12, 13, 14, 15].every(function (c) { return BD.bgImageIndexOf(c) === 4; }) &&
+    [16, 17, 18, 19].every(function (c) { return BD.bgImageIndexOf(c) === 5; }) &&
+    [20, 21, 22, 23].every(function (c) { return BD.bgImageIndexOf(c) === 6; });
+  check('Δ16b: bg 贴图映射（0~3→bg1 / 4~7→bg2 / 8~11→bg3 / 12~15→bg4 / 16~19→bg5 / 20~23→bg6）', bgMapOk);
+  /* Δ16b 铁律: 画卷序号 = floor((id-1)/12)+1（FR-044 拼图同源） */
+  var paintOk = [1, 12].every(function (i) { return BD.paintingOf(i) === 1; }) &&
+    [13, 24].every(function (i) { return BD.paintingOf(i) === 2; }) &&
+    [25, 36].every(function (i) { return BD.paintingOf(i) === 3; }) &&
+    [37, 48].every(function (i) { return BD.paintingOf(i) === 4; }) &&
+    [49, 60].every(function (i) { return BD.paintingOf(i) === 5; }) &&
+    [61, 72].every(function (i) { return BD.paintingOf(i) === 6; });
+  check('Δ16b: 画卷序号 floor((id-1)/12)+1（L1-12→1 … L61-72→6）', paintOk);
   /* 兜底确定性: Node 无 Image 环境探测直接 failed → drawBackdrop 走程序化路径 */
   var probeRec = BD.probeBgImage(0);
   check('贴图探测无 DOM 环境降级 failed（程序化兜底命中）', probeRec.state === 'failed');
@@ -489,26 +519,39 @@ function scenarioSpriteSheets() {
 
 /* ---- 场景 G: Δ15b3 全视口背景舞台（贴图映射 / 20 档氛围 / 4 族粒子） ---- */
 function scenarioBackdropStage() {
-  console.log('场景 G: 全视口背景舞台（Δ15b3——6 图映射 20 循环 + 20 档氛围 + 4 族粒子）');
+  console.log('场景 G: 全视口背景舞台（Δ16b——6 图映射 24 循环 + 24 档氛围 + 4 族粒子）');
   var BS = STM.BackdropStage;
   check('BackdropStage 挂载于 STM（BoardRenderer 导出）', !!BS && typeof BS.drawStage === 'function');
 
-  /* 6 张底图 → 20 循环映射（用户口径: 0~3→bg1 / 4~6→bg2 / 7~10→bg3 /
-   * 11~13→bg4 / 14~16→bg5 / 17~19→bg6） */
+  /* Δ16b: 6 张底图 → 24 循环映射（每幅画卷 4 个三关循环 = 12 关:
+   * 0~3→bg1 / 4~7→bg2 / 8~11→bg3 / 12~15→bg4 / 16~19→bg5 / 20~23→bg6） */
   var mapOk = [0, 1, 2, 3].every(function (c) { return BS.bgIndexOf(c) === 1; }) &&
-    [4, 5, 6].every(function (c) { return BS.bgIndexOf(c) === 2; }) &&
-    [7, 8, 9, 10].every(function (c) { return BS.bgIndexOf(c) === 3; }) &&
-    [11, 12, 13].every(function (c) { return BS.bgIndexOf(c) === 4; }) &&
-    [14, 15, 16].every(function (c) { return BS.bgIndexOf(c) === 5; }) &&
-    [17, 18, 19].every(function (c) { return BS.bgIndexOf(c) === 6; });
-  check('6 图 → 20 循环映射（0~3→1 / 4~6→2 / 7~10→3 / 11~13→4 / 14~16→5 / 17~19→6）', mapOk);
-  check('bgIndexOf 越界钳制（-5→1 / 99→6）', BS.bgIndexOf(-5) === 1 && BS.bgIndexOf(99) === 6);
+    [4, 5, 6, 7].every(function (c) { return BS.bgIndexOf(c) === 2; }) &&
+    [8, 9, 10, 11].every(function (c) { return BS.bgIndexOf(c) === 3; }) &&
+    [12, 13, 14, 15].every(function (c) { return BS.bgIndexOf(c) === 4; }) &&
+    [16, 17, 18, 19].every(function (c) { return BS.bgIndexOf(c) === 5; }) &&
+    [20, 21, 22, 23].every(function (c) { return BS.bgIndexOf(c) === 6; });
+  check('Δ16b: 6 图 → 24 循环映射（0~3→1 / 4~7→2 / 8~11→3 / 12~15→4 / 16~19→5 / 20~23→6）', mapOk);
+  check('Δ16b: bgIndexOf 越界钳制（-5→1 / 24→6 / 99→6）',
+    BS.bgIndexOf(-5) === 1 && BS.bgIndexOf(24) === 6 && BS.bgIndexOf(99) === 6);
 
-  /* 20 档氛围逐环唯一（每过 3 关一换气氛——同图不同循环互异） */
+  /* Δ16b: 画卷序号 = floor((id-1)/12)+1（FR-044 拼图同源铁律） */
+  var bsPaintOk = [1, 12].every(function (i) { return BS.paintingOf(i) === 1; }) &&
+    [13, 24].every(function (i) { return BS.paintingOf(i) === 2; }) &&
+    [25, 36].every(function (i) { return BS.paintingOf(i) === 3; }) &&
+    [37, 48].every(function (i) { return BS.paintingOf(i) === 4; }) &&
+    [49, 60].every(function (i) { return BS.paintingOf(i) === 5; }) &&
+    [61, 72].every(function (i) { return BS.paintingOf(i) === 6; });
+  check('Δ16b: BackdropStage.paintingOf 画卷序号（L1-12→1 … L61-72→6）', bsPaintOk);
+  /* 三关循环序号 0~23（L73+ 钳制 23 / L0 钳制 0） */
+  check('Δ16b: cycleOf 0~23 钳制（L73→23 / L0→0）',
+    BS.cycleOf(73) === 23 && BS.cycleOf(0) === 0 && BS.cycleOf(1) === 0 && BS.cycleOf(72) === 23);
+
+  /* 24 档氛围逐环唯一（每过 3 关一换气氛——同图不同循环互异） */
   var atmos = BS.ATMOS;
-  check('氛围档位 20 档（每循环一档）', Array.isArray(atmos) && atmos.length === 20);
+  check('Δ16b: 氛围档位 24 档（每循环一档）', Array.isArray(atmos) && atmos.length === 24);
   var sigs = {}, uniqAtmos = true;
-  for (var ai = 0; ai < 20; ai++) {
+  for (var ai = 0; ai < 24; ai++) {
     var a = atmos[ai];
     if (!a || !a.name || !a.top || !a.bot) { uniqAtmos = false; break; }
     var sg = a.name + '|' + a.top + '|' + a.bot + '|' + a.veil + '|' + a.lift + '|' + a.warm;
@@ -518,7 +561,7 @@ function scenarioBackdropStage() {
   check('20 档氛围互不相同（氛围签名无重复）', uniqAtmos);
   /* 同一底图负责的多个循环氛围名互异（bg1 的 4 个循环各有气氛） */
   var byBg = {};
-  for (var bj = 0; bj < 20; bj++) {
+  for (var bj = 0; bj < 24; bj++) {
     var k = BS.bgIndexOf(bj);
     (byBg[k] = byBg[k] || []).push(atmos[bj].name);
   }
@@ -529,11 +572,11 @@ function scenarioBackdropStage() {
   check('同一底图的各循环氛围名互异（bg1 四循环四气氛）', sameNameOk);
 
   /* 4 族粒子按底图主题归属 */
-  var famOk = BS.familyOf(0) === 'meadow' && BS.familyOf(6) === 'meadow' &&
-    BS.familyOf(7) === 'sea' && BS.familyOf(10) === 'sea' &&
-    BS.familyOf(11) === 'petal' && BS.familyOf(13) === 'petal' &&
-    BS.familyOf(14) === 'star' && BS.familyOf(19) === 'star';
-  check('粒子族归属（bg1/2→meadow、bg3→sea、bg4→petal、bg5/6→star）', famOk);
+  var famOk = BS.familyOf(0) === 'meadow' && BS.familyOf(7) === 'meadow' &&
+    BS.familyOf(8) === 'sea' && BS.familyOf(11) === 'sea' &&
+    BS.familyOf(12) === 'petal' && BS.familyOf(15) === 'petal' &&
+    BS.familyOf(16) === 'star' && BS.familyOf(23) === 'star';
+  check('Δ16b: 粒子族归属（bg1/2→meadow、bg3→sea、bg4→petal、bg5/6→star）', famOk);
 
   /* 粒子层纯函数绘制（4 族 × 多时间点——坐标有限性契约） */
   var okPart = true;
@@ -547,10 +590,10 @@ function scenarioBackdropStage() {
 
   /* 全视口舞台绘制（贴图缺失 → 渐变兜底 + 氛围 + 粒子——无异常） */
   var okStage = true;
-  for (var si = 0; si < 20; si++) {
+  for (var si = 0; si < 24; si++) {
     try { BS.drawStage(makeCtx(), si * 3 + 1, 90, 160, si * 700, 1); } catch (errS) { okStage = false; }
   }
-  check('20 循环全视口舞台绘制无异常（渐变兜底 + 20 档氛围 + 粒子）', okStage);
+  check('Δ16b: 24 循环全视口舞台绘制无异常（渐变兜底 + 24 档氛围 + 粒子）', okStage);
 
   /* 贴图探测在 Node 无 Image 环境降级 failed（不抛错） */
   var probeRec = BS.probe(1);
@@ -636,6 +679,261 @@ function scenarioBackdropStage() {
     /height:\s*clamp\(44px/.test((css.match(/#hud\s*\{[^}]*\}/) || [''])[0]));
 }
 
+/* =========================================================
+ * 场景 H: Δ16 断言组（T067 §3）—— profile v2 往返 / 棱晶扣费原子性与余额下限
+ * / 拼图进度递增 / 开机动画时序常量 / 72 关扩容口径
+ * ========================================================= */
+function scenarioDelta16() {
+  console.log('场景 H: Δ16 断言组（profile v2 + 棱晶经济 + 拼图进度 + 开机动画 + 72 关口径）');
+
+  /* ---------- H1: 关卡数据 72 关口径（Δ16a） ---------- */
+  check('Δ16a: LEVELS.length = 72（FR-008 扩容铁律）', LEVELS.length === 72);
+  var idSeqOk = true, chOk = true, waveOk = true;
+  for (var li = 0; li < LEVELS.length; li++) {
+    if (LEVELS[li].id !== li + 1) idSeqOk = false;
+    var wantCh = li < 24 ? 1 : (li < 48 ? 2 : 3);
+    if (LEVELS[li].chapter !== wantCh) chOk = false;
+    if (li >= 3) { /* L4+ 三关循环: 2 简 7×7 + 1 难 8×8 */
+      var wantN = (LEVELS[li].id - 4) % 3 === 2 ? 8 : 7;
+      if (LEVELS[li].n !== wantN) waveOk = false;
+    }
+  }
+  check('Δ16a: 72 关 id 连续（LEVELS[i].id === i+1）', idSeqOk);
+  check('Δ16a: 章区间 ch1[1,24]/ch2[25,48]/ch3[49,72]（3×24 大阶段）', chOk);
+  check('Δ16a: L4~L72 严格「2 简(7×7) 1 难(8×8)」三关循环', waveOk);
+  check('Δ16a: L63/L66/L69/L72 为新增尾段 8×8 挑战位',
+    [63, 66, 69, 72].every(function (id) { return LEVELS[id - 1].n === 8; }));
+
+  /* ---------- H2: profile v2 往返读写一致 ---------- */
+  var P = STM.Profile;
+  check('Δ16c: STM.Profile 挂载（装载序 main 之前）', !!P && typeof P.load === 'function');
+  memStore.removeItem(P.PROFILE_KEY);
+  P.load();
+  var g0 = P.get();
+  check('Δ16c: 初始棱晶 200（FR-041 赠送起点）', g0.shards === 200);
+  check('Δ16c: 默认档案 {name: 探险家, avatarSuit: 6}（大熊猫头像）',
+    g0.nickname === '探险家' && g0.avatar === 6);
+  check('Δ16c: 默认设置 {bgm:true, sfx:true, haptics:true}（三项独立开关）',
+    g0.settings.bgm === true && g0.settings.sfx === true && g0.settings.haptics === true);
+  check('Δ16c: 拼图进度初始 6 幅全 0（6 幅画卷 × 每幅 0~4 块）',
+    g0.paintingProgress.length === 6 && g0.paintingProgress.every(function (v) { return v === 0; }));
+
+  /* 写入 → 存档 → 重读 → 一致 */
+  P.setNickname('小明');
+  P.setAvatar(12);
+  P.setSetting('bgm', false);
+  P.setSetting('haptics', false);
+  P.addShards(75);
+  P.save();
+  P.load();
+  var g1 = P.get();
+  check('Δ16c: v2 往返读写一致（昵称/头像/设置/棱晶）',
+    g1.nickname === '小明' && g1.avatar === 12 &&
+    g1.settings.bgm === false && g1.settings.sfx === true && g1.settings.haptics === false &&
+    g1.shards === 275);
+
+  /* 旧 v1 进度键并存不迁移（FR-041 §4 / Δ16c 铁律） */
+  memStore.setItem('slide-triple:progress:v1', JSON.stringify({ v: 1, unlocked: 7, last: 6, best: {}, muted: false }));
+  P.load();
+  check('Δ16c: profile v2 与 progress v1 并存（v1 键零改写——不迁移）',
+    JSON.parse(memStore.getItem('slide-triple:progress:v1')).unlocked === 7 && P.PROFILE_KEY !== 'slide-triple:progress:v1');
+
+  /* ---------- H3: 棱晶扣费原子性与余额下限 ---------- */
+  P.set('shards', 100);
+  check('Δ16f: 余额 100 扣 50 → true 且余额归零（余额恰等于价格不得误判不足）',
+    P.spendShards(50) === true && P.get().shards === 50);
+  check('Δ16f: 余额 50 扣 50 → true 且余额 0（原子生效）',
+    P.spendShards(50) === true && P.get().shards === 0);
+  check('Δ16f: 余额 0 扣 50 → false 且余额恒 0（零扣费零消耗）',
+    P.spendShards(50) === false && P.get().shards === 0);
+  P.addShards(-99999);
+  check('Δ16f: 负向增减下限钳制 0（余额 MUST NOT 出现负值）', P.get().shards === 0);
+  check('Δ16f: 扣费零消耗（余额不足时 spendShards 不改余额）',
+    P.spendShards(100) === false && P.get().shards === 0);
+
+  /* ---------- H4: 首通幂等 + 拼图进度递增 ---------- */
+  check('Δ16f: grantFirstClear 首次 true / 重复 false（幂等）',
+    P.grantFirstClear(5) === true && P.grantFirstClear(5) === false);
+  var tiles = [];
+  for (var t = 0; t < 5; t++) tiles.push(P.unlockPaintingTile(0));
+  check('Δ16f: 拼图块递增至上限 4（第 5 次返回 false）',
+    tiles[0] === true && tiles[3] === true && tiles[4] === false && P.get().paintingProgress[0] === 4);
+  check('Δ16f: 6 幅画卷进度互相独立', P.get().paintingProgress[1] === 0 && P.get().paintingProgress[5] === 0);
+  check('Δ16b: paintingIndexOfLevel 画卷归属（L1-12→0 / L13-24→1 / L61-72→5）',
+    P.paintingIndexOfLevel(1) === 0 && P.paintingIndexOfLevel(12) === 0 &&
+    P.paintingIndexOfLevel(13) === 1 && P.paintingIndexOfLevel(61) === 5 &&
+    P.paintingIndexOfLevel(72) === 5);
+
+  /* ---------- H5: 隐私模式降级（存储不可用照常可玩，D-03） ---------- */
+  var realLS = globalThis.localStorage;
+  try {
+    globalThis.localStorage = {
+      getItem: function () { throw new Error('SecurityError: 隐私模式'); },
+      setItem: function () { throw new Error('SecurityError: 隐私模式'); }
+    };
+    P.load();
+    P.addShards(30);
+    check('Δ16c: 隐私模式降级为内存态（load 不抛错 + 照常可玩 + 余额恒非负）',
+      P.get().shards === 30 && P.spendShards(999) === false && P.get().shards === 30);
+  } finally {
+    globalThis.localStorage = realLS;
+    P.load();
+  }
+
+  /* ---------- H6: 开机动画时序常量（FR-038） ---------- */
+  var SP = STM.Splash;
+  check('Δ16d: STM.Splash 挂载且 show 可调用', !!SP && typeof SP.show === 'function');
+  check('Δ16d: 开机动画总时长 ≈2.0s（TOTAL_MS === 2000）', SP.TOTAL_MS === 2000);
+  check('Δ16d: 淡出时长常量为正且 ≤ 总时长（平滑淡出）',
+    SP.FADE_MS > 0 && SP.FADE_MS <= SP.TOTAL_MS);
+  check('Δ16d: 和弦音触发时刻在动画时序窗口内（0 < CHIME_AT < TOTAL_MS）',
+    SP.CHIME_AT > 0 && SP.CHIME_AT < SP.TOTAL_MS);
+
+  /* 开机和弦音 autoplay 合规 + BGM/SFX 粒度接口 */
+  var sm = STM.createSoundManager({});
+  check('Δ16d: SoundManager 暴露 playBootChime（纯代码合成和弦音）',
+    typeof sm.playBootChime === 'function');
+  check('Δ16d: autoplay 合规——首次交互前 playBootChime 静默返回 false',
+    sm.playBootChime() === false);
+  check('Δ16c: SoundManager 暴露 BGM/SFX 独立静音粒度接口',
+    typeof sm.setBgmMute === 'function' && typeof sm.setSfxMute === 'function');
+  sm.setBgmMute(true);
+  check('Δ16c: BGM 静音粒度独立生效', sm.isMuted() === true);
+  sm.setSfxMute(false);
+  sm.setBgmMute(false);
+  check('Δ16c: 兼容 setMuted() 仍同时置两粒度（Δ14 单开关行为零回归）',
+    (sm.setMuted(true), sm.isMuted() === true) && (sm.setMuted(false), sm.isMuted() === false));
+
+  /* ---------- H7: 开机动画零持久化副作用（FR-038 §6） ---------- */
+  var beforeShards = P.get().shards;
+  var beforePainting = P.get().paintingProgress.join(',');
+  var lsBefore = memStore._dump()[P.PROFILE_KEY];
+  var splashSrc = require('fs').readFileSync(__dirname + '/../src/ui/splash.js', 'utf8');
+  var profileSrc = require('fs').readFileSync(__dirname + '/../src/core/profile.js', 'utf8');
+  check('Δ16d: splash/profile 模块零关卡数据写入（不回写 levels.js——FR-041 §4 铁律）',
+    splashSrc.indexOf('STM.LEVELS') === -1 && profileSrc.indexOf('STM.LEVELS') === -1);
+  check('Δ16d: 动画播放不触碰棱晶/拼图态（纯表现层）',
+    P.get().shards === beforeShards && P.get().paintingProgress.join(',') === beforePainting &&
+    memStore._dump()[P.PROFILE_KEY] === lsBefore);
+
+  /* ---------- H8: index.html 骨架与加载序 ---------- */
+  var html = require('fs').readFileSync(__dirname + '/../index.html', 'utf8');
+  check('Δ16d: index.html 含 #splash-screen 骨架（HooLey 六个字母 span）',
+    html.indexOf('id="splash-screen"') !== -1 && (html.match(/class="splash-ch/g) || []).length === 6);
+  check('Δ16d: HooLey 骨架含两个双环 o（splash-oo）与 GAMES 副标题',
+    (html.match(/splash-oo/g) || []).length === 2 && html.indexOf('>GAMES<') !== -1);
+  check('Δ16c/Δ16d: index.html 加载序 profile → splash → main',
+    html.indexOf('src/core/profile.js') !== -1 &&
+    html.indexOf('src/core/profile.js') < html.indexOf('src/ui/splash.js') &&
+    html.indexOf('src/ui/splash.js') < html.indexOf('src/main.js'));
+  var splashCss = require('fs').readFileSync(__dirname + '/../css/style.css', 'utf8');
+  check('Δ16d: 开机背景为高级黑径向渐变（绝不用纯黑 #000000）',
+    /#splash-screen\s*\{[^}]*radial-gradient\(circle at 50% 42%/.test(splashCss));
+  check('Δ16d: 开机背景含黑曜石微光口径 #181E29 → #0B0E14 → #05070A',
+    splashCss.indexOf('#181E29') !== -1 && splashCss.indexOf('#0B0E14') !== -1 &&
+    splashCss.indexOf('#05070A') !== -1);
+  check('Δ16d: 白金流光扫掠由 --sweep 驱动（渐变遮罩，非整体闪烁）',
+    /--sweep/.test(splashCss));
+}
+
+
+/* =========================================================
+ * Δ16g/T074 + Δ17 断言组 —— 复活净化花色守恒 + 外围 UI 原创性红线
+ * ========================================================= */
+function scenarioPurifyAndOriginality() {
+  console.log('\n[Δ16g/Δ17] 复活净化（applyPurify）+ 外围 UI 原创性红线');
+
+  var lvl = LEVELS[0]; /* 只读消费（与 T052c 一致） */
+  var st = RE.init(lvl);
+  var baseTiles = st.tiles.length;
+
+  /* 造出 Dock 滞留（三个花色各一块）+ 生命耗尽态 */
+  st.dock = [{ id: 9001, s: st.tiles[0].s }, { id: 9002, s: st.tiles[1].s }, { id: 9003, s: st.tiles[2].s }];
+  st.lives = 0;
+  check('Δ16g: 净化前处于 lost_lives 终局态', RE.terminal(st) === 'lost_lives', RE.terminal(st));
+
+  var r = RE.applyPurify(st);
+  check('Δ16g: applyPurify 已导出且可调用', typeof r === 'object' && !!r.events);
+  check('Δ16g: Dock 完全腾空（FR-043 §3）', st.dock.length === 0, 'dock=' + st.dock.length);
+  check('Δ16g: 生命恢复为 3（FR-043 §3）', st.lives === lvl.lives || st.lives === 3, 'lives=' + st.lives);
+  check('Δ16g: 净化后回到可玩态（续局不重置棋盘）', RE.terminal(st) === 'playing', RE.terminal(st));
+  check('Δ16g: 板面被成组消除（滑块数减少）', st.tiles.length < baseTiles,
+    baseTiles + ' -> ' + st.tiles.length);
+
+  /* 花色守恒铁律: 每组恒为 3 的倍数（MUST NOT 留非 3 倍数余数） */
+  var groups = r.events.filter(function (e) { return e.e === 'match'; });
+  var allMultiple3 = groups.length > 0 && groups.every(function (e) { return e.ids.length % 3 === 0; });
+  check('Δ16g: 花色守恒——每组恒为 3 的倍数（FR-043 §4）', allMultiple3,
+    groups.map(function (e) { return e.suit + ':' + e.ids.length; }).join(','));
+  check('Δ16g: 腾空 Dock + 板面消除成组，无非法余数态',
+    r.removed > 0 && r.removed === groups.reduce(function (a, e) { return a + e.ids.length; }, 0));
+
+  /* 空 Dock 幂等：不得崩、不得改棋盘 */
+  var st2 = RE.init(lvl);
+  var t2 = st2.tiles.length;
+  var r2 = RE.applyPurify(st2);
+  check('Δ16g: 空 Dock 净化幂等（不崩、不改板面）', r2.removed === 0 && st2.tiles.length === t2);
+
+  /* 不变量: 净化不改动既有判定口径 —— 三消/射线仍可用 */
+  var st3 = RE.init(lvl);
+  var probe = RE.snapshot(st3);
+  var t3 = st3.tiles.length;
+  RE.applyPurify(st3);
+  check('Δ16g: 净化后快照与渲染探针仍可用（未破坏引擎结构）',
+    !!probe && !!RE.renderProbe(st3) && st3.tiles.length === t3);
+
+  /* ---------- Δ17 外围 UI 原创性红线 ---------- */
+  var fs = require('fs');
+  var path = require('path');
+  var RT = path.join(__dirname, '..');
+
+  var lobbySrc = fs.readFileSync(path.join(RT, 'src', 'ui', 'lobby.js'), 'utf8');
+  var resultSrc = fs.readFileSync(path.join(RT, 'src', 'ui', 'result.js'), 'utf8');
+  var modalsSrc = fs.readFileSync(path.join(RT, 'src', 'ui', 'modals.js'), 'utf8');
+  var failSrc = fs.readFileSync(path.join(RT, 'src', 'ui', 'fail.js'), 'utf8');
+
+  /* 竞品元素禁令（MUST NOT 出现在成品视觉实现中）—— 仅允许出现在
+   * 「禁令声明」语境（注释里出现关键词不计为实现） */
+  var srcAll = [lobbySrc, resultSrc, modalsSrc, failSrc];
+  function stripComments(src) {
+    return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  }
+  var implOnly = srcAll.map(stripComments).join('\n');
+
+  var banned = [
+    ['浅蓝竖条纹木墙', /stripe[\s_-]*wall|木墙|wallpaper/i],
+    ['室内盆栽', /potted[\s_-]*?plant|盆栽/i],
+    ['风景木质相框', /wooden?[\s_-]*frame|木质相框/i],
+    ['天蓝丝带横幅', /ribbon[\s_-]*banner|丝带横幅/i],
+    ['金色庆典号角', /gold[\s_-]*?horn|庆典号角|号角/i],
+    ['天蓝圆弧顶盖', /skyblue[\s_-]*?arch|天蓝圆弧/i]
+  ];
+  var hits = banned.filter(function (b) { return b[1].test(implOnly); })
+    .map(function (b) { return b[0]; });
+  check('Δ17: 外围 UI 实现零竞品视觉元素（七项禁令）', hits.length === 0, hits.join(','));
+
+  /* Δ17 三项核心原创载体必须在实现中就位 */
+  check('Δ17: 棱晶星盘（Prism Portal）载体就位',
+    /portal-chip/.test(lobbySrc) && /portal-ring/.test(lobbySrc) && /portal-gear/.test(lobbySrc));
+  check('Δ17: 大厅兜底为云端浮空岛（非室内场景）',
+    /drawCloudIslands/.test(lobbySrc) && /drawFloatingIsland/.test(lobbySrc) && !/木桌|窗景/.test(implOnly));
+  check('Δ17: 奶油果冻弹窗基底（琥珀金铭牌 + 棱晶拨片）',
+    /jelly-plaque/.test(modalsSrc) && /prism-toggle/.test(modalsSrc) && !/arc-cap|天蓝顶盖/.test(implOnly));
+  check('Δ17: 双风翼棱晶能量铭牌（无彩带横幅/号角）',
+    /plate-wing/.test(resultSrc) && /plate-bar/.test(resultSrc) && !/banner|号角/.test(implOnly));
+  check('Δ17: 传送门开启展板（大陆全貌 + 关卡徽章 + 手账）',
+    /portal-board/.test(resultSrc) && /portal-board-range/.test(resultSrc) && /portal-board-note/.test(resultSrc));
+  check('Δ17: 失败页零倒计时（无 countdown 类名/话术）',
+    /fail-encourage/.test(failSrc) && !/countdown|倒计时|限时/.test(stripComments(failSrc)));
+
+  /* 切片区必须复用会话级缓存（MUST NOT 新建 Image —— FR-035 §6） */
+  var bdSrc = fs.readFileSync(path.join(RT, 'src', 'render', 'backdrops.js'), 'utf8');
+  var drawQuadrantBody = bdSrc.slice(bdSrc.indexOf('function drawQuadrant'),
+                                     bdSrc.indexOf('function drawWhole'));
+  check('Δ17: 晶片切片复用会话级 Image 缓存（零额外解码/请求）',
+    /probeBgImage/.test(drawQuadrantBody) && !/new Image/.test(drawQuadrantBody));
+}
+
 /* ---- 主入口 ---- */
 scenarioBlocked();
 scenarioMechAnims();
@@ -644,6 +942,8 @@ scenarioSuitMapping();
 scenarioEcoBackdrop();
 scenarioSpriteSheets();
 scenarioBackdropStage();
+scenarioDelta16();
+scenarioPurifyAndOriginality();
 
 console.log('');
 if (failures.length) {

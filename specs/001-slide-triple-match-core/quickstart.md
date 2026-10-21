@@ -1,6 +1,6 @@
 # Quickstart: Slide & Triple（滑块三消）验收指南
 
-> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5 新增验收场景需求——FR-033~037、SC-007/008；Δ15: SC-006 重定义为空 assets 目录完整可玩 + 双兜底验收、60 关聚散度核验命令、方向角标与 Emoji 渲染验收场景、宪章红线审计表 III 行更新)。Run `/speckit.refine.propagate` to update this document.
+> ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: ① 关卡 60→72 扩容与三大阶段重划 24/24/24；② 背景贴图口径由 bg{1..20}/20 景重排为 bg{1..6}/6 幅 × 12 关；③ US6 新增 FR-038~FR-044 验收场景——HooLey 开机动画、Glide Critters 主大厅、设置/个人信息弹窗、棱晶经济与道具购买闭环、通关结算与画卷解锁展板、失败与棱晶复活界面、画卷拼图进度系统；④ 新增 SC-009~SC-011)。Run `/speckit.refine.propagate` to update this document.
 
 **Feature**: `001-slide-triple-match-core` | **Date**: 2026-10-17
 
