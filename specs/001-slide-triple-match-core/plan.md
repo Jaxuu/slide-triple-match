@@ -1,6 +1,6 @@
 # Implementation Plan: Slide & Triple（滑块三消）— 完整 H5 游戏与 72 关递进关卡系统（Δ16 扩容后）
 
-> ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: 关卡总数 60→72 扩容 + 三大阶段重划为 24/24/24 + 6 幅风景画卷 × 12 关拼图节奏 + 背景贴图口径由 bg{1..20}/20 景重排为 bg{1..6}/6 幅；新增 US6 与 FR-038~FR-044——HooLey 开机动画、Glide Critters 主大厅、设置/个人信息弹窗、棱晶经济与局内道具购买闭环、通关结算与画卷解锁展板、失败与棱晶复活界面、画卷拼图进度系统；新增 SC-009~SC-011、实体×4、Edge Cases 与假设若干). Run `/speckit.refine.propagate` to update this plan.
+> **Propagated**: 2026-10-21 — Δ16（72 关扩容 + US6 商业化外围 UI 闭环）refine 传播：新增架构增量 Δ16a~Δ16g 与 **Milestone 5（商业化外围 UI 闭环与 72 关拼图经济系统）**、SC-009~SC-011 验收口径、项目结构增补（`src/ui/*` × 5 + `src/core/profile.js`）与数据流边界注记；既有 M1~M4 里程碑描述零删除（外科手术式增量——仅关卡数口径 60→72 与背景贴图映射按 Δ16 更新）。
 
 > **Propagated**: 2026-10-20 — Δ14（US5《万物出发！》）refine 传播：新增架构增量 Δ14a~Δ14d 与 Milestone 3.5（万物出发表现层）、SC-007/008 验收口径及结构/依赖同步；既有架构描述与 M1~M4 里程碑零删除（外科手术式增量）。
 
@@ -12,9 +12,9 @@
 
 ## Summary
 
-构建零构建链的纯 Web H5 游戏《Slide & Triple》：9:16 竖屏棋盘上，玩家点击带方向箭头的滑块——射线畅通则飞出棋盘进入 7 格收集槽，同花色凑三即消；配合齿轮旋转、冰封、钥匙锁链、棱镜折射四大机制与两种局内道具，由 Node 离线流水线（逆向生成器 + 回溯求解器）量产并 100% 验证 60 个标准关卡（Δ13 增量扩容: 原 50 关 100% 保留 + 10 新关拼接; Δ15 花色重打散迁移: 同花色空间聚散度三档曲线达标; 可经参数表无缝扩容至 100+），前端运行时零生成逻辑、零强制外部资源（Δ15: 本地可选美术贴图 + Emoji/程序化强制双兜底）、双击 index.html 即可游玩。
+构建零构建链的纯 Web H5 游戏《Slide & Triple》：9:16 竖屏棋盘上，玩家点击带方向箭头的滑块——射线畅通则飞出棋盘进入 7 格收集槽，同花色凑三即消；配合齿轮旋转、冰封、钥匙锁链、棱镜折射四大机制与两种局内道具，由 Node 离线流水线（逆向生成器 + 回溯求解器）量产并 100% 验证 **72 个标准关卡**（Δ13 增量扩容: 原 50 关 100% 保留 + 10 新关拼接；Δ16 尾部扩容: 既有 60 关 100% 保留 + 12 新关追加；Δ15 花色重打散迁移: 同花色空间聚散度三档曲线达标；可经参数表无缝扩容至 100+），前端运行时零生成逻辑、零强制外部资源（Δ15: 本地可选美术贴图 + Emoji/程序化强制双兜底）、双击 index.html 即可游玩。
 
-技术路径：前端为原生 HTML5 + CSS3 + 经典 `<script defer>` 加载的 ES2020+ 代码（单全局命名空间 `STM`，保证 file:// 协议零跨域报错，见研究决策 D-01）；规则引擎 `src/core/RulesEngine.js` 为前后端共用纯函数模块（游玩与求解口径 100% 一致）；关卡数据为带预计算最优解 `solutionMoves` 的静态 JS 配置数组。实施按 **M1 核心循环 MVP → M2 四大机制与道具（冻结规则引擎）→ M3 离线流水线量产 50→60 关（Δ13 增量扩容）→ M3.5 万物出发表现层（45 种图鉴 / 20 景背景 / 激励横幅 / BGM——纯渲染与音频层，Δ14）→ M4 调试面板 / Bot / 无缝扩容验证** 「四阶段 + 表现层」推进（Core-First, Levels-Later, Presentation-Last）。
+技术路径：前端为原生 HTML5 + CSS3 + 经典 `<script defer>` 加载的 ES2020+ 代码（单全局命名空间 `STM`，保证 file:// 协议零跨域报错，见研究决策 D-01）；规则引擎 `src/core/RulesEngine.js` 为前后端共用纯函数模块（游玩与求解口径 100% 一致）；关卡数据为带预计算最优解 `solutionMoves` 的静态 JS 配置数组。实施按 **M1 核心循环 MVP → M2 四大机制与道具（冻结规则引擎）→ M3 离线流水线量产 50→60 关（Δ13 增量扩容）→ M3.5 万物出发表现层（45 种图鉴 / 生态背景 / 激励横幅 / BGM——纯渲染与音频层，Δ14）→ M3.6 空间打散迁移 + 贴图双兜底 + 箭头重做（Δ15）→ M4 调试面板 / Bot / 无缝扩容验证 → M5 商业化外围 UI 闭环与 72 关拼图经济系统（Δ16——开机动画 / 主大厅 / 棱晶经济 / 结算与复活）** 「四阶段 + 表现层 + 外围闭环」推进（Core-First, Levels-Later, Presentation-Last, Shell-Last）。
 
 ## Technical Context
 
@@ -22,7 +22,7 @@
 
 **Primary Dependencies**: 运行时零第三方依赖。仅平台 API：Canvas 2D、Web Audio API、PointerEvents、localStorage、URLSearchParams、structuredClone、document.visibilityState（Δ14 BGM 失焦联动）、HTMLImageElement（Δ15 贴图加载——`Image` 相对路径 + onerror 降级，不引入 fetch/XHR）。离线工具仅用 Node 内置模块（fs / path / process）。
 
-**Storage**: 玩家进度 localStorage（try/catch 防护，见 D-03）；关卡数据纯静态 `src/data/levels.js`（生成工件，随仓库交付）；验证报告 `tools/solver-report.json`（生成工件）。
+**Storage**: 玩家进度 localStorage（try/catch 防护，见 D-03；Δ16 增补第二键 `slide-triple:profile:v2` 承载经济与档案态——与 v1 进度键并存不迁移）；关卡数据纯静态 `src/data/levels.js`（生成工件，随仓库交付）；验证报告 `tools/solver-report.json`（生成工件）。
 
 **Testing**: 三层、零测试框架（零构建约束，见 D-14）：
 1. `node tools/solver.js` — 全量可解性验证 + 数据契约校验，exit code 门禁（FR-030/FR-031）；
@@ -33,11 +33,11 @@
 
 **Project Type**: 零构建静态 H5 游戏 + Node 离线关卡流水线（Generator / Solver）。
 
-**Performance Goals**: 首屏可交互 < 3 s（SC-003——Δ15 后空 assets 形态 MUST 不劣化，贴图形态允许加载期兜底先渲）；棋盘动效 60 fps（中端手机）；Solver 单关验证预算 2M 节点、全量 60 关 < 5 分钟（离线）；Hint 有界搜索 ≤ 100k 节点且 < 300 ms；Δ14 表现层预算：45 图案 Sprite 预渲染 + 底座重绘不降帧（棋盘满载 8×8×5 层 105 滑块稳定 60 fps）、背景层每景实例化 ≤16 ms 且低速/静态化、BGM 合成 CPU 占用 < 1%（Web Audio 调度表驱动）；Δ15 增补预算：贴图加载不阻塞首帧（兜底先渲、贴图就绪后惰性换装）、redisperse-60 全量迁移 + 重验证 < 10 分钟（离线一次性）。
+**Performance Goals**: 首屏可交互 < 3 s（SC-003——Δ15 后空 assets 形态 MUST 不劣化，贴图形态允许加载期兜底先渲）；棋盘动效 60 fps（中端手机）；Solver 单关验证预算 2M 节点、全量 72 关 < 6 分钟（离线，Δ16 扩容 60→72）；Hint 有界搜索 ≤ 100k 节点且 < 300 ms；Δ14 表现层预算：45 图案 Sprite 预渲染 + 底座重绘不降帧（棋盘满载 8×8×5 层 105 滑块稳定 60 fps）、背景层每景实例化 ≤16 ms 且低速/静态化、BGM 合成 CPU 占用 < 1%（Web Audio 调度表驱动）；Δ15 增补预算：贴图加载不阻塞首帧（兜底先渲、贴图就绪后惰性换装）、redisperse-60 全量迁移 + 重验证 < 10 分钟（离线一次性）；Δ16 增补预算：开机动画 2.0s 主线程占用 < 8%（纯 CSS transform/opacity + rAF 字母变形，**零布局抖动**）、大厅与弹窗切换 < 100 ms、拼图相框 2×2 切片复用已加载背景 Image（**零额外网络/解码开销**）、棱晶扣费为同步原子操作（< 1 ms）。
 
 **Constraints**: file:// 协议双击零控制台报错、零跨域；运行时零网络请求、核心代码零强制二进制素材（Δ15/SC-006 重定义——`assets/` 为本地可选增强目录，空目录/缺文件时 Emoji 卡牌 + 程序化背景强制双兜底完整可玩）；PointerEvents 单一输入模型；前端运行时不执行任何关卡生成/全量求解逻辑（仅 M4 Hint 的有界轻量搜索例外，见 D-06）。
 
-**Scale/Scope**: 棋盘 ≤ 8×8、滑块 ≤ 150（Δ11 大棋盘）、花色 ≤ 8、关卡交付 60（Δ13 增量扩容; 参数表可扩至 100+）；`levels.js` ≤ 330 KB（Δ13 扩容后实测 ≈315 KB）。
+**Scale/Scope**: 棋盘 ≤ 8×8、滑块 ≤ 150（Δ11 大棋盘）、花色 ≤ 8、关卡交付 **72**（Δ13 扩容 60 → Δ16 尾部扩容 72; 参数表可扩至 100+）；`levels.js` ≤ 380 KB（Δ13 实测 315 KB @60 关 → Δ16 按 72 关线性外推 ≈375 KB）。
 
 ## Constitution Check
 
@@ -55,6 +55,9 @@
 | C-5 | V 可解性铁律（NON-NEGOTIABLE） | 逆向生成或 Solver 验证、50 关 100% 可解、量化难度指标 | M3 流水线：逆向构造 → 正向自检 → Solver 门禁三重验证（D-10）；levels.js 内嵌 metrics + solver-report.json 交付 | ✅ PASS（M3 落地） |
 | C-6 | VI 评委调试内置 | 跳关/重置/Hint/机制标签/难度参数、移动端可隐藏 | M4 调试面板，下拉框动态读 `LEVELS.length` | ✅ PASS |
 | C-7 | 红线清单 | 框架/素材/事件模型/关卡来源四类禁项 | 见 quickstart.md 红线审计场景（Q9）；关卡来源 = 生成器 + 求解器 | ✅ PASS |
+| C-1Δ16 | I 比赛对齐（Δ16 复核） | US6 商业化外围 UI vs「与两大核心无关的功能必须拒绝」 | **用户裁定范围内**：US6 = 品牌外壳（开机动画/主大厅/结算/复活）+ **纯本地软货币**（棱晶，无真实货币/支付/账号/联网）+ 进度叙事载体（6 幅风景画卷）；不新增玩法机制、不改关卡规则语义、不改难度曲线——属于「关卡递进设计」与「玩法体验」的表现与留存外壳。宪章 I 明列的**商城/成就/社交分享/本地化多语言**仍然零实现（棱晶不可充值、不可交易、不可兑换任何现实权益）。⚠️ 宪章 I「50 关递进」表述与 Δ16 的 72 关口径存在字面出入 → **需宪章修订（v2.1.0，MINOR）**（propagate 阶段一并处理） | ✅ PASS（附宪章待修订注记） |
+| C-3Δ16 | III v2.0.0（Δ16 复核） | 新增大厅贴图 `assets/bg/lobby_bg.png` 的双兜底合规性 | `assets/bg/lobby_bg.png|jpg` 属「本地可选美术资产」白名单内；缺失/onerror MUST 降级为原创「阳光木桌与窗景」矢量程序化背景（Canvas/内联 SVG + 渐变）——**空 assets 目录 MUST 完整可玩**（SC-006 口径延续，M5 验收含空/满双形态）；音频/字体红线不变（开机和弦仍 Web Audio 纯合成，零音频文件） | ✅ PASS |
+| C-5Δ16 | V 可解性铁律（Δ16 复核） | 60→72 扩容不得破坏既有 60 关的可解性结论 | L61~L72 由 expand-60.js 增量生成并经 Generator 三重验证 + Solver 全量门禁；既有 L1~L60 逐字节零改写（FR-008 Δ16 扩容铁律）；FR-031 报告升级为 72/72；**MUST NOT 因新增外围 UI 而改动 RulesEngine 判定语义**（唯一例外：FR-043 复活净化——成组消除恒为 3 的倍数，不改三消/射线/死局判定口径） | ✅ PASS |
 
 **Phase 0 结论**：无未决 NEEDS CLARIFICATION，全部经 [research.md](research.md) 决策 D-01~D-15 解决。
 
@@ -77,6 +80,13 @@
 | Δ15a | **同花色空间打散三档曲线 + 存量 60 关花色重打散迁移** | FR-029（增补 §1~§6）、FR-030、FR-011、FR-008（Δ13 铁律受控例外） | 邻接定义（连坐/三连簇/双连坐/完全分散，曼哈顿口径含同格相邻层）；三档曲线：L1~L6 三连簇 ≤15%、双连坐 ≈35%、分散 ≈50% / L7~L21 三连簇 ≤5% 且每关 ≤1 组、双连坐 30%→15%、分散 ≥80% / L22~L60 **三连簇 0%**、双连坐 15%→0~5%、两两曼哈顿 ≥2（8×8 优先 ≥3）。Generator 花色分配阶段引入打散分配；Solver 报告增列聚散度指标（tripleCluster/pairCluster/dispersed/minPairDist 达标判定）。**存量迁移**：既有 60 关一次性「花色重打散 + Solver 全量重验证」（仅调 suit 空间落位与重算 solutionMoves；网格/块数/堆叠/机制结构参数不变；开放花色 ≤5 与 100% 可解不降级；FR-031 全量门禁后 Δ13 铁律恢复） | M3.6 |
 | Δ15b | **外部本地美术贴图优先 + Emoji/程序化强制双兜底**（宪章 III v2.0.0） | FR-033 §6、FR-035 §3、SC-006（重定义）、宪章 III | 卡牌图标：`assets/icons/{suit}.png`（0.png~44.png）优先 → 原生全彩 Emoji 直渲染兜底（`ctx.fillText` + `Segoe UI Emoji / Apple Color Emoji / Noto Color Emoji` 字体栈 + 45 条目 Emoji 码点映射表；**严禁 ctx.arc 手绘圆球加黑点**）；背景：`assets/bg/bg{1..20}.jpg|png|webp`（序号 = cycleIndex+1）优先 → Canvas/SVG 程序化风景兜底。`Image` 元素相对路径（file:// 与静态服务一致，禁 fetch/XHR）；兜底判定逐条目/逐景独立、会话内缓存不闪烁；`assets/` 为可选增强目录（空目录完整可玩——双兜底验收）；音频/字体红线不变 | M3.6 |
 | Δ15c | **方向角标重做：单枚锐利宽翼三角箭头** | FR-034 §3（Δ15 取代流光胶囊）、FR-034 §5 | 废止「胶囊椭圆内含两个小点/小三角」造型（缩小后极像猪鼻子——猪鼻子造型禁令）；改为滑块朝向边缘内侧正中的**单枚锐利宽翼实心三角箭头**（带白色描边、干净利落、绝无孔洞感；或醒目 V 型折角 ▲/▼/◀/▶）；方向语义与 FR-001/FR-002 命中判定零变化（纯视觉替换）；可辨识度红线延续（FR-034 §5） | M3.6 |
+| Δ16a | **关卡 60→72 尾部增量扩容 + 三大阶段重划 24/24/24** | FR-008（Δ16 扩容铁律）、FR-031、FR-029 §4、SC-001/SC-004/SC-011 | 既有 L1~L60 的 tiles/prisms/cfg/solutionMoves **100% 原封不动保留复用**（tools/expand-60.js 扩展，仅新增生成 L61~L72 共 12 关；严禁全量重生成）；24 个「2 简 1 难」三关循环（挑战位 = (id-4)%3==2，共 22 个 8×8 + 44 个 7×7）；三大生态阶段重划为阶段一 L1~L24 / 阶段二 L25~L48 / 阶段三 L49~L72（与 FR-033 图鉴池边界严格对齐）；章区间 ch1[1,24]/ch2[25,48]/ch3[49,72]；Solver 报告 72/72 + 聚散度末档延展至 L72 | M5 |
+| Δ16b | **6 幅风景画卷 × 12 关拼图节奏** | FR-044（新增）、FR-035 §6、FR-008 | 画卷序号 = `Math.floor((level.id - 1) / 12) + 1` → bg1~bg6 对应 L1-12 / L13-24 / L25-36 / L37-48 / L49-60 / L61-72；每通关 1 个困难位关点亮 1 块拼图（1/4→4/4），每 12 关拼齐 1 幅完整画卷；拼图相框切片与局内背景**同源同文件同缓存链**（FR-035 §6 铁律——局内所见背景 = 大厅拼出的大图）；背景贴图口径由 bg{1..20}/20 景收窄为 bg{1..6}/6 幅（**零新增美术资源**） | M5 |
+| Δ16c | **localStorage v2 持久化升级（经济与档案层）** | FR-040 §2、FR-041 §4、FR-044 §3、FR-039 §3/§7 | 新增持久化键 `slide-triple:profile:v2`（与既有 `slide-triple:progress:v1` **并存不迁移**，v1 进度读取逻辑零改动、向后兼容）；结构 = {shards 余额、nickname、avatar suit、paintingProgress[1..6] 拼图块数、settings{bgm,sfx,haptics}}；全访问 try/catch（隐私模式降级内存态，D-03 纪律延续）；**零回写 levels.js**（FR-041 §4 铁律——本地态与关卡数据完全解耦） | M5 |
+| Δ16d | **HooLey Games 开机动画（品牌层）** | FR-038（新增） | 全屏黑曜石径向微光渐变 `#14181F → #07090C`（禁纯黑死黑）；居中 `HooLey` 主标题 + 宽字距 `GAMES` 副标题（原创浮雕艺术字）；`oo` 两字母磁力弹跳碰撞 + 眨眼弧度变形 + 一道白金流光扫掠字面；Web Audio 合成温润空灵开机和弦音 ≈0.35s（**零音频文件**——宪章 III 音频红线不破）；总时长 ≈2.0s 后平滑淡入主大厅；**首次点击/按键可跳过**（autoplay 合规 + 尊重用户时间），跳过落点与自然播完一致；纯表现层零持久化副作用 | M5 |
+| Δ16e | **Glide Critters 主大厅 + 设置/档案弹窗** | FR-039（新增）、FR-040（新增） | 主大厅为开机后与每关结算后的**唯一导航中枢**（FR-042 §3 导航闭环：通关 → 结算层 → [画卷展板] → 大厅）；六区严格分区（顶部左 设置⚙️/调试🛠、顶部右 棱晶💎、中上 3D 浮雕徽标、中心 2×2 拼图相框、中下 翠绿胶囊 `关卡 X`、左下 头像+昵称）；大厅背景优先 `assets/bg/lobby_bg.png|jpg` → 原创「阳光木桌与窗景」矢量兜底（**不复用局内棋盘背景**）；`关卡 X` 的 X = 最新解锁关卡号（与拼图节奏解耦——Edge Case 铁律）；徽标 MUST 原创（严禁抄袭竞品地球仪/小鸟构图）；设置弹窗仅 BGM/SFX/震动三项（局内额外给「返回大厅」+「重新开始」）；档案弹窗含昵称输入 + 45 选 1 萌宠头像网格（复用 `sheet1~3` 已加载切片，选中打勾高亮） | M5 |
+| Δ16f | **棱晶经济与局内道具购买闭环** | FR-041（新增）、FR-024/FR-025（道具次数来源扩充） | 产出（确定性，**非随机**——随机仅限结算层赞美词）：首通普通 +25 / 首通困难 +60 / 满画卷 +150 / 重复通关 +10；消耗：道具免费次数用尽后角标变 `💎 50`，点击即扣 50 立即生效；失败复活 -100；余额不足 MUST 零扣费零消耗 + 明确提示，余额恒 ≥0；扣费与生效**原子**（防连点竞态）；**MUST NOT 引入真实货币/支付/联网**（宪章 I：商城/付费属赛后 backlog） | M5 |
+| Δ16g | **通关结算 / 画卷展板 / 无倒计时失败复活** | FR-042（新增）、FR-043（新增）、FR-006（复活语义扩展） | 结算层：双翼彩带横幅 + 当前萌宠头像弹跳 + 两侧礼花彩屑 + 20 词库随机赞美词 + 2×2 拼图相框 + 棱晶飞入动效（困难位关额外翻转点亮）；画卷展板（4/4 触发）：全屏高清大图 + 下一卷预告（名称/关卡区间/治愈短评）+ `继续` 按钮；失败页：**零倒计时数字**（仅温和鼓励文案 + XX% 通关率暗示）、萌宠头像委屈泪滴、底部仅 `💎 100 棱晶复活`（Dock 滞留 + 板面同花色配对块**成组净化消除**、腾空 Dock、恢复 3 生命、无缝续局）+ `重新开始`；**复活净化是 RulesEngine 唯一新增规则语义**（FR-043 §4 花色守恒：成组消除恒为 3 的倍数，不留非 3 倍数非法态） | M5 |
 
 > **建议**：`spec.md` 应同步小修 FR-014 / FR-024-3 / FR-026 / FR-006 表述以消除文档间歧义（可经 `/speckit-clarify` 编回）。本计划与全部契约文档已按上表口径编写，`/speckit-tasks` 生成任务时以此为准。
 >
@@ -118,34 +128,41 @@ index.html                  # 9:16 主视口 + 调试面板骨架；按序 defer
 css/
 └── style.css               # 纯 CSS 样式与动效（布局、HUD、Dock/Staging、面板、抽屉）
 src/
-├── main.js                 # 应用入口：boot、PointerEvents 绑定、道具栏、调试面板控制、Bot/Hint 调度；Δ14: 挑战关激励横幅调度（1.6s 非模态）与 BGM 首次交互启动
+├── main.js                 # 应用入口：boot、PointerEvents 绑定、道具栏、调试面板控制、Bot/Hint 调度；Δ14: 挑战关激励横幅调度（1.6s 非模态）与 BGM 首次交互启动；Δ16: 应用状态机（BOOT→LOBBY→GAME→RESULT）与场景切换调度
 ├── core/
 │   ├── GameState.js        # 会话状态机：棋盘/Dock/Staging/Undo 快照栈/胜负与死局判定调度/事件分发
-│   └── RulesEngine.js      # 前后端共用纯函数规则引擎（UMD 双导出）：射线、棱镜、齿轮、破冰、解锁、三消、终局（Δ14 零变更；Δ15 零变更——空间打散/贴图/箭头均不触碰规则语义）
+│   ├── RulesEngine.js      # 前后端共用纯函数规则引擎（UMD 双导出）：射线、棱镜、齿轮、破冰、解锁、三消、终局（Δ14 零变更；Δ15 零变更——空间打散/贴图/箭头均不触碰规则语义；Δ16: 新增 applyPurify 复活净化纯函数——唯一新增规则语义）
+│   └── profile.js          # Δ16（M5 新增）: 玩家档案与经济态持久化模块——`slide-triple:profile:v2` 键（shards/nickname/avatar/paintingProgress[6]/settings{bgm,sfx,haptics}）；全访问 try/catch（隐私模式降级内存态）；与 progress v1 键并存不迁移；零回写 levels.js
 ├── render/
-│   ├── BoardRenderer.js    # Canvas 2D：棋盘、箭头（Δ15c 锐利三角重做）、机关、粒子动效；Δ14: 3D 奶油白底座、45 图鉴 Sprite 绘制与缓存、20 景生态背景层；Δ15: 贴图优先渲染链 + Emoji/程序化兜底切换（M3.6 落点）
-│   ├── bestiary.js         # Δ14（M3.5）: 45 种生灵/载具图鉴定义 + 阶段花色映射表（确定性抽样）——纯数据+纯函数；Δ15: 增补 45 条目 Emoji 码点映射表（Emoji 兜底渲染源，plan 阶段固化为常量表）
-│   └── backdrops.js        # Δ14（M3.5 实现期拆分）: 20 景生态背景绘制模块（原计划并入 BoardRenderer，实现时独立成文件——STM.Backdrops）
+│   ├── BoardRenderer.js    # Canvas 2D：棋盘、箭头（Δ15c 锐利三角重做）、机关、粒子动效；Δ14: 3D 奶油白底座、45 图鉴 Sprite 绘制与缓存、20 景生态背景层；Δ15: 贴图优先渲染链 + Emoji/程序化兜底切换（M3.6 落点）；Δ16: 背景贴图映射口径由 20 景收窄为 6 幅画卷（bg{n}.jpg，n = floor((id-1)/12)+1）
+│   ├── bestiary.js         # Δ14（M3.5）: 45 种生灵/载具图鉴定义 + 阶段花色映射表（确定性抽样）——纯数据+纯函数；Δ15: 增补 45 条目 Emoji 码点映射表（Emoji 兜底渲染源，plan 阶段固化为常量表）；Δ16: 阶段边界重划 L1~24 / L25~48 / L49~72；sheet{1..3}.png 切片出口复用为大厅头像选择网格与结算/失败页头像源
+│   └── backdrops.js        # Δ14（M3.5 实现期拆分）: 20 景生态背景绘制模块（原计划并入 BoardRenderer，实现时独立成文件——STM.Backdrops）；Δ16: 6 幅画卷的 2×2 切片裁切工具（供大厅/结算层拼图相框，与局内背景同源同缓存链）
+├── ui/                     # Δ16（M5 新增目录——外围 UI 层，纯表现/导航，零规则语义）
+│   ├── splash.js           #   HooLey Games 开机动画（FR-038）：黑曜石渐变 + `HooLey`/`GAMES` 浮雕字 + `oo` 磁力弹跳/眨眼变形 + 白金流光扫掠；2.0s 后淡入大厅；首次点击/按键可跳过
+│   ├── lobby.js            #   Glide Critters 主大厅（FR-039）：六区布局（设置/调试/棱晶栏/3D 徽标/2×2 拼图相框/`关卡 X` 按钮/头像昵称）+ `lobby_bg` 贴图优先 + 原创「阳光木桌与窗景」矢量兜底
+│   ├── modals.js           #   设置弹窗与个人信息弹窗（FR-040）：BGM/SFX/震动三项开关 + 局内「返回大厅/重新开始」；昵称输入 + 45 选 1 萌宠头像网格（复用 sheet 切片，选中打勾）
+│   ├── result.js           #   通关结算层与画卷解锁全屏展板（FR-042）：双翼彩带横幅 + 头像弹跳 + 礼花彩屑 + 20 词库赞美词 + 拼图相框 + 棱晶飞入 + 翻转动效；4/4 触发展板（下一卷预告 + `继续`）
+│   └── fail.js             #   失败页与棱晶复活（FR-043）：零倒计时文案 + 委屈泪滴 + `💎 100 复活` / `重新开始` 两按钮
 └── audio/
-    └── SoundManager.js     # Web Audio API 纯代码合成音效（事件驱动、惰性初始化）；Δ14: 治愈系五声音阶循环 BGM 合成器（专用 gain 节点、开关/可见性联动）
+    └── SoundManager.js     # Web Audio API 纯代码合成音效（事件驱动、惰性初始化）；Δ14: 治愈系五声音阶循环 BGM 合成器（专用 gain 节点、开关/可见性联动）；Δ16: 开机和弦音合成器（≈0.35s 温润空灵）+ BGM/SFX 独立开关粒度（FR-040 三项开关）
 data → src/data/
 └── levels.js               # 生成工件：LEVELS 数组（含 metrics 与 solutionMoves）；M3 起由工具导出；Δ15: M3.6 起头一次性花色重打散迁移（redisperse-60.js 导出 + Solver 重验证），此后逐字节不变
 tools/
-├── level-config.js         # 可扩展章节参数矩阵 CHAPTERS + 预算/评分权重（前端永不引用）；Δ15: 增补空间聚散度三档档位参数（Δ15a）
+├── level-config.js         # 可扩展章节参数矩阵 CHAPTERS + 预算/评分权重（前端永不引用）；Δ15: 增补空间聚散度三档档位参数（Δ15a）；Δ16: 章区间重划 ch1[1,24]/ch2[25,48]/ch3[49,72]
 ├── generator.js            # 逆向发牌生成器（require solver.js；导出 levels.js）；Δ15: 花色分配阶段引入同花色空间打散约束（FR-029 §1~§5）
-├── solver.js               # 回溯求解器（require ../src/core/RulesEngine.js；导出 solver-report.json；--engine-selftest）；Δ15: 报告增列聚散度指标与档位达标判定（FR-030 Δ15）
-├── expand-60.js            # Δ13 拼接工具（50→60 增量迁移）
+├── solver.js               # 回溯求解器（require ../src/core/RulesEngine.js；导出 solver-report.json；--engine-selftest）；Δ15: 报告增列聚散度指标与档位达标判定（FR-030 Δ15）；Δ16: 报告口径 72/72 + 聚散度末档延展 L72 + 复活净化断言组
+├── expand-60.js            # Δ13 拼接工具（50→60 增量迁移）；Δ16: 扩展为 60→72 尾部增量迁移（新增 L61~L72，既有 60 关零改写）
 ├── redisperse-60.js        # Δ15（M3.6 新增）: 存量 60 关花色重打散迁移工具（仅调 suit 落位 + 重算 solutionMoves + 触发 Solver 全量重验——Δ13 铁律受控让位的一次性迁移载体）
-├── render-selftest.js      # Δ14 引入（渲染层 Node 冒烟自测）；Δ15: 增补 Δ15 断言组（贴图兜底链/箭头几何/聚散度渲染零干扰）
-└── solver-report.json      # 生成工件：60/60 可解性验证报告（Δ15 起含聚散度指标字段）
+├── render-selftest.js      # Δ14 引入（渲染层 Node 冒烟自测）；Δ15: 增补 Δ15 断言组（贴图兜底链/箭头几何/聚散度渲染零干扰）；Δ16: 增补 Δ16 断言组（profile v2 往返/棱晶原子扣费/复活花色守恒/拼图递增/开机动画时序）
+└── solver-report.json      # 生成工件：72/72 可解性验证报告（Δ15 起含聚散度指标字段）
 assets/                     # Δ15（M3.6 可选增强目录——仓库不强制包含，空目录完整可玩）
-├── icons/                  #   卡牌图标贴图 {suit}.png（0.png ~ 44.png；缺失 → Emoji 兜底）
-└── bg/                     #   背景贴图 bg{1..20}.jpg|png|webp（缺失 → Canvas 程序化兜底）
+├── icons/                  #   卡牌图标贴图 {suit}.png（0.png ~ 44.png；缺失 → Emoji 兜底）+ sheet{1..3}.png 合集大图（Δ15b3）
+└── bg/                     #   背景贴图 bg{1..6}.png|jpg|jpeg|webp（Δ16 收窄为 6 幅画卷；缺失 → Canvas 程序化兜底）+ lobby_bg.png|jpg（Δ16 大厅背景；缺失 → 原创「阳光木桌与窗景」矢量兜底）
 ```
 
 **Structure Decision**: 采用用户指定的轻量级单页结构（Option 1 变体）：前端 6 个运行时文件 + 1 个样式文件，无目录层级冗余；`tools/` 为宪章唯一允许的 Node 离线工具区。`levels.js` 与 `solver-report.json` 为生成工件但随仓库交付（供 file:// 直开与 FR-031 复验）。测试不设独立目录——以 Solver 验证/自测模式 + quickstart 场景承载（D-14）。Δ14 新增运行时文件 `src/render/bestiary.js`（45 图案定义 + 阶段映射表——图案量使单文件膨胀，独立成模块维护；仍 classic script + `STM.Bestiary` 挂载，加载序插在 BoardRenderer 之前）；实现期进一步拆出 `src/render/backdrops.js`（20 景背景绘制，`STM.Backdrops`）。**Δ15**：新增离线工具 `tools/redisperse-60.js`（存量花色重打散一次性迁移）与可选目录 `assets/`（icons/bg 贴图——仓库不强制包含，空形态完整可玩，宪章 III v2.0.0）；前端运行时文件数不变（贴图加载链与 Emoji 码点表内嵌于 bestiary.js/BoardRenderer.js，避免新增文件）。
 
-**脚本加载顺序（index.html 内固定）**: `src/data/levels.js` → `src/core/RulesEngine.js` → `src/core/GameState.js` → `src/render/bestiary.js`（Δ14）→ `src/render/backdrops.js`（Δ14 实现期拆分）→ `src/render/BoardRenderer.js` → `src/audio/SoundManager.js` → `src/main.js`，全部 `<script defer>`；各文件向 `window.STM` 命名空间挂载（契约见 [contracts/game-session.md](contracts/game-session.md)）。Δ15 贴图不在加载序中——运行期由渲染层 `Image` 惰性加载（onerror 兜底，见 M3.6）。
+**脚本加载顺序（index.html 内固定）**: `src/data/levels.js` → `src/core/RulesEngine.js` → `src/core/GameState.js` → `src/core/profile.js`（Δ16）→ `src/render/bestiary.js`（Δ14）→ `src/render/backdrops.js`（Δ14 实现期拆分）→ `src/render/BoardRenderer.js` → `src/audio/SoundManager.js` → `src/ui/splash.js` → `src/ui/lobby.js` → `src/ui/modals.js` → `src/ui/result.js` → `src/ui/fail.js`（Δ16 五件 UI 模块）→ `src/main.js`，全部 `<script defer>`；各文件向 `window.STM` 命名空间挂载（契约见 [contracts/game-session.md](contracts/game-session.md)）。Δ15 贴图不在加载序中——运行期由渲染层 `Image` 惰性加载（onerror 兜底，见 M3.6）。
 
 ## Milestones（「四阶段 + 表现层」实施策略：Core-First, Levels-Later, Presentation-Last）
 
@@ -223,6 +240,27 @@ assets/                     # Δ15（M3.6 可选增强目录——仓库不强�
 
 **验收门（交付）**：SC-002（10 分钟遍历 60 关 + ≥10 关机制深验——Δ13 扩容后）、SC-003、SC-006（Δ15 重定义口径：核心代码零强制二进制依赖 + 空 assets 完整可玩双兜底验收）、SC-007/SC-008（Δ14 复扫 + Δ15 贴图链复核）；宪章红线清单零违规（v2.0.0 口径——音频/字体/双击秒开红线不变，贴图为可选增强资产）。
 
+### Milestone 5 — 商业化外围 UI 闭环与 72 关拼图经济系统（对应 US6 + Δ16a~Δ16g，Priority: P2）
+
+**目标**：把核心玩法包装为可交付的完整体验——品牌第一印象（HooLey 开机动画）、导航中枢（Glide Critters 主大厅）、软货币经济（棱晶产出—消耗闭环）、全流程结算（通关层 / 画卷展板 / 无倒计时失败复活）+ 关卡扩容至 72 关与 6 幅风景画卷拼图节奏。**MUST NOT 改变任何玩法规则语义**（唯一例外：FR-043 复活净化——成组消除恒为 3 的倍数，不改三消/射线/死局判定口径，FR-032 铁律不破）。
+
+> **阶段定位（Shell-Last）**：M5 置于 M4 之后——外围闭环依赖已就绪的关卡体系（72 关）、已就绪的渲染链（贴图双兜底 + Emoji 兜底）、已就绪的音频链（Web Audio 合成器）与已就绪的调试面板（M4 交付物），避免外壳层与核心层反复互相干扰。
+>
+> **关键边界**：① levels.js 的唯一合法变更通道是 T064（expand-60.js 尾部增量生成 L61~L72）——M5 其余任务对关卡数据**零写入**；② 经济态/档案态/拼图进度全部落在独立的 `slide-triple:profile:v2` localStorage 键，与 `slide-triple:progress:v1` 并存不迁移，**不回写 levels.js**（FR-041 §4）；③ 复活净化是 RulesEngine 的唯一新增规则语义（见下）；④ 全部 UI 为表现层 + 导航层，零网络请求、零真实货币。
+
+- **72 关尾部增量扩容（Δ16a）**：`tools/expand-60.js` 扩展——既有 L1~L60 的 tiles/prisms/cfg/solutionMoves **100% 原封不动保留复用**（逐字节 JSON 深比较验证），仅新增生成 L61~L72 共 12 关（7×7简/7×7简/8×8难 的三关一循环尾段：L61/L62/L63 … L70/L71/L72），沿用 FR-008 后期档位参数（堆叠 5 层 z=0..4、花色 5~8、机制全解锁、damagedOnBlock 生效）；每关经 Generator 三重验证（逆向构造→正向自检→Solver 门禁）+ 内嵌 solutionMoves；`tools/level-config.js` 章区间重划 ch1[1,24]/ch2[25,48]/ch3[49,72]；Solver 报告升级 72/72 + 聚散度末档延展 L72（FR-029 §4）。
+- **6 幅风景画卷与拼图节奏（Δ16b）**：画卷序号 = `Math.floor((level.id - 1) / 12) + 1` → bg1~bg6 覆盖 L1-12 / L13-24 / L25-36 / L37-48 / L49-60 / L61-72（**背景贴图口径由 bg{1..20}/20 景收窄为 bg{1..6}/6 幅——零新增美术资源**）；每通关 1 个困难位关点亮 1 块拼图（1/4→4/4），每 12 关拼齐 1 幅画卷并触发展板；拼图相框 2×2 切片与局内背景**同源同文件同缓存链**（FR-035 §6 铁律——局内所见背景 = 大厅拼出的大图，零额外加载开销）。
+- **持久化 v2 升级（Δ16c）**：新增 `src/core/profile.js`——`slide-triple:profile:v2` 键承载 {shards, nickname, avatar, paintingProgress[6], settings{bgm,sfx,haptics}}；全访问 try/catch（隐私模式降级内存态，D-03 纪律延续）；**与 v1 进度键并存不迁移**（既有进度读取逻辑零改动，向后兼容）；档案/经济/拼图态与关卡数据零耦合。
+- **HooLey Games 开机动画（Δ16d）**：全屏黑曜石径向微光渐变 `#14181F → #07090C`（禁纯黑死黑）；居中 `HooLey` 浮雕主标题 + 宽字距 `GAMES` 副标题；`oo` 两字母磁力弹跳碰撞 + 眨眼弧度变形 + 一道白金流光扫掠字面（纯 CSS transform/opacity + rAF 字母变形，零布局抖动）；Web Audio 合成 ≈0.35s 温润空灵开机和弦（**零音频文件**——宪章 III 音频红线不破，autoplay 合规——首次交互前不发声）；总时长 ≈2.0s 后平滑淡入主大厅，**首次点击/按键可跳过**（跳过落点与自然播完一致，且 MUST NOT 跳过任何初始化步骤）。
+- **Glide Critters 主大厅（Δ16e）**：开机后与每关结算后的唯一导航中枢，六区严格分区——顶部左【设置⚙️】【调试🛠】（与局内共用同一开关状态）、顶部右【棱晶💎 货币栏】、中上【`Glide Critters` 3D 浮雕艺术字徽标——原创风翼 + 方向星芒 + 当前萌宠探头，严禁抄袭竞品地球仪/小鸟构图】、中心【2×2 拼图相框（画卷名 + `X/4` 进度 + 未解锁块毛玻璃遮罩与棱晶奖励预览，点击切换历史画卷）】、中下【翠绿胶囊大按钮，文案严格 `关卡 X`——X = 最新解锁关卡号，与拼图节奏解耦】、左下【圆形头像 + 昵称角标】；大厅背景优先 `assets/bg/lobby_bg.png|jpg` → 原创「阳光木桌与窗景」矢量兜底（**不复用局内棋盘背景**）。
+- **设置与个人信息弹窗（Δ16e）**：设置弹窗 = 奶油白圆角卡片，仅 BGM / SFX / 触觉震动三项（震动能力缺失时显示为不可用并保持关闭，不报错）；局内打开时额外提供【返回主大厅】【重新开始】。个人信息弹窗 = 昵称输入框（空值/超长兜底）+ 45 选 1 萌宠头像网格（**复用已加载的 `sheet1~3` 切片**，选中打勾高亮）；两者持久化至 v2 键。
+- **棱晶经济与道具购买闭环（Δ16f）**：产出确定性表（首通普通 +25 / 首通困难 +60 / 满画卷 +150 / 重复通关 +10，**随机仅限结算层赞美词**）；局内 Undo/Wrench 免费次数（每关各 1 次）用尽后角标自动变 `💎 50`，点击即扣 50 立即生效；失败复活扣 100；**扣费与生效原子**（防连点竞态），余额不足 MUST 零扣费零消耗 + 明确提示，余额恒 ≥0；幂等（重复通关不重复发首通奖励/不重复点亮拼图块）。
+- **通关结算 / 画卷展板 / 无倒计时失败复活（Δ16g）**：结算层 = 双翼彩带横幅 + 当前萌宠头像弹跳 + 两侧礼花彩屑 + 20 词库随机赞美词 + 2×2 拼图相框 + 棱晶飞入动效（困难位关额外翻转点亮）；导航闭环 FR-042 §3（通关 → 结算层 → [满 4/4 时画卷展板] → 大厅，结算层为必经中间态）。画卷展板 = 全屏高清大图 + 下一卷预告（名称 / `关卡 X-Y` 区间 / 原创治愈短评）+ `继续` 按钮。失败页 = **零倒计时数字**（温和鼓励文案 + XX% 通关率暗示，与 FR-036 同源确定性函数）、萌宠头像委屈泪滴、底部仅 `💎 100 棱晶复活` + `重新开始`。
+- **复活净化（RulesEngine 唯一新增规则语义）**：新增 `applyPurify(state)` 纯函数——Dock 内所有滞留滑块连同板面同花色配对块**成组消除**（恒为 3 的倍数以维持花色守恒，不留非 3 倍数非法态）、腾空 Dock、恢复 3 点生命值、关卡进度与步数计数从复活点继续（**不重置棋盘**）；Solver 与前端共用同一实现（FR-032 铁律不破）。
+- **验证策略**：`node tools/expand-60.js` 尾部增量生成 → `node tools/solver.js` 全量门禁 72/72 + 聚散度断言 → render-selftest 增补 Δ16 断言组（profile v2 读写往返 / 棱晶扣费原子性与余额下限 / 复活净化花色守恒 / 拼图进度递增 / 开机动画时序）→ `--engine-selftest` 回归零漂移（含新增复活净化断言）→ quickstart Δ16 场景组（SC-009/SC-010/SC-011）。
+
+**验收门（交付）**：SC-009（外围闭环 5 项要素 + 零倒计时 + 复活语义）、SC-010（棱晶产出/消耗逐项核对 + 余额恒非负）、SC-011（72 关零回归——既有 60 关逐字节一致 + 报告 72/72 + 全库口径统一为 72）；US6-AC1~AC10 逐条人工验收；`--engine-selftest` 与 render-selftest 全绿；宪章红线复核（空/满 assets 双形态完整可玩——含新增 `lobby_bg` 缺失兜底）。**未全过不得交付**。
+
 ## Data Flow & Module Boundaries
 
 ```text
@@ -239,12 +277,25 @@ assets/                     # Δ15（M3.6 可选增强目录——仓库不强�
                  ├─ Δ15 贴图链: bestiary.js/backdrops.js → Image(assets/...) onerror → Emoji/程序化兜底（渲染层内部，不进事件流）
                  ├─ 快照栈 → Undo；localStorage → 进度
                  └─ 调试面板 → Hint（RulesEngine 有界搜索）/ Bot（session 公共动作 API 回放）
+
+[Δ16 外围闭环支线（Shell-Last——M5）]
+   src/ui/splash.js ──2.0s 后淡出──→ src/ui/lobby.js（主大厅，唯一导航中枢）
+        ├─ lobby_bg Image onerror → 原创「阳光木桌与窗景」矢量兜底（宪章 III 双兜底）
+        ├─ 2×2 拼图相框 ← 2×2 切片 ← backdrops/BoardRenderer 已加载的 bg{n} Image（同源同缓存链，零额外加载）
+        ├─ `关卡 X` 按钮 → main.js loadLevel(X)（X = 最新解锁关卡号）
+        └─ src/ui/modals.js（设置 ⚙️ / 档案 📇 → profile.js → localStorage profile:v2）
+   src/core/profile.js ──profile:v2──→ {shards, nickname, avatar, paintingProgress[6], settings{bgm,sfx,haptics}}
+        （与 progress:v1 并存不迁移；**零回写 levels.js**）
+   局内道具栏（免费次数用尽）──点击──→ 扣 50 💎（原子：扣费 + 生效同帧）──→ 立即生效
+   结算（通关）──→ src/ui/result.js（结算层）──[本次点亮 4/4]──→ 画卷全屏展板 ──→ 大厅
+   结算（失败）──→ src/ui/fail.js（零倒计时）──`💎 100 复活`──→ RulesEngine.applyPurify（成组净化消除 + 恢复 3 生命 + 续局）
+   [Δ16 关卡扩容支线] tools/expand-60.js ──(尾部增量生成 L61~L72，既有 60 关零改写)→ levels.js → solver.js 全量重验 72/72（FR-031）
 ```
 
-- **RulesEngine 是唯一语义源**：前端游玩、Hint、Bot 与离线 Solver 全部经由同一纯函数集合（FR-032 口径一致的实现保证）。
+- **RulesEngine 是唯一语义源**：前端游玩、Hint、Bot 与离线 Solver 全部经由同一纯函数集合（FR-032 口径一致的实现保证）。**Δ16 唯一新增语义** = `applyPurify`（复活净化：Dock 滞留 + 板面同花色配对块成组消除、恒为 3 的倍数、恢复 3 生命、续局不重置棋盘）——前端与 Solver 共用同一实现，**不改三消/射线/齿轮/冰封/解锁/棱镜/死局判定口径**。
 - **GameState 不实现规则**：只做编排（快照、次数、输入锁、事件分发、终局调度）。
-- **levels.js 只读**：前端对其零写入；变更仅经流水线（FR-031）。**Δ14 边界（FR-033 §3）**：Bestiary 阶段映射表只读 levels.js（level.id 与 tiles[].suit），输出渲染图案——绝不写回关卡数据；图鉴/背景/横幅/BGM 模块均以「纯表现层」身份旁挂于事件流（消费 GameState 事件 + 渲染层数据），不反向触碰 RulesEngine/GameState 规则路径。**Δ15 边界（FR-029 §6）**：levels.js 的唯一合法变更通道为 M3.6 一次性 redisperse-60 迁移（经 Solver 全量重验后合入）；贴图加载链（bestiary/backdrops → Image → Emoji/程序化兜底）完全内敛于渲染层，不进事件流、不触碰规则路径。
-- **RulesEngine 零依赖渲染层**：Bestiary/背景/横幅/BGM 任何缺陷均不得影响判定（隔离方向单向——引擎→渲染）。**Δ15**：贴图缺失/加载失败属于渲染层缺陷范畴，兜底链必须保证渲染永不中断（Δ12 崩溃教训——draw() try/catch 纵深防御延续）。
+- **levels.js 只读**：前端对其零写入；变更仅经流水线（FR-031）。**Δ14 边界（FR-033 §3）**：Bestiary 阶段映射表只读 levels.js（level.id 与 tiles[].suit），输出渲染图案——绝不写回关卡数据；图鉴/背景/横幅/BGM 模块均以「纯表现层」身份旁挂于事件流（消费 GameState 事件 + 渲染层数据），不反向触碰 RulesEngine/GameState 规则路径。**Δ15 边界（FR-029 §6）**：levels.js 的唯一合法变更通道为 M3.6 一次性 redisperse-60 迁移（经 Solver 全量重验后合入）；贴图加载链（bestiary/backdrops → Image → Emoji/程序化兜底）完全内敛于渲染层，不进事件流、不触碰规则路径。**Δ16 边界**：levels.js 的**唯一**新增变更通道为 M5 的 expand-60 尾部增量生成（既有 L1~L60 零改写）；`src/ui/*` 五模块 + `src/core/profile.js` 全部属表现/导航/持久化层，**零回写关卡数据**（FR-041 §4 / FR-044 §3 铁律）。
+- **RulesEngine 零依赖渲染层**：Bestiary/背景/横幅/BGM 任何缺陷均不得影响判定（隔离方向单向——引擎→渲染）。**Δ15**：贴图缺失/加载失败属于渲染层缺陷范畴，兜底链必须保证渲染永不中断（Δ12 崩溃教训——draw() try/catch 纵深防御延续）。**Δ16**：同纪律延伸至外围 UI 层——`src/ui/*` 任何缺陷 MUST NOT 影响关卡判定或进度写入（UI 层崩溃仅降级为隐藏自身 + 提示，绝不污染 session 状态）。
 
 ## Complexity Tracking
 
@@ -267,4 +318,4 @@ Phase 1 设计工件（data-model / contracts×4 / quickstart）完成后复核�
 | C-6 调试面板 | [game-session.md](contracts/game-session.md) §7 面板功能集与 `LEVELS.length` 动态化。✅ |
 | 结论 | 设计后无新增违规；D-01 解释（Complexity Tracking 单行）为唯一已论证偏离，不构成实质违宪。 |
 
-**Status**: PROPAGATED 2026-10-20（Δ14→M3.5 表现层已同步；Δ15→M3.6 空间打散/贴图双兜底/箭头重做已同步）| READY FOR `/speckit-tasks`（增量任务由 refine-propagate 直接写入 tasks.md Phase 5.6）
+**Status**: PROPAGATED 2026-10-21（Δ16→M5 商业化外围 UI 闭环与 72 关拼图经济系统已同步：Δ16a~Δ16g 架构增量、Milestone 5 章节、Project Structure 增补 `src/ui/*` × 5 + `src/core/profile.js`、Data Flow 外围闭环支线、C-1Δ16/C-3Δ16/C-5Δ16 宪章复核行）| 既有 Δ14→M3.5 / Δ15→M3.6 传播记录保留 | READY FOR `/speckit-tasks`（增量任务 T064~T075 已由 refine-propagate 直接写入 tasks.md Phase 8）
