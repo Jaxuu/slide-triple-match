@@ -697,7 +697,25 @@
     var rafId = 0;
     var anims = [];        /* {kind:'fly'|'block'|'match'|'reveal', tileId, ...} */
     var particles = [];
-    var highlight = -1;    /* Hint 高亮（M4） */
+    var highlight = -1;    /* Hint 高亮（M4 T055） */
+    var highlightUntil = 0;  /* 高亮失效时间（ms）——M4 T055 自动 1.8s 清除 */
+    function setHighlight(tileId, ttlMs) {
+      highlight = tileId == null ? -1 : tileId;
+      if (highlight >= 0 && ttlMs) {
+        highlightUntil = nowMs() + ttlMs;
+      } else {
+        highlightUntil = 0;
+      }
+      markDirty();
+    }
+    function tickHighlight(now) {
+      if (highlight >= 0 && highlightUntil > 0 && now > highlightUntil) {
+        highlight = -1;
+        highlightUntil = 0;
+        return true;
+      }
+      return false;
+    }
     var lastProbe = null;
     var tileInfo = {};     /* M1.6: id → {s,d,z,stackDepth} 视觉缓存（滑块移除后动画仍可绘制） */
     var revealAt = {};     /* Δ7: tileId → 上浮起始时刻（含延迟） */
@@ -779,6 +797,8 @@
 
     function frame(now) {
       running = false;
+      /* M4 T055: 高亮 ttl 到期 → markDirty 重绘并清状态 */
+      if (highlight >= 0 && tickHighlight(now)) dirty = true;
       var needMore = tick(now);
       if (needMore || dirty) {
         /* Δ12: 单帧绘制异常不杀 rAF 主循环（重排程置 finally——

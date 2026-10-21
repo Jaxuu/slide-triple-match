@@ -278,12 +278,12 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 
 **Independent Test**: 任意关打开面板验证跳关/Hint/Bot/难度指标/机制标签/移动抽屉；Q8 钻探验证零代码扩容
 
-- [ ] T053 [P] [US4] Implement 调试面板容器 in index.html + css/style.css: PC（≥1024px）右侧 320px 侧栏常驻；移动端底部抽屉（translateY 收展，DOM 常驻避免重排棋盘）；收起不影响游玩布局（FR-028/D-13）
-- [ ] T054 [US4] Implement 跳关与重置 in src/main.js: 关卡下拉框 1~`LEVELS.length` **动态选项**（Δ4——配置扩至 100+ 关零代码适配）；选择即 createSession(LEVELS[N-1]) 加载；重置=session.reset()
-- [ ] T055 [US4] Implement Hint in src/main.js: on-rail（session.onRail()）→ 高亮 solutionMoves[stepIndex].t 滑块（脉冲描边动画）；off-rail → 有界 DFS（预算 100k 节点/~300ms 时限，复用 T033 搜索器，动作集与 Solver 同构）首步高亮；搜索失败→启发式建议（能飞出且降低槽压力的 tap）+「非保证」标记
-- [ ] T056 [US4] Implement Auto-Play Bot in src/main.js: on-rail 逐 tap 回放（600 ms/步、botTick 音效）；**玩家 pointerdown 立即打断**；off-rail 有界续解→失败则兜底 reset 重放整条 solutionMoves（保证「直至该关胜利」）；终态自动停
-- [ ] T057 [US4] Implement 关卡信息展示 in src/main.js: metrics 全字段（minMoves/solutionCount/dockPeak/mechCount/difficultyScore/openSuitsMax）+ 机制标签动态计算（齿轮/冰封/锁链/棱镜+破冰口径，按 tiles/prisms/cfg 实际出现）+ 音效开关（SoundManager.setMuted）
-- [ ] T058 [US4] **Checkpoint M4（功能门）**: quickstart Q4.1~Q4.7 逐条通过（跳关/Hint 在轨与偏离两态/Bot 演示+玩家打断/指标与机制标签/移动端抽屉收展/SC-002 计时/SC-003 首屏）；US4-AC4~AC7 全过；**SC-002: 跳关+自动演示 10 分钟内遍历 60 关（Δ13 扩容后）+ ≥10 关机制深度人工验证**
+- [x] T053 [P] [US4] Implement 调试面板容器 in index.html + css/style.css: PC（≥1024px）右侧 320px 侧栏常驻；移动端底部抽屉（translateY 收展，DOM 常驻避免重排棋盘）；收起不影响游玩布局（FR-028/D-13）
+- [x] T054 [US4] Implement 跳关与重置 in src/main.js: 关卡下拉框 1~`LEVELS.length` **动态选项**（Δ4——配置扩至 100+ 关零代码适配）；选择即 createSession(LEVELS[N-1]) 加载；重置=session.reset()
+- [x] T055 [US4] Implement Hint in src/main.js: on-rail（session.onRail()）→ 高亮 solutionMoves[stepIndex].t 滑块（脉冲描边动画，1.8s 自动清除）；off-rail → 有界 DFS（预算 100k 节点/~300ms 时限，复用 T033 搜索器 + 同形 action set）首步高亮；搜索失败→启发式建议（能飞出且降低槽压力的 tap）+「非保证」标记
+- [x] T056 [US4] Implement Auto-Play Bot in src/main.js: on-rail 逐 tap 回放（450ms/步、botTick 音效）；**玩家 pointerdown（棋盘+道具）立即打断**；off-rail 有界续解→失败则兜底 reset 重放整条 solutionMoves（保证「直至该关胜利」）；终态自动停
+- [x] T057 [US4] Implement 关卡信息展示 in src/main.js: metrics 全字段（minMoves/solutionCount/dockPeak/mechCount/difficultyScore/openSuitsMax）+ 机制标签动态计算（齿轮/冰封/锁链/棱镜+破冰口径，按 tiles/prisms/cfg 实际出现）+ 音效开关（SoundManager.setMuted）
+- [x] T058 [US4] **Checkpoint M4（功能门）**: quickstart Q4.1~Q4.7 逐条通过（跳关/Hint 在轨与偏离两态/Bot 演示+玩家打断/指标与机制标签/移动端抽屉收展/SC-002 计时/SC-003 首屏）；US4-AC4~AC7 全过；**SC-002: 跳关+自动演示 10 分钟内遍历 60 关（Δ13 扩容后）+ ≥10 关机制深度人工验证**
 - [ ] T059 [US4] Execute Q8 无缝扩容钻探（**钻探配置不进入交付物**; Δ13 注记: 50→60 扩容已由 expand-60.js 增量拼接实证一次，后续钻探目标改为 60→80+）: 临时向 tools/level-config.js CHAPTERS 追加新章条目（levels:[61,80], grid:[8,8] 等）→ `node tools/generator.js --chapters N --seed 2026` 生成 80 关（或增量拼接）→ `node tools/solver.js` 全量门禁通过 → 浏览器验证: 下拉框出现 61~80 选项、通关 L60 自动进 L61、L80 通关触发全通关终局、进度对象零迁移自适应（**全部零前端代码修改——Δ4+Δ5 实证**）→ 回滚配置 → 重跑生成恢复 60 关交付物 → solver 全量重验
 
 ---

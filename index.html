@@ -50,13 +50,19 @@
   </div>
 
   <div id="debug-panel" hidden>
-    <h3>调试面板</h3>
-    <label>跳关 <select id="debug-level"></select></label>
-    <button id="debug-reset" type="button">重置</button>
-    <button id="debug-hint" type="button">Hint</button>
-    <button id="debug-auto" type="button">Auto-Play</button>
-    <div id="debug-info"></div>
-    <label><input type="checkbox" id="debug-mute"> 音效</label>
+    <h3>🛠 评委调试面板</h3>
+    <div class="row">
+      <label>跳关 <select id="debug-level"></select></label>
+    </div>
+    <div class="row">
+      <button id="debug-reset" type="button">🔄 重置本关</button>
+      <button id="debug-hint" type="button">💡 提示下一步</button>
+    </div>
+    <div class="row">
+      <button id="debug-auto" type="button">🤖 自动演示（Auto-Play）</button>
+    </div>
+    <div id="debug-info" aria-live="polite"></div>
+    <label><input type="checkbox" id="debug-mute"> 音效开关</label>
   </div>
 </div>
 

@@ -443,23 +443,85 @@ html, body {
   font-size: 13px;
   cursor: pointer;
 }
+#debug-panel select:hover, #debug-panel button:hover {
+  background: #344256;
+  border-color: #4a5d76;
+}
+#debug-panel button:active { transform: translateY(1px); }
+/* T056: Bot 运行态高亮（金色脉冲边框 + 提示玩家可点击停止） */
+#debug-panel button.active {
+  border-color: var(--gold, #FFC53D);
+  background: #3a4a1f;
+  color: #FFE082;
+  animation: bot-pulse 1.4s ease-in-out infinite alternate;
+}
+@keyframes bot-pulse {
+  from { box-shadow: 0 0 0 0 rgba(255,197,61,.55); }
+  to   { box-shadow: 0 0 0 6px rgba(255,197,61,0); }
+}
 #debug-info { color: var(--ink-dim); line-height: 1.6; font-variant-numeric: tabular-nums; }
+#debug-info b { color: var(--ink); }
+/* M4 T053: 面板需要更宽的下拉框 + 自动填满宽度 */
+#debug-level {
+  flex: 1; min-width: 0;
+  padding: 6px 8px;
+}
+/* 控件分组（一行内：跳关+重置 / Hint+Auto） */
+#debug-panel .row {
+  display: flex; gap: 6px; align-items: center;
+}
+#debug-panel .row > * { flex: 1; min-width: 0; }
+#debug-panel .row > select { flex: 1.6; }
+/* M4 T053: 移动端浮动按钮（仅 <1024px 显示） */
+#debug-toggle {
+  display: none;
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  left: 8px;
+  z-index: 41;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(35, 47, 61, .88);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border: 1px solid #4a5d76;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  pointer-events: auto;
+}
+#debug-toggle:active { transform: scale(.94); }
 
-/* 移动端调试抽屉（M4 启用） */
+/* 移动端调试抽屉（M4 T053 启用——translateY 收展） */
 @media (max-width: 1023px) {
-  #debug-panel:not([hidden]) {
+  #debug-panel {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
-    max-height: 46vh;
+    max-height: 56vh;
     overflow-y: auto;
     border-radius: 16px 16px 0 0;
     z-index: 40;
     transform: translateY(100%);
-    animation: drawer-up .25s ease-out forwards;
+    transition: transform .26s ease-out;
+    box-shadow: 0 -12px 40px rgba(0,0,0,.45);
   }
-  @keyframes drawer-up { to { transform: translateY(0); } }
+  #debug-panel:not([hidden]) {
+    transform: translateY(0);
+  }
+  /* 显示收起指示抓手 */
+  #debug-panel::before {
+    content: '';
+    display: block;
+    width: 48px;
+    height: 4px;
+    background: rgba(255,255,255,.35);
+    border-radius: 2px;
+    margin: -4px auto 6px;
+  }
+  #debug-toggle { display: block; }
 }
 
 /* ---------- 通用提示 toast（输入锁反馈） ---------- */
