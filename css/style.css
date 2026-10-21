@@ -96,7 +96,12 @@ html, body {
 /* ---------- HUD（约 10%） ---------- */
 #hud {
   flex: 0 0 auto;
+  /* Δ15b3f（回归修复）: 固定死高度——"x4 combo" 等连击文案出现/消失
+     不得改变 HUD 高度去挤压 #board-wrap。 */
+  height: clamp(44px, 8%, 64px);
   min-height: clamp(44px, 8%, 64px);
+  max-height: clamp(44px, 8%, 64px);
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -175,19 +180,16 @@ html, body {
   min-height: 0; /* 允许 flex 子项收缩 */
 }
 #board {
-  width: 100%;
-  height: 100%;
-  max-width: min(100%, 62vh); /* 保持近方形 */
-  max-height: 100%;
-  /* Δ15b3e（Bug B 修复）: 恒正方形。实测原 `aspect-ratio:1/1` 与
-     `max-height:100%` 冲突后 #board 的 CSS 盒被压成 484×569 非正方形，
-     而 canvas 位图恒为正方形 → 浏览器纵向拉伸 1.18×，图标随之拉长
-     且经低质插值后发虚。改为 height:auto + width 由短边约束，
-     并由 BoardRenderer.resize() 显式回写 canvas.style 宽高为正方形，
-     使「位图宽高比 === CSS 盒宽高比」恒成立。 */
+  /* Δ15b3f（回归修复）: 正方形状完全由 CSS 单向声明，JS 不再回写
+     canvas.style 宽高（回写构成「测量自身→缩小写回→再测量」负反馈棘轮，
+     20 步内 480px→176px 缩成一小团）。
+     宽度撑满容器（width: calc(100% - 12px)），高度由 aspect-ratio 派生，
+     两者皆为容器尺寸的纯函数——恒等式，无反馈。 */
+  width: calc(100% - 12px);
+  max-width: 100%;
   aspect-ratio: 1 / 1;
   height: auto;
-  max-height: 100%;
+  min-height: 0;
   border-radius: var(--radius);
   /* Δ15b3e（Bug B 修复）: 彻底移除毛玻璃与灰白雾遮罩——
      原 backdrop-filter: blur(3px) saturate(1.05) + rgba(255,255,255,.22)
@@ -216,7 +218,13 @@ html, body {
   gap: 6px;
   justify-content: center;
   padding: 8px clamp(12px, 4%, 20px) 10px;
+  /* Δ15b3f（回归修复）: 固定死高度——槽内 <img>/<canvas class="dock-icon">
+     进出（file:// 下为 canvas 元素、http:// 下为 img）或连击文案变化都
+     不得撑大 #dock 去挤压 #board-wrap 的可用高度。 */
+  height: clamp(48px, 7.5%, 64px);
   min-height: clamp(48px, 7.5%, 64px);
+  max-height: clamp(48px, 7.5%, 64px);
+  overflow: hidden;
   /* 注: blur 不可加在容器上——会连同槽内 chip 图标一起模糊；
      改为仅在 .slot 自身做背景磨砂（Δ15b3） */
 }

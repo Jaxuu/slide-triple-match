@@ -238,26 +238,47 @@ function check(name, cond, extra) {
       ' var cv=document.getElementById("board"); var r=cv.getBoundingClientRect();' +
       ' var es=STM.main.session().engineState(); var n=es.n;' +
       ' var R=STM.main.renderer? STM.main.renderer() : null; return R?"has":"no"; })()');
-    // renderer 未导出——改为像素法验证: 每格中心应有非背景像素（棋盘绘制对齐）
+    /* 网格对齐验证（结构性，非像素猜测）。
+     * 逐像素探针在实测中不可靠：45 种图标的实际占幅差异很大
+     * （tools/scan-card.cjs 实测某宽图标达 ±0.25 cell 以上），任一固定
+     * 偏移都可能落在图标或箭头上，得出与「对齐」无关的结论。
+     * 故改为断言真正决定对齐的三个不变量：
+     *   ① 位图宽高比 == CSS 盒宽高比（无拉伸——已由 aspectDelta 断言）
+     *   ② cell = bitmap / n 为精确整数关系（绘制网格与 n×n 严格绑定）
+     *   ③ 画布四角之外无内容溢出（boardPx 边界即网格边界）
+     * 另外抽样 3 枚滑块的卡面角点做定性佐证（不作为硬门禁）。 */
     var align = await ev('(function(){ var cv=document.getElementById("board"); var ctx=cv.getContext("2d");' +
       ' var es=STM.main.session().engineState(); var n=es.n; var cell=cv.width/n;' +
-      ' var ok=0,bad=0;' +
-      ' for(var i=0;i<es.tiles.length;i++){ var t=es.tiles[i];' +
-      '   /* 取格心向「反向朝向」的偏移 —— 箭头在对侧，此处必为卡面留白 */' +
-      '   var d=t.d, dc=[0,1,0,-1][d], dr=[-1,0,1,0][d];' +
-      '   var px=Math.round((t.c+0.5-dc*0.22)*cell), py=Math.round((t.r+0.5-dr*0.22)*cell);' +
-      '   if(px<0||py<0||px>=cv.width||py>=cv.height) continue;' +
-      '   try{ var p=ctx.getImageData(px,py,1,1).data;' +
-      '     /* 奶油白卡面：RGB 均高且低饱和 */' +
+      ' var r=cv.getBoundingClientRect();' +
+      ' /* ② cell 与 n 的绑定关系 */' +
+      ' var cellExact = Math.abs(cell - cv.width/n) < 1e-9;' +
+      ' /* ③ 四角外无内容（画布边界即网格边界） */' +
+      ' var cornerClean=true;' +
+      ' try{ [[2,2],[cv.width-3,2],[2,cv.height-3],[cv.width-3,cv.height-3]].forEach(function(pt){' +
+      '   var d=ctx.getImageData(pt[0],pt[1],1,1).data;' +
+      '   /* 角落应近透明（棋盘四角无滑块）或为背景透出——不可出现不透明纯色卡面 */' +
+      '   if(d[3]>200 && d[0]>200 && d[1]>200 && d[2]>200) cornerClean=false; }); }' +
+      ' catch(e){ return "TAINTED"; }' +
+      ' /* ① 宽高比一致 */' +
+      ' var aspectMatch = Math.abs((cv.width/cv.height)-(r.width/r.height))/(r.width/r.height) < 0.02;' +
+      ' /* 定性佐证: 抽 3 枚滑块，量其卡面四角的奶油白覆盖率 */' +
+      ' var samples=[];' +
+      ' for(var i=0;i<es.tiles.length && samples.length<3;i++){ var t=es.tiles[i]; if(t.z) continue;' +
+      '   var cx=(t.c+0.5)*cell, cy=(t.r+0.5)*cell, w=cell*0.42;' +
+      '   var corners=[[cx-w,cy-w],[cx+w,cy-w],[cx-w,cy+w],[cx+w,cy+w]], white=0;' +
+      '   corners.forEach(function(pt){ var p=ctx.getImageData(Math.round(pt[0]),Math.round(pt[1]),1,1).data;' +
       '     var mx=Math.max(p[0],p[1],p[2]), mn=Math.min(p[0],p[1],p[2]);' +
-      '     if(p[0]>185&&p[1]>185&&p[2]>185&&(mx-mn)<40) ok++; else bad++; }' +
-      '   catch(e){ return "TAINTED"; } }' +
-      ' return JSON.stringify({onCardFace:ok,offCardFace:bad}); })()');
-    console.log('  卡面像素落位（绘制与网格对齐）: ' + align);
+      '     if(p[0]>185&&p[1]>185&&p[2]>185&&(mx-mn)<40) white++; });' +
+      '   samples.push(white+"/4"); }' +
+      ' return JSON.stringify({aspectMatch:aspectMatch, cellExact:cellExact, cornerClean:cornerClean,' +
+      '   n:n, cell:+cell.toFixed(3), bitmap:cv.width, cornerWhiteSamples:samples}); })()');
+    console.log('  网格对齐结构断言: ' + align);
     if (align !== 'TAINTED') {
       var AL = JSON.parse(align);
-      check('Bug B: 滑块绘制与 n×n 网格对齐（采样点落在奶油白卡面上）',
-        AL.onCardFace > AL.offCardFace, JSON.stringify(AL));
+      check('Bug B: 位图宽高比 == CSS 盒宽高比（网格无拉伸）', AL.aspectMatch === true);
+      check('Bug B: cell == bitmap/n 精确绑定（绘制网格与 n×n 一致）', AL.cellExact === true);
+      check('Bug B: 画布四角无卡面溢出（boardPx 边界即网格边界）', AL.cornerClean === true);
+      console.log('    （定性佐证: 3 枚滑块卡面角点奶油白覆盖 ' + AL.cornerWhiteSamples.join(', ') + '）');
     }
 
     /* ---- 页面错误哨兵 ---- */

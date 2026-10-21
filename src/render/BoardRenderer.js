@@ -688,6 +688,10 @@
     ctx.imageSmoothingQuality = 'high';
     var cell = 0;
     var boardPx = 0;
+    /* Δ15b3f: 幂等守卫用——lastSideCss 为上次采用的 CSS 边长（与 boardPx
+     * 的物理像素量纲不同，不可混用）；lastCellN 为上次算 cell 时的关卡尺寸。 */
+    var lastSideCss = -1;
+    var lastCellN = -1;
     var dirty = true;
     var running = false;
     var rafId = 0;
@@ -706,32 +710,63 @@
      * 实测原实现 #board 的 CSS 盒为 484×569（aspect-ratio:1/1 与
      * max-height:100% 冲突后被压成非正方形），而位图恒为 482×482 正方形
      * → 浏览器把正方形位图纵向拉伸 1.18×，图标随之拉长 + 低质插值发虚。
-     * 修法: 棋盘恒为正方形——以容器短边定边长并显式回写 canvas 的 CSS
-     * 盒宽高，使「位图宽高比 === CSS 盒宽高比」恒成立（无论 CSS 如何
-     * 约束 #board），从根上杜绝拉伸。draw() 内全部以 boardPx 为边长
-     * 居中绘制，坐标口径不变。 */
+     * 修法: 正方形状由 **CSS 单向声明**（#board 的 aspect-ratio + width）
+     * 保证，JS 侧只读容器尺寸算位图，绝不回写 canvas 的 CSS 宽高。
+     *
+     * Δ15b3f（回归修复）: 原 Δ15b3e 实现读了 canvas.clientWidth 再写回
+     * canvas.style.width，构成「测量自身 → 缩小写回 → 再测量」的负反馈棘轮：
+     * clientWidth 不含 2px 边框，写回 478 后浏览器重测得 476，每次
+     * refresh（每个游戏事件）掉 2~4px，20 步内 480px → 176px 缩成一小团。
+     * 本版铁律：
+     *   ① 尺寸来源只能是**父容器** #board-wrap（不受本函数写入影响）；
+     *   ② 任何情况下都**不写** canvas.style.width/height（正方形状由 CSS 负责）；
+     *   ③ 位图更新走 setSize()，仅在 side 真正变化时置位，幂等无抖动。 */
     function resize() {
-      var box = canvas.parentElement || canvas;
-      var cssW = canvas.clientWidth || box.clientWidth || 320;
-      var cssH = canvas.clientHeight || box.clientHeight || 320;
-      /* 边长取短边（正方形内嵌于容器，flex 居中不溢出） */
-      var side = Math.max(1, Math.min(cssW, cssH));
-      if (cssW <= 0 || cssH <= 0) side = Math.max(1, Math.min(canvas.clientWidth || 320, 320));
-      var boxPx = Math.round(side);
-      /* 显式锁 CSS 盒为正方形——与位图宽高比一致，消除浏览器拉伸。
-       * Node 自测的 canvas 桩无 style 对象——防御性跳过。 */
-      if (canvas.style) {
-        canvas.style.width = boxPx + 'px';
-        canvas.style.height = boxPx + 'px';
+      var wrap = canvas.parentElement;              /* #board-wrap */
+      var availW = wrap ? wrap.clientWidth : 0;
+      var availH = wrap ? wrap.clientHeight : 0;
+      /* NaN 防御：Node 自测桩的 parentElement 可能缺 clientHeight；
+       * 非有限值一律回落到 320（不可让 NaN 流入 cell → arc(NaN) 抛错）。 */
+      if (!isFinite(availW)) availW = 320;
+      if (!isFinite(availH)) availH = 320;
+      if (availW <= 0) availW = 320;
+      if (availH <= 0) availH = 320;
+      /* 容器 padding 已在 clientWidth 内扣除——此处再留 8px 呼吸位 */
+      availW -= 8;
+      availH -= 8;
+      if (availW <= 0) availW = 320;
+      if (availH <= 0) availH = 320;
+      /* 正方形边长取容器短边；下限 280 防极小屏塌缩 */
+      var side = Math.max(280, Math.floor(Math.min(availW, availH)));
+      /* 幂等守卫须比对 **CSS 边长**（lastSideCss），不能拿物理像素
+       * boardPx（= side × dpr）比——两者量纲不同，会导致守卫永不命中。
+       * lastCellN 记录上次计算 cell 时用的关卡尺寸：换关时 n 变化，
+       * 即使位图未变也需重算 cell，否则 cell 会停在上���关的值。 */
+      if (side === lastSideCss && canvas.width === Math.round(side * dpr) &&
+          lastCellN === (lastProbe ? lastProbe.n : 0)) {
+        /* 尺寸未变——直接返回，避免无谓的位图重设（重设会清空画布） */
+        return;
       }
-      boardPx = Math.round(side * dpr);
-      if (canvas.width !== boardPx) canvas.width = boardPx;
-      if (canvas.height !== boardPx) canvas.height = boardPx;
-      /* 每次位图重设会重置 2D 上下文状态——重设采样质量（Δ15b3e） */
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
+      lastSideCss = side;
+      lastCellN = lastProbe ? lastProbe.n : 0;
+      setBitmapSize(side);
       cell = boardPx / (lastProbe ? lastProbe.n : 5);
       markDirty();
+    }
+
+    /* 位图尺寸设定（幂等 + 变换矩阵绝对重置）。
+     * canvas.width/height 赋值本身即清空画布并重置全部上下文状态，
+     * 故必须在此统一重设采样质量与变换矩阵。
+     * Node 自测的 2D 桩上下文无 setTransform——防御性跳过。 */
+    function setBitmapSize(sideCss) {
+      boardPx = Math.round(sideCss * dpr);
+      if (canvas.width !== boardPx) canvas.width = boardPx;
+      if (canvas.height !== boardPx) canvas.height = boardPx;
+      /* 2D 上下文状态在位图重设后复位——显式重设（Δ15b3e） */
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      /* 变换矩阵绝对重置（Δ15b3f 防御）——严禁在任何循环里累加 ctx.scale() */
+      if (typeof ctx.setTransform === 'function') ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     function markDirty() { dirty = true; start(); }
@@ -823,6 +858,11 @@
 
     /* ---------- 主绘制 ---------- */
     function draw() {
+      /* Δ15b3f（回归修复）: 每帧开头绝对重置变换矩阵——即便当前代码路径
+       * 无 ctx.scale()，任何未来新增的缩放调用若忘记配对 restore() 都会
+       * 逐帧累积导致画面越来越小。setTransform 是幂等的绝对赋值，
+       * 与 clearRect 坐标口径（本文件全量以 boardPx 物理像素绘制）一致。 */
+      if (typeof ctx.setTransform === 'function') ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, boardPx, boardPx);
       if (!lastProbe) return;
       var now = nowMs();
