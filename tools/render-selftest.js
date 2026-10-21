@@ -561,8 +561,53 @@ function scenarioBackdropStage() {
   var src = require('fs').readFileSync(__dirname + '/../src/render/BoardRenderer.js', 'utf8');
   check('BoardRenderer 场景层已移出棋盘画布（drawEcoBackdrop 已下线）',
     src.indexOf('function drawEcoBackdrop') === -1);
-  check('BoardRenderer 保留磨砂暖白可读性层（滑块对比度红线）',
-    src.indexOf('rgba(255,252,246,0.10)') !== -1);
+
+  /* Δ15b3e（Bug B 修复）: 磨砂暖白 veil 已移除——画布完全透明透出高清背景，
+   * 滑块对比度改由自身 3D 厚度边 + 深色投影承载。原断言钉的是被移除的
+   * 蒙版字面量，改为反向断言「雾遮罩不得回归」+ 正向断言新可读性载体。 */
+  check('Bug B: 磨砂暖白 veil 已移除（不再有雾遮罩——高清背景锐利透出）',
+    src.indexOf('rgba(255,252,246,0.10)') === -1);
+  check('Bug B: 滑块改由深色投影承载对比度（rgba(15,23,42,0.35)）',
+    src.indexOf('rgba(15, 23, 42, 0.35)') !== -1);
+  check('Bug B: 切片分辨率提升至 256（SLICE_PX=256，非 128）',
+    /SLICE_PX\s*=\s*256/.test(src) && src.indexOf('cv.width = 128') === -1);
+  check('Bug B: DPR 2x 下限超采样（Math.max(2, devicePixelRatio)）',
+    /Math\.max\(2,\s*global\.devicePixelRatio\s*\|\|\s*1\)/.test(src));
+  check('Bug B: 显式高质量插值（imageSmoothingQuality=high）',
+    src.indexOf("imageSmoothingQuality = 'high'") !== -1);
+  check('Bug B: 棋盘正方形锁定（resize 回写 canvas.style 宽高）',
+    src.indexOf('canvas.style.height') !== -1);
+
+  /* Δ15b3e（Bug A 修复）: Dock 与棋盘同源——DataURL 缓存 + canvas 兜底 */
+  var BR = STM;
+  check('Bug A: paintDockIcons 已导出（file:// canvas 同源兜底）',
+    typeof BR.paintDockIcons === 'function');
+  check('Bug A: dockIconDataURL 已导出（DataURL 缓存出口）',
+    typeof BR.dockIconDataURL === 'function');
+  check('Bug A: chipSVG 走 .dock-icon 类（含 img/canvas 双出口）',
+    src.indexOf('class="dock-icon"') !== -1);
+  check('Bug A: ensureSinglesFor onerror 不再无条件覆写已有来源（TOCTOU 修复）',
+    src.indexOf("img.onerror = function () { source[bid] = 'emoji'; }") === -1);
+  check('Bug A: 降级路径有 console.warn 留痕（不再静默吞异常）',
+    src.indexOf('warnOnce') !== -1);
+
+  /* Δ15b3e（Bug C 修复）: 四向高饱和主题色箭头 */
+  check('Bug C: 方向箭头四向主题色表存在',
+    /DIR_COLORS\s*=\s*\['#10B981',\s*'#F59E0B',\s*'#EF4444',\s*'#3B82F6'\]/.test(src));
+  check('Bug C: 箭头填充取 DIR_COLORS（不再是纯白 #FFFFFF）',
+    src.indexOf("ctx.fillStyle = DIR_COLORS[d]") !== -1);
+  check('Bug C: 箭头保留 1.5px 纯白描边',
+    src.indexOf("ctx.strokeStyle = 'rgba(255,255,255,1)'") !== -1);
+
+  /* CSS 侧: backdrop-filter 与白纱不得回归（先剥注释——注释中引用了
+   被移除的旧属性名「backdrop-filter」，会误判） */
+  var cssRaw = require('fs').readFileSync(__dirname + '/../css/style.css', 'utf8');
+  var css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+  var boardRule = (css.match(/#board\s*\{[^}]*\}/) || [''])[0];
+  check('Bug B: #board 无 backdrop-filter（毛玻璃已移除）',
+    boardRule.indexOf('backdrop-filter') === -1);
+  check('Bug B: #board 底板透明（无灰白雾遮罩）',
+    /background:\s*transparent/.test(boardRule));
 }
 
 /* ---- 主入口 ---- */

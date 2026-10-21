@@ -15,6 +15,7 @@
   var sound = null;
   var currentLevel = null;
   var currentId = 1;
+  var dockReadyHooked = false; /* Δ15b3e: Dock 贴图就绪回调仅注册一次（防逐关累积） */
 
   /* =========================================================
    * T050: 进度持久化（data-model.md §8，D-03 隐私模式降级）
@@ -283,9 +284,14 @@
     renderer.setLevel(currentLevel); /* Δ14: 渲染层花色映射/背景随当前关 id 切换 */
     renderer.refresh();
 
-    /* Δ15b/T052i: 贴图就绪惰性换装——Dock chip 同步刷新（棋盘由渲染器
-     * markDirty 重绘；贴图后到不闪烁——同关内同 suit 恒同来源） */
-    if (STM.IconAssets && STM.IconAssets.onSpritesReady) {
+    /* Δ15/T052i: 贴图就绪惰性换装——Dock chip 同步刷新（棋盘由渲染器
+     * markDirty 重绘；贴图后到不闪烁——同关内同 suit 恒同来源）
+     * Δ15b3e（Bug A 修复）: 注册仅一次——原实现每进一次关卡就向
+     * IconAssets.listeners 追加一个闭包，60 关后回调数组累积 60 项；
+     * 且换关期间到达的贴图就绪通知会重复触发 renderDock。
+     * 置 dockReadyHooked 后由全局单一回调服务全部关卡。 */
+    if (!dockReadyHooked && STM.IconAssets && STM.IconAssets.onSpritesReady) {
+      dockReadyHooked = true;
       STM.IconAssets.onSpritesReady(function () {
         if (session && els.dock) renderDock();
       });
@@ -382,6 +388,10 @@
       }
     }
     els.dock.innerHTML = html;
+    /* Δ15b3e（Bug A 修复）: 若 chipSVG 走了 <canvas class="dock-icon"> 兜底
+     * 出口（file:// 跨源污染下 toDataURL 不可用），此处立即以棋盘同源的
+     * 离屏切片直绘填充，保证 Dock 与棋盘图标 100% 同一张贴图。 */
+    if (STM.paintDockIcons) STM.paintDockIcons();
   }
 
   function renderItems() {
