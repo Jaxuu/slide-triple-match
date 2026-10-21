@@ -102,7 +102,18 @@ B. （可选）任意静态服务: npx serve . 或 python -m http.server
 ```text
 游玩:        双击 index.html
 引擎自测:    node tools/solver.js --engine-selftest
-量产 60 关:   node tools/generator.js --seed 2026（50 关基准） + node tools/expand-60.js（Δ13 增量扩容）
-全量验证:    node tools/solver.js        （exit 0 = 50/50 可解 + 全门禁通过）
+量产 72 关:   node tools/generator.js --seed 2026（50 关基准） + node tools/expand-60.js（Δ13→Δ16 增量扩容至 72 关）
+全量验证:    node tools/solver.js        （exit 0 = 72/72 可解 + 全门禁通过）
 单关调试:    node tools/solver.js --level 7
+
+── 表现层与外围闭环自测（零 npm 依赖，CDP + 本机 Chrome）──
+渲染断言:    node tools/render-selftest.js     （动画数据流 + Δ16g 复活 + Δ17 原创性红线）
+大厅冒烟:    node tools/lobby-smoke.js         （50 项：六区/星盘/弹窗/结算/失败页/零倒计时）
+通关闭环:    node tools/playthrough.js         （22 项：场景互斥/经济原子性/幂等/复活花色守恒）
+自适应核查:  node tools/responsive-check.js    （43 项：五机型 × 溢出/命中区/触屏/对比度）
+截图取证:    node tools/lobby-shots.js         （7 张 → shots/，供人工视觉验收）
+浏览器回归:  node tools/browser-bugtest.js     （受阻滑块动画存活）
 ```
+
+> **双形态纪律**：以上浏览器类工具 MUST 在**空 assets** 与**满 assets** 两种形态下
+> 各跑通一次（宪章原则 III + SC-006）——空 assets 形态验证程序化兜底不破。
