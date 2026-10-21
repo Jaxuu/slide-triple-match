@@ -953,8 +953,10 @@ html, body {
   pointer-events: auto;
   box-shadow: 0 3px 10px rgba(0, 0, 0, .40);
 }
-.portal-nav-prev { left: -46px; }
-.portal-nav-next { right: -46px; }
+/* Δ17/上线前打磨: 左右切换按钮 MUST 完全落在视口内——
+ * 原 -46px 固定外移在窄屏（375px）会溢出视口，MUST NOT 被裁切 */
+.portal-nav-prev { left: 6px; }
+.portal-nav-next { right: 6px; }
 .portal-nav-btn:disabled { opacity: .32; cursor: default; }
 
 /* ---------- 中下区：翠绿胶囊大按钮（文案严格 `关卡 X`） ---------- */
@@ -1002,10 +1004,10 @@ html, body {
 }
 
 /* ---------- 窄屏微调 ---------- */
-@media (max-width: 360px) {
-  .portal { width: 84vw; margin-top: 22px; }
-  .portal-nav-prev { left: -6px; }
-  .portal-nav-next { right: -6px; }
+@media (max-width: 400px) {
+  .portal { width: 86vw; margin-top: 22px; }
+  /* 星盘收窄后按钮内嵌于圆盘两侧，保证 375px 窄屏零溢出 */
+  .portal-nav-btn { width: 42px; height: 42px; font-size: 21px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .portal-chip { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .30); }
@@ -1581,3 +1583,41 @@ html, body {
  * M4 的 position:fixed 抽屉按钮与大厅开关位置重叠且 z-index 更高，
  * 会拦截大厅按钮点击 —— 故大厅场景下隐藏（局内不受影响）。 */
 #app.scene-lobby #debug-toggle { display: none !important; }
+
+/* =========================================================
+ * Δ17/上线前打磨: 触屏适配统一纪律
+ * 基线对齐既有棋盘层（#board-wrap touch-action: manipulation +
+ * 52~68px 最小点击区 + user-select: none）——外围 UI MUST NOT 比
+ * 棋盘层更难点中，且 MUST NOT 在触屏上触发 300ms 延迟或文本选取。
+ * ========================================================= */
+#lobby, #modal-root, #result-root, #fail-root {
+  touch-action: manipulation; /* 消除点击延迟，不劫持滚动手势 */
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 触控设备：所有可点元素达到 ≥44px 最小命中区（WCAG 2.5.5 AAA） */
+@media (pointer: coarse) {
+  .lobby-round-btn { width: 48px; height: 48px; }
+  .portal-nav-btn { width: 46px; height: 46px; }
+  .lobby-avatar { width: 56px; height: 56px; }
+  .lobby-btn-level { padding: 18px 60px; }
+  .jelly-btn { padding: 15px; }
+  .prism-toggle { width: 60px; height: 34px; }
+  .prism-toggle-knob { width: 28px; height: 28px; }
+  .prism-toggle.is-on .prism-toggle-knob { transform: translateX(26px); }
+  .result-btn { padding: 18px 52px; }
+  .avatar-cell { border-width: 3px; }
+}
+
+/* 窄屏横屏（手机横放）：星盘与按钮缩小，避免溢出 */
+@media (orientation: landscape) and (max-height: 520px) {
+  .portal { width: min(46vw, 210px); margin-top: 20px; }
+  .lobby-zone-midtop { top: 6%; }
+  .lobby-zone-center { top: 14%; }
+  .lobby-zone-midbottom { bottom: 9%; }
+  .lobby-brand-name { font-size: clamp(18px, 4.4vh, 26px); }
+  .plate-praise { font-size: clamp(17px, 5.2vh, 24px); }
+  .result-card-celebrate { gap: 14px; }
+  .nameplate { padding: 46px 18px 20px; }
+}
