@@ -260,6 +260,8 @@
       })(bid);
     }
     ui.body.appendChild(grid);
+    /* Δ17: file:// 下 canvas 占位需补绘（否则头像网格全空白） */
+    if (STM.paintAvatarCanvases) STM.paintAvatarCanvases(grid);
 
     buildButton(ui.body, '完成', 'jelly-btn-primary', close);
     return ui;

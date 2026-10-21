@@ -70,6 +70,8 @@
     var P = STM.Profile;
     if (P && STM.petAvatarHTML) {
       face.innerHTML = STM.petAvatarHTML(P.get().avatar);
+      /* Δ17: file:// 下 canvas 占位需补绘（否则失败页萌宠空白） */
+      if (STM.paintAvatarCanvases) STM.paintAvatarCanvases(face);
     }
     /* 泪滴（生成—滑落—消散循环） */
     if (tearTimer) { clearInterval(tearTimer); tearTimer = 0; }

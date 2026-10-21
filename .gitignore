@@ -1,14 +1,2 @@
-# Universal
-.DS_Store
-Thumbs.db
-*.tmp
-*.swp
-.idea/
-.vscode/
-
-# Node.js (offline tools only — runtime has zero deps, no package.json committed)
-node_modules/
-*.log
-npm-debug.log*
-.env
-.env.*
+# 截图取证产物（由 tools/lobby-shots.js 现场生成，非源码）
+shots/

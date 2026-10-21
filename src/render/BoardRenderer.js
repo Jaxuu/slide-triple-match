@@ -1361,6 +1361,36 @@
     return n;
   }
 
+  /* Δ17/T068+T069+T072: 萌宠头像 canvas 直绘
+   * file:// 下 toDataURL 因跨源污染不可用（dockIconDataURL 返回 null），
+   * petAvatarHTML 退化为 <canvas data-bid> 占位——必须由本函数补绘，
+   * 否则大厅头像 / 档案网格 / 结算铭牌萌宠呈现为空白圆形。 */
+  function paintAvatarCanvases(scope) {
+    if (typeof document === 'undefined') return 0;
+    var root = scope || document;
+    var nodes = root.querySelectorAll('canvas.pet-avatar-img[data-bid]');
+    if (!nodes || !nodes.length) return 0;
+    var dpr = Math.max(1, global.devicePixelRatio || 1);
+    var n = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      var cv = nodes[i];
+      var bid = parseInt(cv.getAttribute('data-bid'), 10);
+      var slice = IconAssets.sliceCanvasOf(bid);
+      if (!slice) continue;
+      var cssW = cv.clientWidth || 48;
+      var px = Math.max(64, Math.round(cssW * dpr));
+      if (cv.width !== px) { cv.width = px; cv.height = px; }
+      var c2 = cv.getContext('2d');
+      if (!c2) continue;
+      c2.clearRect(0, 0, px, px);
+      c2.imageSmoothingEnabled = true;
+      c2.imageSmoothingQuality = 'high';
+      c2.drawImage(slice, 0, 0, px, px);
+      n++;
+    }
+    return n;
+  }
+
   /* =========================================================
    * Δ15b3: BackdropStage — 全视口背景舞台（贴图 + 氛围滤镜 + 前景粒子）
    * · 贴图: assets/bg/bg{1..6}.{png|jpg|jpeg|webp} 逐扩展探测，
@@ -1745,6 +1775,7 @@
   STM.SUITS = SUITS;
   STM.chipSVG = chipSVG;
   STM.petAvatarHTML = petAvatarHTML; /* Δ17: 萌宠头像统一出口 */
+  STM.paintAvatarCanvases = paintAvatarCanvases; /* Δ17: file:// 跨源兜底直绘 */
   STM.paintDockIcons = paintDockIcons; /* Δ15b3e: file:// canvas 兜底绘制 */
   STM.dockIconDataURL = dockIconDataURL;
   STM.IconAssets = IconAssets;

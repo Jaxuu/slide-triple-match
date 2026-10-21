@@ -238,6 +238,8 @@
       paintBackground();
       /* 晶片切片同样依赖 chip 的 clientWidth → 一并重绘 */
       renderChips();
+      /* 头像 canvas 依赖布局盒 → 布局就绪后补绘（Δ17 file:// 兜底） */
+      renderTopBar();
     };
     if (global.requestAnimationFrame) global.requestAnimationFrame(go);
     else global.setTimeout(go, 16);
@@ -572,7 +574,11 @@
     if (el.btnAvatar) {
       var img = el.btnAvatar.querySelector('.lobby-avatar-img');
       /* 头像切片复用已加载的 sheet1~3（FR-040 §2）——与档案弹窗同源 */
-      if (img && STM.petAvatarHTML) img.innerHTML = STM.petAvatarHTML(prof.avatar);
+      if (img && STM.petAvatarHTML) {
+        img.innerHTML = STM.petAvatarHTML(prof.avatar);
+        /* Δ17: file:// 下 toDataURL 不可用 → canvas 占位需补绘（否则空白） */
+        if (STM.paintAvatarCanvases) STM.paintAvatarCanvases(img);
+      }
       el.btnAvatar.setAttribute('title', prof.nickname);
     }
   }

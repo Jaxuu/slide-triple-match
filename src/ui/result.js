@@ -94,6 +94,8 @@
       board.setAttribute('aria-hidden', 'true');
       var pet = h('span', 'plate-pet', rider);
       pet.innerHTML = STM.petAvatarHTML(P.get().avatar);
+      /* Δ17: file:// 下 canvas 占位需补绘（否则铭牌萌宠空白） */
+      if (STM.paintAvatarCanvases) STM.paintAvatarCanvases(pet);
     }
     return plate;
   }
@@ -127,9 +129,12 @@
     var pi = P ? P.paintingIndexOfLevel(opts.level || 1) : 0;
     var st = P ? (P.get().paintingProgress[pi] || 0) : 0;
     /* 已点亮晶片显示对应大陆高清图景（与星盘同源同缓存链，FR-035 §6） */
-    setTimeout(function () {
+    /* 布局就绪后（rAF 下一帧）绘制——当帧 clientWidth 仍为 0，
+     * 直接绘制会退化为紫色兜底而非大陆切片 */
+    var paintChip = function () {
       if (!cv || !cv.getContext) return;
-      var w = cv.clientWidth || 120, hh = cv.clientHeight || 120;
+      var w = cv.clientWidth, hh = cv.clientHeight;
+      if (!(w > 0) || !(hh > 0)) return;
       var d = Math.max(1, global.devicePixelRatio || 1);
       cv.width = Math.round(w * d); cv.height = Math.round(hh * d);
       var ctx = cv.getContext('2d');
@@ -140,7 +145,9 @@
         ctx.fillStyle = 'rgba(150,110,225,0.42)';
         ctx.fillRect(0, 0, cv.width, cv.height);
       }
-    }, 0);
+    };
+    if (global.requestAnimationFrame) global.requestAnimationFrame(paintChip);
+    else global.setTimeout(paintChip, 16);
     if (opts.litChip) chips.classList.add('just-lit'); /* 新晶片翻转点亮动画 */
 
     /* 棱晶飞入动效（本次获得金额 = 本关产出表实际值） */
@@ -188,9 +195,10 @@
     /* 全屏高清大陆全貌（与局内背景、星盘切片同源同文件） */
     var art = h('div', 'portal-board-art', board);
     var cv = h('canvas', 'portal-board-cv', art);
-    setTimeout(function () {
+    var paintArt = function () {
       if (!cv || !cv.getContext) return;
-      var w = cv.clientWidth || 320, hh = cv.clientHeight || 570;
+      var w = cv.clientWidth, hh = cv.clientHeight;
+      if (!(w > 0) || !(hh > 0)) return;
       var d = Math.max(1, global.devicePixelRatio || 1);
       cv.width = Math.round(w * d); cv.height = Math.round(hh * d);
       var ctx = cv.getContext('2d');
@@ -202,7 +210,9 @@
         g.addColorStop(0, '#1B2A5E'); g.addColorStop(1, '#BFD9EE');
         ctx.fillStyle = g; ctx.fillRect(0, 0, cv.width, cv.height);
       }
-    }, 0);
+    };
+    if (global.requestAnimationFrame) global.requestAnimationFrame(paintArt);
+    else global.setTimeout(paintArt, 16);
     /* 时空传送门光柱（Δ17 原创构图） */
     h('div', 'portal-beam', art);
 
