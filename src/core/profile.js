@@ -294,6 +294,56 @@
     return (id - 1) % 12;
   }
 
+  /* ---------- Δ20 Bug 1：晶片解锁态反推（纯计算——零持久化写入） ----------
+   * 背景：paintingProgress 只在真实通关结算（settleWin）时递增，跳关 /
+   * 深链 / 老存档下与关卡进度发散 → 大厅出现「关卡 12 却拼图 0/4」。
+   * 故以**关卡进度为权威源**反推点亮态：凡充能关卡 <= maxPassed 即点亮。
+   *
+   * 口径：maxPassed = max(unlocked-1, currentLevel-1, ...clearedLevels)
+   *   · unlocked      = 最新解锁关卡号（= 已通关最高关 + 1）
+   *   · currentLevel  = 当前所处关卡号（跳关/深链时高于已通关进度）
+   *   · clearedLevels = 已通关关卡号集合（并入 profile v2 的 firstClear 账本）
+   * 晶片 q（第 q+1 块，0-based）的充能关卡 = range[0] + 2 + 3*q
+   *   （第 1 大陆 = L3/L6/L9/L12，与「每第 3 关点亮 1 块」节奏一致）
+   * 本函数 MUST NOT 写入任何持久化状态——点亮态（展示）与奖励发放
+   * （settleWin 按 firstClear 幂等发奖）解耦（FR-041 §4 铁律）。 */
+  function maxPassedLevel(ctx) {
+    ctx = ctx || {};
+    var m = Math.max((ctx.unlocked || 1) - 1, (ctx.currentLevel || 1) - 1);
+    var cl = ctx.clearedLevels || [];
+    for (var i = 0; i < cl.length; i++) {
+      var v = parseInt(cl[i], 10);
+      if (!isNaN(v) && v > m) m = v;
+    }
+    return m;
+  }
+
+  /* 某画卷第 quad 块晶片的充能关卡号（0-based quad → 1-based 关卡） */
+  function chargeLevelOf(paintingIdx, quad) {
+    var idx = Math.min(PAINTINGS, Math.max(1, paintingIdx | 0 || 1));
+    var range = PAINTING_RANGES[idx - 1] || [1, 12];
+    return range[0] + 2 + 3 * quad;
+  }
+
+  /* 某画卷 4 块晶片的解锁态（flags[0..3] + 已点亮计数） */
+  function pieceUnlockFlags(paintingIdx, ctx) {
+    var idx = Math.min(PAINTINGS, Math.max(1, paintingIdx | 0 || 1));
+    var maxPassed = maxPassedLevel(ctx);
+    var cleared = (ctx && ctx.clearedLevels) ? ctx.clearedLevels : [];
+    var flags = [];
+    for (var q = 0; q < PIECES_PER_PAINTING; q++) {
+      var req = chargeLevelOf(idx, q);
+      var inCleared = false;
+      for (var i = 0; i < cleared.length; i++) {
+        if (parseInt(cleared[i], 10) === req) { inCleared = true; break; }
+      }
+      flags.push(req <= maxPassed || inCleared);
+    }
+    var litCount = 0;
+    for (var j = 0; j < flags.length; j++) if (flags[j]) litCount++;
+    return { flags: flags, litCount: litCount, maxPassed: maxPassed, index: idx };
+  }
+
   function setAvatar(suit) { set('avatar', suit); return get().avatar; }
   function setNickname(name) { set('nickname', name); return get().nickname; }
   function setSetting(key, on) {
@@ -337,6 +387,9 @@
     unlockPaintingTile: unlockPaintingTile,
     paintingIndexOfLevel: paintingIndexOfLevel,
     levelSlotInPainting: levelSlotInPainting,
+    maxPassedLevel: maxPassedLevel,
+    chargeLevelOf: chargeLevelOf,
+    pieceUnlockFlags: pieceUnlockFlags,
     setAvatar: setAvatar,
     setNickname: setNickname,
     setSetting: setSetting,

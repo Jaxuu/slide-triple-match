@@ -22,7 +22,11 @@
    * localStorage 全访问 try/catch；不可用时内存进度照常可玩
    * ========================================================= */
   var PROGRESS_KEY = 'slide-triple:progress:v1';
-  var progress = { v: 1, unlocked: 1, last: 1, best: {}, muted: false };
+  /* clearedLevels = 已通关关卡号集合（Δ20 Bug 1 修复）。
+   * 与 profile v2 的 firstClear 账本**同源互补**：firstClear 只在真实通关
+   * 结算时写入，跳关 / 深链 / 老存档下二者会发散——故本字段按并集维护，
+   * 大厅晶片点亮态据此反推，避免「关卡 12 却拼图 0/4」的脱节。 */
+  var progress = { v: 1, unlocked: 1, last: 1, best: {}, muted: false, clearedLevels: [] };
   var storageUsable = true;
 
   function loadProgress() {
@@ -36,9 +40,54 @@
           progress.last = Math.min(Math.max(1, p.last | 0), max);
           progress.best = p.best && typeof p.best === 'object' ? p.best : {};
           progress.muted = !!p.muted;
+          progress.clearedLevels = normalizeCleared(p.clearedLevels, max);
         }
       }
     } catch (e) { storageUsable = false; } /* 隐私模式/禁用 → 内存进度（D-03） */
+  }
+
+  /* clearedLevels 归一化：去重 + 升序 + 钳制 1..max（脏数据不可信） */
+  function normalizeCleared(list, max) {
+    var out = [], seen = {};
+    if (!list || !list.length) return out;
+    for (var i = 0; i < list.length; i++) {
+      var v = parseInt(list[i], 10);
+      if (isNaN(v) || v < 1) continue;
+      if (v > max) v = max;
+      if (!seen[v]) { seen[v] = 1; out.push(v); }
+    }
+    out.sort(function (a, b) { return a - b; });
+    return out;
+  }
+
+  /* 把 profile v2 的 firstClear 账本并入 progress.clearedLevels——
+   * 二者是「已通关集合」的两个来源，取并集即完整（Δ20 Bug 1）。 */
+  function syncClearedFromProfile() {
+    try {
+      if (!STM.Profile) return;
+      var fc = STM.Profile.get().firstClear || {};
+      var max = (STM.LEVELS || []).length || 1;
+      var merged = normalizeCleared(progress.clearedLevels.concat(Object.keys(fc)), max);
+      if (merged.length !== progress.clearedLevels.length) {
+        progress.clearedLevels = merged;
+        saveProgress();
+      }
+    } catch (e) { /* 存储不可用 → 内存态照常（D-03） */ }
+  }
+
+  /* 有效已通关最大关卡号（Δ20 Bug 1 权威口径）——
+   * max(unlocked-1, currentLevel-1, ...clearedLevels)。
+   * 与 profile 的同名函数同口径——此处仅作进度态的便捷视图，
+   * 晶片点亮态的实际判定走 STM.Profile.pieceUnlockFlags。 */
+  function maxPassedLevel() {
+    if (STM.Profile && STM.Profile.maxPassedLevel) {
+      return STM.Profile.maxPassedLevel({
+        unlocked: progress.unlocked,
+        currentLevel: currentId,
+        clearedLevels: progress.clearedLevels
+      });
+    }
+    return Math.max((progress.unlocked || 1) - 1, (currentId || 1) - 1);
   }
 
   function saveProgress() {
@@ -53,7 +102,21 @@
     if (!b || score > b.score) progress.best[id] = { score: score, combo: combo };
     else if (score === b.score && combo > (b.combo || 0)) progress.best[id] = { score: score, combo: combo };
     progress.last = id;
+    markCleared(id); /* Δ20 Bug 1：记入已通关集合（供大厅晶片点亮态反推） */
+    syncClearedFromProfile();
     saveProgress();
+  }
+
+  /* 记入已通关关卡（去重，保持升序） */
+  function markCleared(id) {
+    var v = parseInt(id, 10);
+    if (isNaN(v) || v < 1) return;
+    var max = (STM.LEVELS || []).length || 1;
+    if (v > max) v = max;
+    var cl = progress.clearedLevels || [];
+    for (var i = 0; i < cl.length; i++) if (cl[i] === v) return;
+    cl.push(v);
+    progress.clearedLevels = normalizeCleared(cl, max);
   }
 
   function setMuted(m) {
@@ -79,6 +142,11 @@
   /* 进入主大厅（大厅与局内互斥——隐藏 HUD/棋盘/Dock/道具栏与旧结算层） */
   function enterLobby(opts) {
     opts = opts || {};
+    /* Δ20 Bug 2 修复：场景切换 MUST 关闭失败层——失败层 z-index:26 且底衬
+     * 完全不透明，若在「重新开始 / 返回主大厅」后残留，会盖死新场景，
+     * 表现为按钮「点了毫无反应」。失败层是唯一独立于大厅/局内的模态层，
+     * 故在此处（唯一的场景切换入口）统一 teardown，与 Lobby.hide() 并列。 */
+    if (STM.Fail) STM.Fail.hide();
     var app = global.document.getElementById('app');
     if (app) app.classList.add('scene-lobby');
     scene = SCENE.LOBBY;
@@ -87,6 +155,8 @@
       STM.Lobby.show({
         unlocked: opts.unlocked || progress.unlocked,
         level: opts.level || progress.last || progress.unlocked,
+        /* Δ20 Bug 1：已通关关卡集合——大厅据此反推晶片点亮态 */
+        clearedLevels: progress.clearedLevels,
         debugOpen: els.debugPanel ? !els.debugPanel.hidden : false,
         handlers: lobbyHandlers()
       });
@@ -95,6 +165,8 @@
 
   /* 进入局内（隐藏大厅；HUD/棋盘/Dock/道具栏恢复） */
   function enterGame(id) {
+    /* Δ20 Bug 2 修复：同上——进入局内前关闭残留失败层（幂等） */
+    if (STM.Fail) STM.Fail.hide();
     var app = global.document.getElementById('app');
     if (app) app.classList.remove('scene-lobby');
     if (STM.Lobby) STM.Lobby.hide();
@@ -105,7 +177,7 @@
   function lobbyHandlers() {
     return {
       onSettings: function () { openSettingsModal(false); },
-      onProfile: function () { openProfileModal(function () { if (STM.Lobby) STM.Lobby.refresh({ unlocked: progress.unlocked }); }); },
+      onProfile: function () { openProfileModal(function () { if (STM.Lobby) STM.Lobby.refresh(lobbyRefreshOpts()); }); },
       onPlay: function (id) { enterGame(id); },
       onToggleDebug: function () {
         /* 大厅与局内共用同一份调试面板开关状态（Edge Case 铁律） */
@@ -147,12 +219,21 @@
     });
   }
 
+  /* 大厅刷新参数（Δ20 Bug 1：携带已通关集合 → 晶片点亮态反推） */
+  function lobbyRefreshOpts() {
+    return {
+      unlocked: progress.unlocked,
+      level: progress.last,
+      clearedLevels: progress.clearedLevels
+    };
+  }
+
   /* 全局同步头像（大厅头像按钮 / 徽标探头 / 结算铭牌 / 失败页 / 传送门展板）
    * —— 单一数据源（profile v2），零副本不同步（FR-040 §2） */
   function syncAvatarEverywhere() {
     try {
       if (STM.Lobby && STM.Lobby.isVisible && STM.Lobby.isVisible()) {
-        STM.Lobby.refresh({ unlocked: progress.unlocked });
+        STM.Lobby.refresh(lobbyRefreshOpts());
       }
     } catch (e) { /* 存储不可用 → 内存态照常（D-03） */ }
   }
@@ -208,6 +289,9 @@
          * 开关仅在两粒度同时关闭时才生效，避免设置弹窗语义丢失 */
         if (sound.setBgmMute) sound.setBgmMute(!prof.settings.bgm);
         if (sound.setSfxMute) sound.setSfxMute(!prof.settings.sfx);
+        /* Δ20 Bug 1：并入 profile v2 的 firstClear 账本 → progress.clearedLevels
+         * （老存档在 profile v2 键建立前通关的关卡据此补回，点亮态不再脱节） */
+        syncClearedFromProfile();
       }
     } catch (eP) { /* 存储不可用 → 内存态照常可玩（D-03） */ }
 
@@ -1375,6 +1459,8 @@
     enterGame: enterGame,   /* Δ18: 场景入口（大厅 → 局内）——供测试与深链复用 */
     enterLobby: enterLobby, /* Δ18: 场景入口（局内 → 大厅） */
     session: function () { return session; },
-    progress: progress
+    progress: progress,
+    /* Δ20 Bug 1：有效已通关最大关卡号（大厅晶片点亮态的权威口径） */
+    maxPassedLevel: maxPassedLevel
   };
 })(typeof window !== 'undefined' ? window : globalThis);

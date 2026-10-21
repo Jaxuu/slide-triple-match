@@ -794,13 +794,12 @@ html, body {
   100% { transform: scale(1); }
 }
 
-/* ---------- 中上区：3D 浮雕徽标（原创风翼母题） ---------- */
+/* ---------- 中上区：3D 浮雕徽标（Δ20 Bug 3：双行字标 + 棱镜星芒） ---------- */
 .lobby-brand {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
   padding: 6px 10px 0;
 }
 /* 棱镜星芒（徽标背后的方向星芒装饰） */
@@ -824,71 +823,67 @@ html, body {
   -webkit-mask: radial-gradient(circle, transparent 22%, #000 34%, #000 62%, transparent 76%);
   mask: radial-gradient(circle, transparent 22%, #000 34%, #000 62%, transparent 76%);
 }
-/* 双层立体字容器 */
+/* 双行立体字标容器（Δ20 Bug 3：上下双行居中紧凑叠排）
+   上行 Glide（大字） / 下行 Critters（稍小）——两词共享同一套立体字
+   构造，读作一个整体字标而非「两个独立元素」 */
 .lobby-brand-name {
   position: relative;
   display: inline-flex;
-  align-items: baseline;
-  gap: 10px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
   white-space: nowrap;
 }
-/* ① Glide —— 琥珀暖金渐变立体字（多层描边 + 高光 + 立体投影） */
+.lobby-brand-row { display: block; text-align: center; }
+/* ① Glide —— 纯白→暖奶油黄立体渐变字 + 天蓝/深海蓝厚描边（Δ20 Bug 3）
+   注：MUST NOT 用「硬投影」（text-shadow 偏移实色块）——它会盖在
+   background-clip:text 的渐变填充之上，使字整体发暗发蓝（实机截图确认）。
+   立体感由 -webkit-text-stroke（paint-order:stroke fill）+ 柔和 drop-shadow 承担。 */
 .lobby-brand-glide {
+  display: block;
   font-style: normal;
-  font-size: clamp(26px, 8.2vw, 44px);
+  font-size: clamp(28px, 8.6vw, 46px);
   font-weight: 900;
-  letter-spacing: .01em;
-  background: linear-gradient(180deg, #FFF6DC 0%, #FFE2A6 30%, var(--amber) 62%, #B4701A 100%);
+  letter-spacing: .02em;
+  line-height: 1;
+  background: linear-gradient(180deg, #FFFFFF 0%, #FFFBEE 34%, #FFE9A8 74%, #FFD97A 100%);
   -webkit-background-clip: text; background-clip: text;
   color: transparent;
-  -webkit-text-stroke: 1.5px rgba(120, 78, 20, .55);
-  text-shadow:
-    0 2px 0 rgba(150, 96, 24, .85),
-    0 4px 0 rgba(112, 70, 18, .60),
-    0 6px 14px rgba(0, 0, 0, .50);
-  filter: drop-shadow(0 5px 10px rgba(0, 0, 0, .45));
+  -webkit-text-stroke: 2px rgba(24, 74, 150, .85);
+  paint-order: stroke fill;
+  filter: drop-shadow(0 4px 8px rgba(20, 50, 110, .40));
 }
-/* ② Critters —— 薄荷翠绿胶囊底托字 */
+/* ② Critters —— 同一套立体字构造（去绿胶囊外框），字号略小紧贴上行 */
 .lobby-brand-critters {
+  display: block;
   font-style: normal;
-  font-size: clamp(15px, 4.6vw, 25px);
-  font-weight: 800;
-  letter-spacing: .04em;
-  padding: 4px 16px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #A8F0C8 0%, #6FD8A4 48%, #2E9A6E 100%);
-  border: 2px solid rgba(255, 255, 255, .82);
-  color: #06301E;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, .55);
-  box-shadow:
-    0 3px 0 #1F7050,
-    0 6px 14px rgba(0, 0, 0, .42),
-    inset 0 2px 0 rgba(255, 255, 255, .70);
+  font-size: clamp(16px, 5.0vw, 26px);
+  font-weight: 900;
+  letter-spacing: .14em;
+  line-height: 1;
+  margin-top: 2px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #FFFBEE 36%, #FFEFC0 78%, #FFE09A 100%);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+  -webkit-text-stroke: 1.8px rgba(24, 74, 150, .82);
+  paint-order: stroke fill;
+  filter: drop-shadow(0 3px 6px rgba(20, 50, 110, .36));
 }
-/* 纯白流线型滑行风翼（呼应 Δ17 结算铭牌母题）
-   纯白高不透明度 + 极细冷灰描边——大厅背景明亮（云海/樱花），
-   半透明翼会融进背景不可见，描边保证在任意背景上均有轮廓 */
-.lobby-brand-wing {
-  position: relative;
-  flex: none;
-  width: clamp(26px, 7vw, 40px); height: clamp(13px, 3.4vw, 19px);
-  background: linear-gradient(120deg, #FFFFFF 0%, #F2F8FF 55%, #CBE4FF 100%);
-  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, .40));
-}
-/* 左翼朝左张开、右翼朝右张开（左右各一） */
-.lobby-brand-wing-l { clip-path: polygon(0 50%, 100% 0, 72% 50%, 100% 100%); }
-.lobby-brand-wing-r { clip-path: polygon(100% 50%, 0 0, 28% 50%, 0 100%); }
-/* 玩家萌宠从标题上方探出（随呼吸轻微浮动） */
+/* Δ20 Bug 3：两侧白色扁三角风翼（.lobby-brand-wing 系列）已从 DOM 与样式
+   中删除——双行叠排后风翼会把字标拉成不均衡两端，改为由棱镜星芒统一点缀。 */
+/* 玩家萌宠从标题上方探出（随呼吸轻微浮动；Δ20 Bug 3：双行叠排后
+   停靠在整个字标正上方居中位） */
 .lobby-brand-pet {
   position: absolute;
-  left: 50%; top: -34px;
+  left: 50%; top: -42px;
   transform: translateX(-50%);
   width: 46px; height: 46px;
   border-radius: 50% 50% 46% 46%;
   overflow: hidden;
   background: radial-gradient(circle at 34% 30%, #FFF 0%, var(--prism-glow) 40%, var(--prism-violet) 100%);
-  box-shadow: 0 0 14px rgba(201, 174, 255, .85);
-  border: 2.5px solid rgba(255, 255, 255, .88);
+  box-shadow: 0 0 14px rgba(201, 174, 255, .85), 0 4px 10px rgba(20, 50, 110, .30);
+  border: 2.5px solid rgba(255, 255, 255, .95);
   display: grid; place-items: center;
   animation: pet-breathe 2.8s ease-in-out infinite;
 }
@@ -912,7 +907,8 @@ html, body {
   place-items: center;
 }
 
-/* 顶部悬浮胶囊铭牌：大陆名称 + 充能进度 X/4 */
+/* 顶部悬浮胶囊铭牌：大陆名称 + 充能进度 X/4
+   Δ20 Bug 3：琥珀金 → 天空蓝/薄荷绿渐变胶囊 + 白字（清爽，贴合蓝天背景） */
 .portal-plaque {
   position: absolute;
   top: -34px; left: 50%;
@@ -920,55 +916,45 @@ html, body {
   display: flex; align-items: center; gap: 10px;
   padding: 6px 18px;
   border-radius: 999px;
-  background: linear-gradient(180deg, var(--amber-hi), var(--amber) 55%, #C87F22);
-  border: 2px solid rgba(255, 255, 255, .78);
-  color: #4A2E08;
+  background: linear-gradient(180deg, #9FE3FF 0%, #62C4F0 52%, #3E9FD8 100%);
+  border: 2px solid rgba(255, 255, 255, .92);
+  color: #FFFFFF;
   font-weight: 800;
   white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255,255,255,.7);
+  text-shadow: 0 1px 2px rgba(20, 70, 120, .40);
+  box-shadow: 0 4px 14px rgba(30, 64, 175, .20), inset 0 1px 0 rgba(255, 255, 255, .85);
 }
 .portal-plaque-name { font-size: clamp(12px, 3.4vw, 16px); }
 .portal-plaque-prog {
   padding: 1px 9px;
   border-radius: 999px;
-  background: rgba(74, 46, 8, .30);
+  background: rgba(255, 255, 255, .30);
+  color: #FFFFFF;
   font-size: clamp(11px, 3.0vw, 14px);
 }
 
-/* 外圈星盘底座（琥珀金 + 虹彩棱镜） */
+/* 外圈星盘底座（Δ20 Bug 3：冰晶奶油白圆角画板——彻底去除土棕底色） */
 .portal-ring {
   position: absolute; inset: 0;
   border-radius: 26%;
   background:
-    radial-gradient(circle at 34% 28%, rgba(255, 236, 190, .95), rgba(232, 163, 61, .70) 42%, rgba(126, 84, 30, .82) 100%);
+    radial-gradient(circle at 34% 26%, rgba(255, 255, 255, .92) 0%, rgba(255, 255, 255, .78) 46%, rgba(236, 246, 255, .82) 100%);
+  border: 2px solid rgba(255, 255, 255, .95);
   box-shadow:
-    0 0 calc(26px * var(--portal-glow)) rgba(201, 174, 255, .70),
-    inset 0 3px 10px rgba(255, 255, 255, .55),
-    inset 0 -5px 14px rgba(70, 42, 8, .55);
+    0 12px 32px rgba(30, 64, 175, .18),
+    0 0 calc(26px * var(--portal-glow)) rgba(120, 190, 255, .38),
+    inset 0 3px 10px rgba(255, 255, 255, .95),
+    inset 0 -4px 12px rgba(120, 160, 220, .18);
 }
-/* 8 齿机械齿轮刻纹 */
-.portal-gears { position: absolute; inset: 0; }
-.portal-gear {
-  position: absolute;
-  width: 15%; height: 7%;
-  border-radius: 3px;
-  background: linear-gradient(180deg, #FFE9B8, #B07C2E);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
-}
-.portal-gear-0 { top: -3%;   left: 42.5%; }
-.portal-gear-1 { top: 6%;    right: 1%;  transform: rotate(45deg);  }
-.portal-gear-2 { top: 46%;   right: -4%; transform: rotate(90deg); }
-.portal-gear-3 { bottom: 6%; right: 1%;  transform: rotate(135deg); }
-.portal-gear-4 { bottom: -3%; left: 42.5%; transform: rotate(180deg); }
-.portal-gear-5 { bottom: 6%; left: 1%;   transform: rotate(225deg); }
-.portal-gear-6 { top: 46%;   left: -4%;  transform: rotate(270deg); }
-.portal-gear-7 { top: 6%;    left: 1%;   transform: rotate(315deg); }
+/* Δ20 Bug 3：8 齿长方体凸起已从 DOM 与样式中删除（.portal-gear 系列）。
+   「机械齿轮刻纹」语义由 .portal-ring 的内描边与角部棱晶高光承载。 */
 
-/* 风翼纹饰（左右各一，贴合底座圆角） */
+/* 风翼纹饰（左右各一，贴合底座圆角；Δ20 Bug 3：改为浅蓝冰晶调，
+   与冰晶奶油白画板协调，不再是突兀的纯白三角） */
 .portal-wing {
   position: absolute; top: 50%;
   width: 30%; height: 15%;
-  background: linear-gradient(100deg, rgba(255,255,255,.95), rgba(200, 228, 255, .30));
+  background: linear-gradient(100deg, rgba(255,255,255,.92), rgba(176, 216, 255, .42));
   transform: translateY(-50%);
 }
 .portal-wing-l { left: -8%; clip-path: polygon(100% 50%, 30% 0, 62% 50%, 30% 100%); }
@@ -988,10 +974,10 @@ html, body {
   position: relative;
   overflow: hidden;
   border-radius: 22%;
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .30);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .85);
   /* 已点亮：随辉光节拍轻微呼吸 */
-  box-shadow: inset 0 0 0 2px rgba(255,255,255,.30),
-              0 0 calc(14px * var(--portal-glow)) rgba(201, 174, 255, .55);
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.85),
+              0 0 calc(14px * var(--portal-glow)) rgba(120, 190, 255, .50);
 }
 .portal-chip-cv { width: 100%; height: 100%; display: block; }
 
@@ -1003,14 +989,14 @@ html, body {
 }
 .portal-chip.is-lit .portal-chip-shine { display: block; }
 
-/* 盲盒态标记 + 充能关卡标注 */
+/* 盲盒态标记 + 充能关卡标注（Δ20 Bug 3：浅冰蓝底上的精致锁图标） */
 .portal-chip-lock { display: none; }
 .portal-chip.is-blind .portal-chip-lock {
   display: block;
-  position: absolute; left: 50%; top: 34%;
+  position: absolute; left: 50%; top: 38%;
   transform: translate(-50%, -50%);
   font-size: clamp(15px, 4.4vw, 22px);
-  filter: drop-shadow(0 1px 3px rgba(0,0,0,.6));
+  filter: drop-shadow(0 1px 3px rgba(40, 80, 130, .45));
 }
 .portal-chip-caption {
   position: absolute; left: 2%; right: 2%; bottom: 3%;
@@ -1018,15 +1004,15 @@ html, body {
   font-size: clamp(8px, 2.3vw, 11px);
   font-weight: 700;
   line-height: 1.25;
-  color: #EFE6FF;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, .85);
+  color: #FFFFFF;
+  text-shadow: 0 1px 3px rgba(30, 70, 120, .75);
   pointer-events: none;
 }
 .portal-chip.is-lit .portal-chip-caption { display: none; }
-/* 第 4 块 = 满充能大奖位（💎 ×150 预览）——琥珀金高亮 */
+/* 第 4 块 = 满充能大奖位（💎 ×150 预览）——白金色高亮 */
 .portal-chip.is-bonus .portal-chip-caption {
-  color: #FFE9B0;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, .9), 0 0 8px rgba(255, 217, 138, .85);
+  color: #FFF3C4;
+  text-shadow: 0 1px 3px rgba(30, 70, 120, .85), 0 0 8px rgba(255, 243, 196, .85);
 }
 
 /* 左右切换按钮 */
@@ -1087,11 +1073,13 @@ html, body {
 .lobby-nick {
   padding: 5px 13px;
   border-radius: 999px;
-  background: linear-gradient(180deg, var(--amber-hi), var(--amber));
-  color: #4A2E08;
+  /* Δ20 Bug 3：土黄 → 纯白/浅蓝磨砂胶囊 + 深蓝文字 */
+  background: linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(214, 238, 255, .88));
+  border: 1.5px solid rgba(255, 255, 255, .92);
+  color: #16386E;
   font-weight: 700;
   font-size: clamp(12px, 3.4vw, 15px);
-  box-shadow: 0 3px 9px rgba(0, 0, 0, .35);
+  box-shadow: 0 3px 9px rgba(30, 64, 175, .18);
 }
 
 /* ---------- 窄屏微调 ---------- */
