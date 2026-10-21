@@ -836,6 +836,104 @@ function scenarioDelta16() {
     /--sweep/.test(splashCss));
 }
 
+
+/* =========================================================
+ * Δ16g/T074 + Δ17 断言组 —— 复活净化花色守恒 + 外围 UI 原创性红线
+ * ========================================================= */
+function scenarioPurifyAndOriginality() {
+  console.log('\n[Δ16g/Δ17] 复活净化（applyPurify）+ 外围 UI 原创性红线');
+
+  var lvl = LEVELS[0]; /* 只读消费（与 T052c 一致） */
+  var st = RE.init(lvl);
+  var baseTiles = st.tiles.length;
+
+  /* 造出 Dock 滞留（三个花色各一块）+ 生命耗尽态 */
+  st.dock = [{ id: 9001, s: st.tiles[0].s }, { id: 9002, s: st.tiles[1].s }, { id: 9003, s: st.tiles[2].s }];
+  st.lives = 0;
+  check('Δ16g: 净化前处于 lost_lives 终局态', RE.terminal(st) === 'lost_lives', RE.terminal(st));
+
+  var r = RE.applyPurify(st);
+  check('Δ16g: applyPurify 已导出且可调用', typeof r === 'object' && !!r.events);
+  check('Δ16g: Dock 完全腾空（FR-043 §3）', st.dock.length === 0, 'dock=' + st.dock.length);
+  check('Δ16g: 生命恢复为 3（FR-043 §3）', st.lives === lvl.lives || st.lives === 3, 'lives=' + st.lives);
+  check('Δ16g: 净化后回到可玩态（续局不重置棋盘）', RE.terminal(st) === 'playing', RE.terminal(st));
+  check('Δ16g: 板面被成组消除（滑块数减少）', st.tiles.length < baseTiles,
+    baseTiles + ' -> ' + st.tiles.length);
+
+  /* 花色守恒铁律: 每组恒为 3 的倍数（MUST NOT 留非 3 倍数余数） */
+  var groups = r.events.filter(function (e) { return e.e === 'match'; });
+  var allMultiple3 = groups.length > 0 && groups.every(function (e) { return e.ids.length % 3 === 0; });
+  check('Δ16g: 花色守恒——每组恒为 3 的倍数（FR-043 §4）', allMultiple3,
+    groups.map(function (e) { return e.suit + ':' + e.ids.length; }).join(','));
+  check('Δ16g: 腾空 Dock + 板面消除成组，无非法余数态',
+    r.removed > 0 && r.removed === groups.reduce(function (a, e) { return a + e.ids.length; }, 0));
+
+  /* 空 Dock 幂等：不得崩、不得改棋盘 */
+  var st2 = RE.init(lvl);
+  var t2 = st2.tiles.length;
+  var r2 = RE.applyPurify(st2);
+  check('Δ16g: 空 Dock 净化幂等（不崩、不改板面）', r2.removed === 0 && st2.tiles.length === t2);
+
+  /* 不变量: 净化不改动既有判定口径 —— 三消/射线仍可用 */
+  var st3 = RE.init(lvl);
+  var probe = RE.snapshot(st3);
+  var t3 = st3.tiles.length;
+  RE.applyPurify(st3);
+  check('Δ16g: 净化后快照与渲染探针仍可用（未破坏引擎结构）',
+    !!probe && !!RE.renderProbe(st3) && st3.tiles.length === t3);
+
+  /* ---------- Δ17 外围 UI 原创性红线 ---------- */
+  var fs = require('fs');
+  var path = require('path');
+  var RT = path.join(__dirname, '..');
+
+  var lobbySrc = fs.readFileSync(path.join(RT, 'src', 'ui', 'lobby.js'), 'utf8');
+  var resultSrc = fs.readFileSync(path.join(RT, 'src', 'ui', 'result.js'), 'utf8');
+  var modalsSrc = fs.readFileSync(path.join(RT, 'src', 'ui', 'modals.js'), 'utf8');
+  var failSrc = fs.readFileSync(path.join(RT, 'src', 'ui', 'fail.js'), 'utf8');
+
+  /* 竞品元素禁令（MUST NOT 出现在成品视觉实现中）—— 仅允许出现在
+   * 「禁令声明」语境（注释里出现关键词不计为实现） */
+  var srcAll = [lobbySrc, resultSrc, modalsSrc, failSrc];
+  function stripComments(src) {
+    return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  }
+  var implOnly = srcAll.map(stripComments).join('\n');
+
+  var banned = [
+    ['浅蓝竖条纹木墙', /stripe[\s_-]*wall|木墙|wallpaper/i],
+    ['室内盆栽', /potted[\s_-]*?plant|盆栽/i],
+    ['风景木质相框', /wooden?[\s_-]*frame|木质相框/i],
+    ['天蓝丝带横幅', /ribbon[\s_-]*banner|丝带横幅/i],
+    ['金色庆典号角', /gold[\s_-]*?horn|庆典号角|号角/i],
+    ['天蓝圆弧顶盖', /skyblue[\s_-]*?arch|天蓝圆弧/i]
+  ];
+  var hits = banned.filter(function (b) { return b[1].test(implOnly); })
+    .map(function (b) { return b[0]; });
+  check('Δ17: 外围 UI 实现零竞品视觉元素（七项禁令）', hits.length === 0, hits.join(','));
+
+  /* Δ17 三项核心原创载体必须在实现中就位 */
+  check('Δ17: 棱晶星盘（Prism Portal）载体就位',
+    /portal-chip/.test(lobbySrc) && /portal-ring/.test(lobbySrc) && /portal-gear/.test(lobbySrc));
+  check('Δ17: 大厅兜底为云端浮空岛（非室内场景）',
+    /drawCloudIslands/.test(lobbySrc) && /drawFloatingIsland/.test(lobbySrc) && !/木桌|窗景/.test(implOnly));
+  check('Δ17: 奶油果冻弹窗基底（琥珀金铭牌 + 棱晶拨片）',
+    /jelly-plaque/.test(modalsSrc) && /prism-toggle/.test(modalsSrc) && !/arc-cap|天蓝顶盖/.test(implOnly));
+  check('Δ17: 双风翼棱晶能量铭牌（无彩带横幅/号角）',
+    /plate-wing/.test(resultSrc) && /plate-bar/.test(resultSrc) && !/banner|号角/.test(implOnly));
+  check('Δ17: 传送门开启展板（大陆全貌 + 关卡徽章 + 手账）',
+    /portal-board/.test(resultSrc) && /portal-board-range/.test(resultSrc) && /portal-board-note/.test(resultSrc));
+  check('Δ17: 失败页零倒计时（无 countdown 类名/话术）',
+    /fail-encourage/.test(failSrc) && !/countdown|倒计时|限时/.test(stripComments(failSrc)));
+
+  /* 切片区必须复用会话级缓存（MUST NOT 新建 Image —— FR-035 §6） */
+  var bdSrc = fs.readFileSync(path.join(RT, 'src', 'render', 'backdrops.js'), 'utf8');
+  var drawQuadrantBody = bdSrc.slice(bdSrc.indexOf('function drawQuadrant'),
+                                     bdSrc.indexOf('function drawWhole'));
+  check('Δ17: 晶片切片复用会话级 Image 缓存（零额外解码/请求）',
+    /probeBgImage/.test(drawQuadrantBody) && !/new Image/.test(drawQuadrantBody));
+}
+
 /* ---- 主入口 ---- */
 scenarioBlocked();
 scenarioMechAnims();
@@ -845,6 +943,7 @@ scenarioEcoBackdrop();
 scenarioSpriteSheets();
 scenarioBackdropStage();
 scenarioDelta16();
+scenarioPurifyAndOriginality();
 
 console.log('');
 if (failures.length) {

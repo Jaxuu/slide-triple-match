@@ -219,12 +219,28 @@
   }
 
   function sizeBg() {
+    if (!bgCanvas) return;
     var w = Math.max(1, Math.round((root.clientWidth || 360) * dpr()));
     var hh = Math.max(1, Math.round((root.clientHeight || 640) * dpr()));
     if (bgCanvas.width !== w || bgCanvas.height !== hh) {
       bgCanvas.width = w; bgCanvas.height = hh;
     }
     bgCtx = bgCanvas.getContext ? bgCanvas.getContext('2d') : null;
+  }
+
+  /* 布局就绪后重排背景并重绘——show() 当帧的 clientWidth 可能仍为 0
+   * （CSS 尚未完成布局），必须在下一帧补一次，否则画布停留在 300x150
+   * 默认尺寸且无可视绘制。 */
+  function repaintAfterLayout() {
+    var go = function () {
+      if (!visible) return;
+      sizeBg();
+      paintBackground();
+      /* 晶片切片同样依赖 chip 的 clientWidth → 一并重绘 */
+      renderChips();
+    };
+    if (global.requestAnimationFrame) global.requestAnimationFrame(go);
+    else global.setTimeout(go, 16);
   }
 
   function dpr() { return Math.max(1, global.devicePixelRatio || 1); }
@@ -477,16 +493,19 @@
   /* 计算某画卷的已点亮晶片数与下一块的解锁关卡 */
   function paintingState(paintingIdx) {
     var P = STM.Profile;
+    /* 内部一律 1-based（与 PAINTING_NAMES / PAINTING_RANGES 对齐）；
+     * 0 或越界 MUST 钳回 1，否则 PP[idx-1] = undefined → 下游 [0] 抛错 */
+    var idx = Math.min(6, Math.max(1, paintingIdx | 0 || 1));
     var prog = 0;
     if (P) {
       var pp = P.get().paintingProgress || [];
-      prog = pp[paintingIdx - 1] || 0;
+      prog = pp[idx - 1] || 0;
     }
-    var range = P && P.PAINTING_RANGES ? P.PAINTING_RANGES[paintingIdx - 1] : [1, 12];
+    var range = (P && P.PAINTING_RANGES && P.PAINTING_RANGES[idx - 1]) || [1, 12];
     /* 困难位关（每第 3 关）逐块点亮 → 第 k 块的解锁关卡 = range[0] + 3*(k-1) */
     var nextLevel = null;
     if (prog < 4) nextLevel = range[0] + prog * 3;
-    return { progress: prog, range: range, nextLevel: nextLevel };
+    return { progress: prog, range: range, nextLevel: nextLevel, index: idx };
   }
 
   /* 已唤醒（至少点亮 1 块）的大陆索引列表——左右切换只在其中循环 */
@@ -569,24 +588,30 @@
     return x;
   }
 
-  /* ---------- 事件绑定（仅绑定一次） ---------- */
+  /* ---------- 事件绑定（仅绑定一次） ----------
+   * handlers 以闭包外的可变引用持有——首次 show() 可能早于 main.js 完成
+   * 注入（开机动画路径），若把当时的 handlers 固化进监听器闭包，后续
+   * onSettings 等回调将永久为空。故每次 show() 更新 latestHandlers，
+   * 监听器统一读它。 */
   var bound = false;
+  var latestHandlers = {};
   function bindEvents(handlers) {
+    latestHandlers = handlers || {};
     if (bound) return;
     bound = true;
     if (el.btnSettings) el.btnSettings.addEventListener('click', function () {
-      if (handlers && handlers.onSettings) handlers.onSettings();
+      if (latestHandlers.onSettings) latestHandlers.onSettings();
     });
     if (el.btnDebug) el.btnDebug.addEventListener('click', function () {
-      if (handlers && handlers.onToggleDebug) debugOpenState = !!handlers.onToggleDebug();
+      debugOpenState = !!(latestHandlers.onToggleDebug && latestHandlers.onToggleDebug());
       renderTopBar();
     });
     if (el.btnLevel) el.btnLevel.addEventListener('click', function () {
       var lv = parseInt(el.btnLevel.getAttribute('data-level'), 10) || 1;
-      if (handlers && handlers.onPlay) handlers.onPlay(lv);
+      if (latestHandlers.onPlay) latestHandlers.onPlay(lv);
     });
     if (el.btnAvatar) el.btnAvatar.addEventListener('click', function () {
-      if (handlers && handlers.onProfile) handlers.onProfile();
+      if (latestHandlers.onProfile) latestHandlers.onProfile();
     });
     if (el.btnPrev) el.btnPrev.addEventListener('click', function () { stepPainting(-1); });
     if (el.btnNext) el.btnNext.addEventListener('click', function () { stepPainting(1); });
@@ -597,6 +622,10 @@
     opts = opts || {};
     var r = ensureRoot();
     if (!buildSkeleton()) return false;
+    /* 先解除 hidden 再做布局相关测量——sizeBg/paintBackground 依赖
+     * clientWidth/Height；hidden 态下布局盒为 0，画布无从绘制。 */
+    r.hidden = false;
+    visible = true;
     /* 默认选中当前关归属的大陆（FR-044 §5） */
     var cur = paintingState(browsingIdx);
     if (cur.progress === 0) {
@@ -615,9 +644,8 @@
     if (STM.Backdrops && STM.Backdrops.onBgReady) {
       STM.Backdrops.onBgReady(function () { if (visible) renderChips(); });
     }
-    r.hidden = false;
-    visible = true;
     t0 = (global.performance && global.performance.now) ? global.performance.now() : Date.now();
+    repaintAfterLayout(); /* CSS 布局完成后的首帧补绘（背景 + 晶片） */
     startLoop();
     return true;
   }

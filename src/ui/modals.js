@@ -46,6 +46,8 @@
   function buildCard(kind, title, subtitle) {
     var r = ensureRoot();
     r.innerHTML = '';
+    /* 先解除 hidden 再构建——hidden 态下布局盒为 0，
+     * .jelly-card 的居中与圆角度量会全部失效（FR-040 §5） */
     r.hidden = false;
 
     var scrim = document.createElement('div');

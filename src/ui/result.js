@@ -60,9 +60,11 @@
   }
 
   /* 双风翼棱晶能量铭牌（Δ17 原创构图） */
-  function buildNameplate(opts) {
+  function buildNameplate(opts, parent) {
     var P = STM.Profile;
     var plate = h('div', 'nameplate');
+    /* 必须挂进结算卡片——否则整块铭牌游离于 DOM 之外不可见 */
+    if (parent) parent.appendChild(plate);
 
     /* ② 七彩折射棱晶簇（风翼下方承托） */
     var cluster = h('div', 'plate-cluster', plate);
@@ -115,7 +117,7 @@
       s.style.animationDelay = ((i * 137) % 900) + 'ms';
     }
 
-    buildNameplate(opts);
+    buildNameplate(opts, card);
 
     /* 中部：棱晶星盘 + 本次获得的棱晶飞入动效 */
     var mid = h('div', 'result-mid', card);

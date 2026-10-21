@@ -723,6 +723,10 @@ html, body {
 #lobby {
   position: absolute;
   inset: 0;
+  /* Δ17/T068: #app 为 flex column 容器——大厅须脱离文档流并显式撑满，
+     否则作为 flex 子项无布局盒，clientWidth/Height = 0（背景与切片无从绘制） */
+  width: 100%;
+  height: 100%;
   z-index: 3; /* 高于 #hud/#board-wrap（z-index:2）——大厅与局内互斥 */
   overflow: hidden;
   font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -1029,6 +1033,8 @@ html, body {
 #modal-root {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   z-index: 20; /* 高于大厅（3）与局内层（2）——模态跨场景常驻 */
   display: grid;
   place-items: center;
@@ -1219,6 +1225,7 @@ html, body {
  * ========================================================= */
 #result-root {
   position: absolute; inset: 0;
+  width: 100%; height: 100%;
   z-index: 25; /* 模态场景层——位于大厅(3)/局内(2) 之上 */
   display: grid; place-items: center;
 }
@@ -1473,6 +1480,7 @@ html, body {
  * ========================================================= */
 #fail-root {
   position: absolute; inset: 0;
+  width: 100%; height: 100%;
   z-index: 26; /* 与结算层同级——失败页取代结算层出现 */
   display: grid; place-items: center;
 }
@@ -1557,3 +1565,9 @@ html, body {
   from { opacity: 0; transform: translate(-50%, 12px); }
   to   { opacity: 1; transform: translate(-50%, 0); }
 }
+
+/* ---------- Δ17/T068: 大厅场景隐藏 M4 浮动调试抽屉按钮 ----------
+ * 大厅顶部左区已有自己的 🛠 开关（FR-039 §2，与局内共用同一状态）；
+ * M4 的 position:fixed 抽屉按钮与大厅开关位置重叠且 z-index 更高，
+ * 会拦截大厅按钮点击 —— 故大厅场景下隐藏（局内不受影响）。 */
+#app.scene-lobby #debug-toggle { display: none !important; }
