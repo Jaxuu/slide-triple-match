@@ -93,6 +93,16 @@
   var SPRITE_PAD = 1.55; /* 相对 R 的画布内边距（容纳底晕+阴影） */
   var dockIconCache = {}; /* Δ15: Dock chip DataURL 缓存（贴图就绪 bump 失效） */
 
+  /* Δ15b3e（Bug A 修复）: 一次性告警（同一 key 只报一次——防 45 格刷屏）。
+   * 原实现在 file:// 下静默失败 45 次却零可观测信号，是该缺陷长期
+   * 未被发现的直接原因；降级路径必须留痕。 */
+  var warned = {};
+  function warnOnce(key, msg) {
+    if (warned[key]) return;
+    warned[key] = true;
+    if (typeof console !== 'undefined' && console.warn) console.warn('[STM]', msg);
+  }
+
   function getSprite(bid, sizePx) {
     if (!Bestiary || bid == null) return null;
     var band = Math.max(8, Math.round(sizePx / 2) * 2); /* 2px 档量化 */
@@ -169,6 +179,10 @@
     var sheetCount = 0;   /* 已就绪 sheet 张数（0~3） */
     var sheetLoadStarted = false;
 
+    /* Δ15b3e（Bug B 修复）: 切片分辨率 128→256。单格源 512×512，
+     * 128 档丢弃 87.5% 像素且在 DPR≥2 真机上逼近源分辨率而被迫插值。
+     * 256 档在 8×8×DPR2（图标绘制约 150px）下仍有余量，且切片总数仅 45。 */
+    var SLICE_PX = 256;
     var SHEETS = [
       { file: 'assets/icons/sheet1.png', base: 0,  count: 15 },
       { file: 'assets/icons/sheet2.png', base: 15, count: 15 },
@@ -190,15 +204,23 @@
       var sx = col * CELL + PAD;
       var sy = row * CELL + PAD;
       var sw = CELL - PAD * 2;
-      /* 切片分辨率 128×128（Dock/棋盘双层消费——drawImage 硬件缩放） */
+      /* Δ15b3e（Bug B 修复）: 切片分辨率 128→256（Dock/棋盘双层消费——
+       * drawImage 高质量缩放，2x 超采样下仍留有余量） */
+      var S = SLICE_PX;
       var cv = document.createElement('canvas');
-      cv.width = 128; cv.height = 128;
+      cv.width = S; cv.height = S;
       var c2 = cv.getContext('2d');
-      c2.drawImage(img, sx, sy, sw, sw, 0, 0, 128, 128);
+      c2.imageSmoothingEnabled = true;
+      c2.imageSmoothingQuality = 'high'; /* 高质量降采样——边缘锐利不发糊 */
+      c2.drawImage(img, sx, sy, sw, sw, 0, 0, S, S);
       /* 圆角遮罩（软边——融入奶油白 3D 牌面） */
-      maskRounded(c2, 128);
+      maskRounded(c2, S);
+      /* 白键控。Δ15b3e（Bug A 修复）: file:// 下画布被跨源污染，
+       * getImageData 必抛 SecurityError——此时静默保留圆角白底切片
+       * （棋盘/Dock 仍与同一张切片同源，视觉一致）；
+       * 首次失败告警一次，不静默吞异常（可观测性）。 */
       try {
-        var d = c2.getImageData(0, 0, 128, 128);
+        var d = c2.getImageData(0, 0, S, S);
         var px = d.data;
         for (var i = 0; i < px.length; i += 4) {
           var lum = (px[i] + px[i + 1] + px[i + 2]) / 3;
@@ -213,7 +235,10 @@
           }
         }
         c2.putImageData(d, 0, 0);
-      } catch (err) { /* getImageData 安全异常（本地文件极罕见）——切片照用不杀加载 */ }
+      } catch (err) {
+        warnOnce('IconAssets', '白底 Alpha Keying 不可用（' + (err && err.name || 'err') +
+          '）——file:// 跨源污染或受限环境；贴图保留圆角白底，棋盘/Dock 仍同源一致');
+      }
       return cv;
     }
 
@@ -290,7 +315,14 @@
               bumpSprites();
             }
           };
-          img.onerror = function () { source[bid] = 'emoji'; };
+          /* Δ15b3e（Bug A 修复）: onerror 不得无条件覆写来源——sheet 的 onload
+     * 与单张探测存在竞态（ensureSinglesFor 先于 sheet 就绪发起时，单张
+     * 404 的 onerror 会把已由 sheet 覆盖的条目误标为 'emoji'，实测
+     * 45 条中 5 条 source='emoji' 却 hasSlice=true 的不一致即源于此）。
+     * 仅当条目确无更优来源时才降级。 */
+          img.onerror = function () {
+            if (source[bid] !== 'sheet' && source[bid] !== 'single') source[bid] = 'emoji';
+          };
           img.src = 'assets/icons/' + bid + '.png';
         })(bids[i]);
       }
@@ -298,15 +330,18 @@
 
     /* 单张整图切片（无网格切分——直接 4% 内缩 + 白键控） */
     function whiteKeySliceSq(img) {
-      var S = Math.min(img.naturalWidth, img.naturalHeight);
-      var PAD = Math.round(S * 0.04);
+      var SS = Math.min(img.naturalWidth, img.naturalHeight);
+      var PAD = Math.round(SS * 0.04);
+      var S = SLICE_PX; /* Δ15b3e（Bug B 修复）: 128→256 */
       var cv = document.createElement('canvas');
-      cv.width = 128; cv.height = 128;
+      cv.width = S; cv.height = S;
       var c2 = cv.getContext('2d');
-      c2.drawImage(img, PAD, PAD, S - PAD * 2, S - PAD * 2, 0, 0, 128, 128);
-      maskRounded(c2, 128);
+      c2.imageSmoothingEnabled = true;
+      c2.imageSmoothingQuality = 'high';
+      c2.drawImage(img, PAD, PAD, SS - PAD * 2, SS - PAD * 2, 0, 0, S, S);
+      maskRounded(c2, S);
       try {
-        var d = c2.getImageData(0, 0, 128, 128);
+        var d = c2.getImageData(0, 0, S, S);
         var px = d.data;
         for (var i = 0; i < px.length; i += 4) {
           if (px[i] > 242 && px[i + 1] > 242 && px[i + 2] > 242) {
@@ -316,7 +351,9 @@
           }
         }
         c2.putImageData(d, 0, 0);
-      } catch (err) { /* 同 sheet——切片照用 */ }
+      } catch (err) {
+        warnOnce('IconAssets', '单张贴图白键控不可用——保留圆角白底切片');
+      }
       return cv;
     }
 
@@ -398,14 +435,22 @@
     var thickK = cell < 58 ? 0.028 : 0.035;
     var thick = cell * (thickK * depth + 0.03);
     ctx.globalAlpha = alpha;
-    /* 1. 立体厚度边（#CBD5E1——底部 5px 级立体厚度投影） */
+    /* Δ15b3e（Bug B 修复）: 深色底部投影 —— 移除磨砂蒙版后滑块直接悬浮
+     * 于高清风景之上，靠此投影 + 加深厚度边建立与背景的空间分离。 */
+    ctx.save();
+    ctx.shadowColor = 'rgba(15, 23, 42, 0.35)';
+    ctx.shadowBlur = Math.max(2, cell * 0.14);
+    ctx.shadowOffsetY = Math.max(1.5, cell * 0.045);
+    /* 1. 立体厚度边（#CBD5E1 —— Δ15b3e 加深为 #AEBACB/#9AA8BC，
+     *    在无蒙版的高清背景上保留清晰厚度投影） */
     var side = cell * 0.055;
     roundRect(ctx, x, y + side * 0.4, w, w, cell * 0.15);
-    ctx.fillStyle = '#B8C4D4';
+    ctx.fillStyle = '#9AA8BC';
     ctx.fill();
     roundRect(ctx, x, y + side * 0.4 - thick * 0.55, w, w, cell * 0.15);
-    ctx.fillStyle = '#CBD5E1';
+    ctx.fillStyle = '#AEBACB';
     ctx.fill();
+    ctx.restore();
     /* 2. 奶油白面板（#FFFFFF → #F4F7FB 微渐变） */
     var fz = y - thick * 0.85;
     var fg = ctx.createLinearGradient(x, fz, x, fz + w);
@@ -477,7 +522,16 @@
    * · 造型: 单枚宽翼实心三角（翼宽 ≈ 1.5× 高，锐角顶点指向 d）
    * · 描边: 1.5px 纯白（深色底块上高对比）
    * · 纯视觉替换——方向语义/hitTest/动画坐标零变化
+   *
+   * Δ15b3e（Bug C 修复）: 填充由纯白 #FFFFFF 改为【四向高饱和主题色】。
+   * 实测原实现箭头区域亮度跨度仅 2.9（卡面亮度 255）——纯白填充 + 纯白
+   * 描边落在 #FFFFFF→#F4F7FB 奶油白卡面上，等于零对比，方向不可辨。
+   * 现为四向主题色 + 1.5px 纯白描边（白描边保留原美术意图且此时
+   * 描边跨在彩-白交界处反而增强轮廓锐度）。
    * ========================================================= */
+  /* 四向主题色（d=0 上 U / 1 右 R / 2 下 D / 3 左 L） */
+  var DIR_COLORS = ['#10B981', '#F59E0B', '#EF4444', '#3B82F6'];
+
   function drawWingBadge(ctx, d, x, fz, w, cell, sv, nowMs) {
     var v = RE.DIR_VEC[d];
     var cx = x + w / 2 + v.dc * (w / 2 - dprSafe(3)); /* 朝向边缘内侧正中，距边 3px */
@@ -496,10 +550,10 @@
     ctx.lineTo(0, hgt * 0.28);           /* 尾部内凹（锐利感） */
     ctx.lineTo(wid / 2, hgt * 0.5);      /* 右翼根 */
     ctx.closePath();
-    ctx.fillStyle = '#FFFFFF';
+    ctx.fillStyle = DIR_COLORS[d] || '#10B981'; /* Δ15b3e（Bug C）: 四向主题色 */
     ctx.fill();
     ctx.lineWidth = Math.max(dprSafe(1.5), 1);
-    ctx.strokeStyle = 'rgba(255,255,255,1)';
+    ctx.strokeStyle = 'rgba(255,255,255,1)'; /* 1.5px 纯白描边（保留） */
     ctx.stroke();
     ctx.restore();
   }
@@ -623,8 +677,15 @@
   function createBoardRenderer(canvas, session, opts) {
     opts = opts || {};
     var ctx = canvas.getContext('2d');
-    var dpr = Math.max(1, global.devicePixelRatio || 1);
+    /* Δ15b3e（Bug B 修复）: DPR 2x 下限超采样——即便 DPR=1 屏也按 2 倍
+     * 物理像素渲染，图标/箭头边缘在高分屏与普通屏均锐利（评估实测原实现
+     * DPR=1 时 1 CSS px = 1 位图像素，零超采样余量）。 */
+    var dpr = Math.max(2, global.devicePixelRatio || 1);
     RENDER_DPR = dpr;
+    /* Δ15b3e（Bug B 修复）: 显式高质量插值——实测浏览器默认
+     * imageSmoothingQuality='low'，是图标边缘发糊的最直接成因。 */
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     var cell = 0;
     var boardPx = 0;
     var dirty = true;
@@ -641,11 +702,34 @@
       return global.performance ? global.performance.now() : Date.now();
     }
 
+    /* Δ15b3e（Bug B 修复）: 消除纵向拉伸
+     * 实测原实现 #board 的 CSS 盒为 484×569（aspect-ratio:1/1 与
+     * max-height:100% 冲突后被压成非正方形），而位图恒为 482×482 正方形
+     * → 浏览器把正方形位图纵向拉伸 1.18×，图标随之拉长 + 低质插值发虚。
+     * 修法: 棋盘恒为正方形——以容器短边定边长并显式回写 canvas 的 CSS
+     * 盒宽高，使「位图宽高比 === CSS 盒宽高比」恒成立（无论 CSS 如何
+     * 约束 #board），从根上杜绝拉伸。draw() 内全部以 boardPx 为边长
+     * 居中绘制，坐标口径不变。 */
     function resize() {
-      var cssW = canvas.clientWidth || canvas.parentElement.clientWidth || 320;
-      boardPx = Math.round(cssW * dpr);
+      var box = canvas.parentElement || canvas;
+      var cssW = canvas.clientWidth || box.clientWidth || 320;
+      var cssH = canvas.clientHeight || box.clientHeight || 320;
+      /* 边长取短边（正方形内嵌于容器，flex 居中不溢出） */
+      var side = Math.max(1, Math.min(cssW, cssH));
+      if (cssW <= 0 || cssH <= 0) side = Math.max(1, Math.min(canvas.clientWidth || 320, 320));
+      var boxPx = Math.round(side);
+      /* 显式锁 CSS 盒为正方形——与位图宽高比一致，消除浏览器拉伸。
+       * Node 自测的 canvas 桩无 style 对象——防御性跳过。 */
+      if (canvas.style) {
+        canvas.style.width = boxPx + 'px';
+        canvas.style.height = boxPx + 'px';
+      }
+      boardPx = Math.round(side * dpr);
       if (canvas.width !== boardPx) canvas.width = boardPx;
       if (canvas.height !== boardPx) canvas.height = boardPx;
+      /* 每次位图重设会重置 2D 上下文状态——重设采样质量（Δ15b3e） */
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       cell = boardPx / (lastProbe ? lastProbe.n : 5);
       markDirty();
     }
@@ -745,19 +829,18 @@
       var n = lastProbe.n;
 
       /* Δ15b3: 背景层已移出棋盘画布（STM.BackdropStage 全视口 #bg-canvas）——
-       * 画布保持透明以透出背后高清风景图；可读性由下述磨砂暖白层保证 */
+       * 画布保持透明以透出背后高清风景图。
+       *
+       * Δ15b3e（Bug B 修复）: 原「磨砂暖白可读性层」（径向 veil
+       * 0.10→0.18）已彻底移除。评估实测背景画布同区域亮度 201.6，
+       * 而经 CSS 白纱 0.22 + backdrop-filter blur(3px) + 本 veil 三重
+       * 叠加后升至 240.5 —— 背景被显著"提白"，观感即"雾蒙蒙"。
+       * 现在画布完全透明，高清背景 100% 锐利通透透出；滑块可读性
+       * 改由其自身的 3D 立体厚度边 + 深色底部投影承载（见
+       * drawTileBody），不再依赖任何磨砂蒙版。 */
 
-      /* Δ15b3: 磨砂暖白可读性层（半透明——与 CSS 底板 0.22 叠加后
-       * 仍透出背景；滑块对比度由其自身 3D 投影 + CSS backdrop-blur 保证） */
-      var veil = ctx.createRadialGradient(boardPx / 2, boardPx / 2, boardPx * 0.20, boardPx / 2, boardPx / 2, boardPx * 0.76);
-      veil.addColorStop(0, 'rgba(255,252,246,0.10)');
-      veil.addColorStop(0.60, 'rgba(252,246,236,0.13)');
-      veil.addColorStop(1, 'rgba(240,232,220,0.18)');
-      ctx.fillStyle = veil;
-      ctx.fillRect(0, 0, boardPx, boardPx);
-
-      /* 点阵格线（深色系在浅蒙版上保持可辨） */
-      ctx.fillStyle = 'rgba(120,135,155,0.4)';
+      /* 点阵格线（深色系在高清风景上保持可辨） */
+      ctx.fillStyle = 'rgba(120,135,155,0.55)';
       var dotR = Math.max(1, cell * 0.035);
       for (var gr = 0; gr < n; gr++) {
         for (var gc = 0; gc < n; gc++) {
@@ -1108,7 +1191,13 @@
   }
 
   /* DOM chip（Dock 槽图标——Δ14 与棋盘图鉴口径一致 / Δ15 贴图切片优先）
-   * 贴图切片就绪 → 输出 <img src="DataURL">（128×128 白键控切片）；
+   * Δ15b3e（Bug A 修复）: 贴图切片就绪 → 两条同源出口——
+   *   ① 首选 DataURL <img class="dock-icon">（dockIconDataURL 缓存）；
+   *   ② file:// 画布跨源污染下 toDataURL 必抛 SecurityError（评估已证实
+   *      getImageData/toDataURL 双双被击穿）→ 退化为 <canvas class="dock-icon"
+   *      data-bid>，由 paintDockIcons() 在 Dock 重绘后直接 drawImage 同一张
+   *      切片——与棋盘 getSprite 走的是同一条 drawImage 路径，无需导出像素。
+   *   二者同图同源，故 file:// 与静态服务两形态下 Dock 与棋盘 100% 一致。
    * 未就绪 → Emoji 字符 chip（贴图缺失或加载中）；
    * 无 Bestiary 映射 → 旧 SVG 双圈 chip 兜底。内联零外部资源（宪章 III） */
   function chipSVG(s, level) {
@@ -1126,16 +1215,15 @@
         /* sheet 未覆盖该条目 → 按需探测单张 {bid}.png（逐条目独立） */
         IconAssets.ensureSinglesFor([bid]);
       } else {
-        /* DataURL 缓存（贴图 bump 失效——不闪烁纪律） */
-        var url = dockIconCache[bid];
-        if (!url) {
-          try { url = slice.toDataURL('image/png'); dockIconCache[bid] = url; }
-          catch (err) { url = null; }
-        }
+        /* ① DataURL 出口（http:// 及可导出环境） */
+        var url = dockIconDataURL(bid);
         if (url) {
-          return '<img class="chip-icon-canvas" src="' + url + '" alt="' +
+          return '<img class="dock-icon" src="' + url + '" alt="' +
             (Bestiary.entry(bid).name || '') + '" draggable="false"/>';
         }
+        /* ② 污染兜底：canvas 直绘同一张切片（与棋盘同源） */
+        return '<canvas class="dock-icon" width="256" height="256" data-bid="' + bid +
+          '" aria-label="' + (Bestiary.entry(bid).name || '') + '"></canvas>';
       }
       /* Emoji chip（原生全彩 Emoji 直渲染——无 ctx.arc 手绘） */
       if (Bestiary.EMOJI && Bestiary.EMOJI.length === 45) {
@@ -1158,6 +1246,59 @@
       '<circle cx="12" cy="12" r="8.5"/>' +
       '<ellipse cx="9" cy="8.5" rx="2.6" ry="1.4" fill="rgba(255,255,255,0.6)" stroke="none"/>' +
       '</svg>';
+  }
+
+  /* Δ15b3e（Bug A 修复）: Dock 图标 DataURL 导出（带缓存 + 失败告警）
+   * · 缓存键 bestiaryId，dockIconCache 随 bumpSprites() 失效（不闪烁纪律）
+   * · 失败不静默：一次 console.warn 留痕——原实现在 file:// 下静默失败
+   *   45 次却零信号，是该缺陷长期未被发现的直接原因 */
+  function dockIconDataURL(bid) {
+    var hit = dockIconCache[bid];
+    if (hit !== undefined) return hit; /* null 亦缓存——避免逐帧重试抛错 */
+    var slice = IconAssets.sliceCanvasOf(bid);
+    if (!slice) return null;
+    try {
+      var url = slice.toDataURL('image/png');
+      dockIconCache[bid] = url;
+      return url;
+    } catch (err) {
+      dockIconCache[bid] = null; /* 记忆化失败——后续直接走 canvas 兜底 */
+      warnOnce('dockDataURL',
+        'Dock 图标 DataURL 导出不可用（' + (err && err.name || 'err') +
+        '，file:// 跨源污染）——已切换为 canvas 同源直绘，视觉与棋盘保持一致');
+      return null;
+    }
+  }
+
+  /* Δ15b3e（Bug A 修复）: Dock <canvas class="dock-icon"> 兜底绘制
+   * main.js renderDock() 在写入 innerHTML 后调用——对每个带 data-bid 的
+   * canvas 直接 drawImage 棋盘同源的离屏切片（不读像素、不导出，
+   * 故 file:// 污染下依然可用）。DPR 自适应放大至设备像素。 */
+  function paintDockIcons() {
+    if (typeof document === 'undefined') return 0;
+    var dock = document.getElementById('dock');
+    if (!dock) return 0;
+    var nodes = dock.querySelectorAll('canvas.dock-icon[data-bid]');
+    if (!nodes || nodes.length === 0) return 0;
+    var dpr = Math.max(1, global.devicePixelRatio || 1);
+    var n = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      var cv = nodes[i];
+      var bid = parseInt(cv.getAttribute('data-bid'), 10);
+      var slice = IconAssets.sliceCanvasOf(bid);
+      if (!slice) continue;
+      var cssW = cv.clientWidth || 40;
+      var px = Math.max(64, Math.round(cssW * dpr));
+      if (cv.width !== px) { cv.width = px; cv.height = px; }
+      var c2 = cv.getContext('2d');
+      if (!c2) continue;
+      c2.clearRect(0, 0, px, px);
+      c2.imageSmoothingEnabled = true;
+      c2.imageSmoothingQuality = 'high';
+      c2.drawImage(slice, 0, 0, px, px);
+      n++;
+    }
+    return n;
   }
 
   /* =========================================================
@@ -1493,9 +1634,11 @@
   STM.createBoardRenderer = createBoardRenderer;
   STM.SUITS = SUITS;
   STM.chipSVG = chipSVG;
+  STM.paintDockIcons = paintDockIcons; /* Δ15b3e: file:// canvas 兜底绘制 */
+  STM.dockIconDataURL = dockIconDataURL;
   STM.IconAssets = IconAssets;
   STM.BackdropStage = BackdropStage;
-  STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets };
+  STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets, dockIconDataURL: dockIconDataURL, paintDockIcons: paintDockIcons, DIR_COLORS: DIR_COLORS };
 
 
 })(typeof window !== 'undefined' ? window : globalThis);

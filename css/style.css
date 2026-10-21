@@ -179,17 +179,24 @@ html, body {
   height: 100%;
   max-width: min(100%, 62vh); /* 保持近方形 */
   max-height: 100%;
+  /* Δ15b3e（Bug B 修复）: 恒正方形。实测原 `aspect-ratio:1/1` 与
+     `max-height:100%` 冲突后 #board 的 CSS 盒被压成 484×569 非正方形，
+     而 canvas 位图恒为正方形 → 浏览器纵向拉伸 1.18×，图标随之拉长
+     且经低质插值后发虚。改为 height:auto + width 由短边约束，
+     并由 BoardRenderer.resize() 显式回写 canvas.style 宽高为正方形，
+     使「位图宽高比 === CSS 盒宽高比」恒成立。 */
   aspect-ratio: 1 / 1;
+  height: auto;
+  max-height: 100%;
   border-radius: var(--radius);
-  /* Δ15b3: 半透明磨砂暖白底板（0.22——高清风景图充分透出，
-     前景 3D 奶油白滑块仍清晰醒目） */
-  background: rgba(255, 255, 255, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.30);
-  box-shadow:
-    0 8px 28px rgba(40, 50, 66, .22),
-    inset 0 1px 0 rgba(255, 255, 255, .40);
-  -webkit-backdrop-filter: blur(3px) saturate(1.05);
-  backdrop-filter: blur(3px) saturate(1.05);
+  /* Δ15b3e（Bug B 修复）: 彻底移除毛玻璃与灰白雾遮罩——
+     原 backdrop-filter: blur(3px) saturate(1.05) + rgba(255,255,255,.22)
+     白纱把高清背景插画糊成雾气（实测背景亮度由 201.6 被提白至 240.5）。
+     现完全透明，让 #bg-canvas 的高清风景 100% 锐利通透透出；
+     滑块对比度由其自身 3D 厚度边 + 深色投影承载（drawTileBody）。 */
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 10px 34px rgba(15, 23, 42, .28);
   touch-action: manipulation; /* 允许滚动手势不劫持；点击仍走 pointerdown */
   cursor: pointer;
 }
@@ -213,26 +220,42 @@ html, body {
   /* 注: blur 不可加在容器上——会连同槽内 chip 图标一起模糊；
      改为仅在 .slot 自身做背景磨砂（Δ15b3） */
 }
+/* Δ15b3e（Bug A 修复）: Dock 槽改为与棋盘滑块同款的立体圆角奶油白卡槽。
+   消除原「半透明灰框 + 虚线 + backdrop-filter 磨砂」的廉价观感：
+   奶油白渐变面板 + 加深底部厚度边 + 深色投影，与棋盘 3D 滑块视觉同源。 */
 .slot {
   width: clamp(38px, 12cqw, 52px);
   height: clamp(38px, 12cqw, 52px);
-  border-radius: 10px;
-  border: 1px dashed rgba(60, 76, 96, .55);
-  background: rgba(255, 255, 255, .30);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, .85);
+  background: linear-gradient(180deg, #FFFFFF 0%, #FBFCFE 62%, #F1F5FA 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: border-color .2s, background .2s;
-  box-shadow: 0 2px 8px rgba(40, 50, 66, .16);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
+  transition: border-color .2s, background .2s, box-shadow .2s;
+  /* 底部厚度边 + 深色投影——与棋盘滑块 3D 口径同源 */
+  box-shadow:
+    0 3px 0 0 #AEBACB,
+    0 7px 14px rgba(15, 23, 42, .32);
 }
-.slot.has-tile { border-style: solid; border-color: rgba(60, 76, 96, .8); background: rgba(255, 255, 255, .40); }
+/* 空槽 = 深色内凹槽（等待落位），有 chip = 奶油白卡槽 */
+.slot.empty {
+  background: rgba(15, 23, 42, .22);
+  border: 1px dashed rgba(255, 255, 255, .55);
+  box-shadow: inset 0 2px 6px rgba(15, 23, 42, .40);
+}
+.slot.has-tile {
+  border-color: rgba(255, 255, 255, .9);
+  background: linear-gradient(180deg, #FFFFFF 0%, #FBFCFE 62%, #F1F5FA 100%);
+  box-shadow:
+    0 3px 0 0 #AEBACB,
+    0 7px 14px rgba(15, 23, 42, .32);
+}
 .slot.empty::after {
   content: attr(data-label);
-  color: var(--ink-dim);
+  color: rgba(255, 255, 255, .75);
   font-size: 11px;
-  opacity: .6;
+  opacity: .8;
 }
 
 /* ---------- Dock（7 格收集槽） ---------- */
@@ -249,7 +272,21 @@ html, body {
   padding: 0;
 }
 .tile-chip svg { width: 70%; height: 70%; display: block; }
-/* Δ15b/T052i: Dock 贴图切片 chip（精灵图集 128×128 白键控切片 DataURL） */
+/* Δ15b3e（Bug A 修复）: Dock 图标新类 .dock-icon
+   · 出口① http:// 等可导出环境 → <img class="dock-icon">（DataURL 切片）
+   · 出口② file:// 跨源污染 → <canvas class="dock-icon" data-bid>（同源切片直绘）
+   二者消费同一张离屏切片，故与棋盘图标 100% 同源同图。 */
+.slot .dock-icon {
+  width: 82%;
+  height: 82%;
+  display: block;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 3px rgba(15, 23, 42, .38));
+  border-radius: 18%;
+  pointer-events: none;
+  user-select: none;
+}
+/* Δ15b/T052i: Dock 贴图切片 chip（精灵图集切片 DataURL）——历史类名保留 */
 .tile-chip .chip-icon-canvas,
 .slot .chip-icon-canvas {
   width: 78%;
