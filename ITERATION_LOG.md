@@ -891,6 +891,72 @@ AI 把这条成本几乎降到零：Δ14 / Δ15 两轮 refine 一次性把口径
 | 10-21 | `d694cb7` | T053–T058 **M4 评委调试面板 + Hint + Auto-Play Bot** |
 | 10-21 | `3a24682` | T059–T063 **Phase 7 横向质量 + 宪章红线 + 最终交付终验** |
 
+### Δ16 / Δ17 — Milestone 5 商业化外围闭环与原创视觉重制（T064~T074）
+
+| 日期 | commit | 内容 |
+|---|---|---|
+| 10-21 | `1fcf179` | T064 Δ16a/Δ16b 72 关尾部增量扩容 + 6 幅风景画卷映射 |
+| 10-21 | `28b5e0c` | T065~T067 玩家档案棱晶经济 + HooLey 开机动画 + Δ16 断言组 |
+| 10-21 | `dacd310` | T068+T069 主大厅（棱晶星盘传送门）与奶油果冻弹窗（Δ17 原创重制） |
+| 10-21 | `06fe831` | T070+T071 导航闭环与结算奖励 + 局内棱晶购买闭环 |
+| 10-21 | `907f6f6` | T072+T073+T074 结算层/传送门展板/失败复活 |
+| 10-21 | `5bb9a3b` | 修复大厅/弹窗布局与事件链路缺陷 + 新增 Δ16g/Δ17 断言组 |
+| 10-21 | `9346644` | 萌宠头像 file:// 直绘补齐 + 结算/失败层底衬不透明 + 截图取证 |
+
+#### 扩容验证证据（Δ16 铁律：既有 L1~L60 逐字节零改写）
+
+`src/data/levels.js` 的最后一次变更是 T064（`1fcf179`），此后 T065~T074 **零写入**：
+
+```
+$ git log --oneline -1 -- src/data/levels.js
+1fcf179 feat(levels): T064 Δ16a/Δ16b 72 关尾部增量扩容 + 6 幅风景画卷映射
+$ git diff --stat HEAD~8 -- src/data/levels.js
+（空 = 未改动）
+```
+
+72 关尾部由 `tools/expand-60.js` 增量生成（L61~L72），每关经 Generator 三重验证 + Solver 门禁 + 内嵌 solutionMoves。
+
+#### profile v2 键设计取舍
+
+新增 `slide-triple:profile:v2`（shards / nickname / avatar / paintingProgress[6] / settings{bgm,sfx,haptics} / firstClear）与既有 `slide-triple:progress:v1` **并存不迁移**。
+
+取舍理由：v1 是 T050 交付的关卡进度（unlocked/last/best/muted），已被 Bot、Hint、跳关、M4 调试面板广泛消费；v2 是 Δ16 新增的经济与档案层。**合并两个键需要重写 v1 的所有消费方并迁移存量数据**，风险与收益不成比例。并存方案下 v1 读取逻辑零改动、向后兼容，代价仅仅是两个 localStorage 键。回退到内存态时统一走 try/catch（隐私模式降级，D-03 纪律延续）。
+
+#### 开机动画 autoplay 合规与跳过路径
+
+Web Audio autoplay 政策下，开机和弦音**MUST NOT 在首次交互前发声**。实现采用"延后补发"：`splash.js` 监听首次 `pointerdown`/`keydown` 后补发和弦，避免初始静音导致用户后续一直听不到开机音。跳过路径（首次点击/按键）与自然播完落点一致（MUST NOT 跳过任何初始化步骤）。
+
+#### 复活净化的花色守恒实现与边界情形
+
+`applyPurify(state)` 是 Δ16 **唯一新增规则语义**，前后端与 Solver 共用同一实现（FR-032 铁律）。
+
+花色守恒处理：Dock 内滞留块优先，差额由板面同花色配对块补足至 3 块一组。**边界情形——某花色板面配对块不足 3 时**，以该花色全部可用块成组消除并按 RulesEngine 既有口径回填槽位，`MUST NOT` 留下"余数非 3 倍数"的非法态。断言组逐组校验 `ids.length % 3 === 0`。
+
+#### 实测截图与验收命令输出
+
+新增 `tools/lobby-shots.js`（零依赖 CDP + Chrome）产出 7 张外围 UI 截图，供 Δ17 第 ⑥ 条竞品元素清零静态核查与 quickstart SC-009 人工验收。空 assets 形态（宪章红线）与满 assets 形态**各跑通一次全流程**：
+
+```
+$ node tools/solver.js
+summary: 72/72 solvable, 耗时 17.50s
+
+$ node tools/solver.js --engine-selftest
+engine-selftest: 11/11 all green
+
+$ node tools/render-selftest.js
+render-selftest: all green
+
+$ node tools/lobby-smoke.js          # 空 assets 形态
+[lobby-smoke] 结果: 50 passed, 0 failed
+```
+
+浏览器冒烟暴露并修复 5 处真实缺陷（详见 `5bb9a3b`）：场景根节点无布局盒、`hidden` 解除时机、布局未就绪导致画布停留在默认尺寸、事件监听器闭包固化过期 handlers、M4 浮动调试按钮与大厅设置按钮位置重叠拦截点击。另修复萌宠头像在 `file://` 下因 `toDataURL` 跨源污染而空白的问题（新增 `paintAvatarCanvases`）。
+
+#### 补记：Profile.set 不支持 paintingProgress
+
+截图脚本最初用 `Profile.set('paintingProgress', ...)` 造数，静默失效（`set()` 的 switch 无该 case，走 default 分支返回原 state）。改用公开 API `unlockPaintingTile()` 递增——语义与真实通关完全一致。**这是一次测试脚本缺陷而非产品缺陷**，但暴露了一个可改进点：`Profile.set` 对未知字段静默忽略（设计如此，避免误写），调用方无法从返回值区分"设置成功"与"字段未知"。
+
+
 ---
 
 *本文依据 `specs/001-slide-triple-match-core/` 全套工件、`.specify/bugs/` 两份缺陷三件套、`tools/` 全部离线工具源码与 33 次 Git 提交记录撰写。所有命令输出与实测数值均在交付状态下复现（`node tools/solver.js` exit 0 / 60/60 solvable / 10.66s；`--engine-selftest` 11/11；`render-selftest.js` all green）。*
