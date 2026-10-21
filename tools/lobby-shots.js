@@ -108,8 +108,35 @@ async function main() {
     console.log('  ✓ ' + name + ' (' + Math.round(fs.statSync(f).size / 1024) + ' KB)');
   }
 
+  /* 裁剪截图（指定元素包围盒 + 外扩留白——用于局部细节取证） */
+  async function shotClip(name, selector, pad) {
+    pad = pad || 0;
+    var box = await ev(`(function(){
+      var e = document.querySelector(${JSON.stringify(selector)});
+      if (!e) return null;
+      var r = e.getBoundingClientRect();
+      return { x: r.left, y: r.top, width: r.width, height: r.height, scale: 1 };
+    })()`);
+    if (!box || !(box.width > 0)) { console.error('  clip failed: ' + name); return; }
+    var clip = {
+      x: Math.max(0, box.x - pad), y: Math.max(0, box.y - pad),
+      width: box.width + pad * 2, height: box.height + pad * 2, scale: 2
+    };
+    var r = await c.send('Page.captureScreenshot', { format: 'png', clip: clip });
+    if (!r || !r.data) { console.error('  clip failed: ' + name); return; }
+    var f = path.join(OUT, name);
+    fs.writeFileSync(f, Buffer.from(r.data, 'base64'));
+    console.log('  ✓ ' + name + ' (' + Math.round(fs.statSync(f).size / 1024) + ' KB)');
+  }
+
   /* 1. 大厅（新档位：全盲盒态） */
   await shot('lobby.png');
+  /* 1b. 徽标局部（双层立体字 + 双风翼 + 棱镜星芒 + 萌宠探头取证） */
+  await shotClip('lobby-brand.png', '.lobby-brand', 46);
+  /* 1c. 棱晶栏局部（深色磨砂胶囊 + 七彩切面棱晶 SVG） */
+  await shotClip('lobby-shards.png', '.lobby-shards', 8);
+  /* 1d. 棱晶星盘局部（已点亮晶片折射图景 + 未点亮紫晶盲盒态） */
+  await shotClip('lobby-portal.png', '.portal', 8);
 
   /* 2. 大厅（已点亮 2/4 —— 晶片折射图景 + 左右切换可用） */
   /* 走公开 API 点亮（Profile.set 不支持 paintingProgress 字段——
@@ -123,6 +150,7 @@ async function main() {
   })()`);
   await sleep(900);
   await shot('lobby-lit.png');
+  await shotClip('lobby-portal-lit.png', '.portal', 8);
 
   /* 3. 设置弹窗（奶油果冻基底） */
   await ev('document.querySelector(".lobby-btn-settings").click(); true');

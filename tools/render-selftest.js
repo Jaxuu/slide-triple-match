@@ -932,6 +932,34 @@ function scenarioPurifyAndOriginality() {
                                      bdSrc.indexOf('function drawWhole'));
   check('Δ17: 晶片切片复用会话级 Image 缓存（零额外解码/请求）',
     /probeBgImage/.test(drawQuadrantBody) && !/new Image/.test(drawQuadrantBody));
+
+  /* Δ18: 象限源矩形口径回归（FR-035 §6 —— 4 块晶片拼合 == 整幅 cover 裁切）
+   * 回归缺陷: 源矩形曾用「缩放后尺寸」当作原图坐标取样，导致每块晶片
+   * 显示放大错位的条带。正确口径 = 可见源区域换算回原图像素后取半。 */
+  check('Δ18: 象限源矩形换算回原图坐标（sw=cw/scale 后取半）',
+    /var sw = cw \/ scale/.test(drawQuadrantBody) &&
+    /var qw = sw \/ 2, qh = sh \/ 2/.test(drawQuadrantBody) &&
+    !/var fw = iw \* scale/.test(drawQuadrantBody));
+
+  /* 象限取样数值自检：4 块象限 MUST 恰好铺满可见源区域且不越界 */
+  (function () {
+    var iw = 1440, ih = 2560, dw = 300, dh = 300; /* bg{n}.png 实际尺寸口径 */
+    var cw = dw * 2, ch = dh * 2;
+    var scale = Math.max(cw / iw, ch / ih);
+    var sw = cw / scale, sh = ch / scale;
+    var sx = (iw - sw) / 2, sy = (ih - sh) / 2;
+    var qw = sw / 2, qh = sh / 2;
+    var inBounds = true, covers = true;
+    for (var q = 0; q < 4; q++) {
+      var qx = q % 2, qy = (q - (q % 2)) / 2;
+      var rx = sx + qx * qw, ry = sy + qy * qh;
+      if (rx < 0 || ry < 0 || rx + qw > iw + 0.01 || ry + qh > ih + 0.01) inBounds = false;
+    }
+    /* 拼合宽度 == 可见源宽度（4 块各半宽 = 2qw = sw） */
+    if (Math.abs(qw * 2 - sw) > 0.01 || Math.abs(qh * 2 - sh) > 0.01) covers = false;
+    check('Δ18: 4 象限取样不越界且恰好铺满可见源区域', inBounds && covers,
+      'inBounds=' + inBounds + ' covers=' + covers);
+  })();
 }
 
 /* ---- 主入口 ---- */

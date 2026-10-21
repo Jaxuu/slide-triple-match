@@ -842,13 +842,20 @@
       var ih = rec.img.naturalHeight || rec.img.height;
       if (!(iw > 0) || !(ih > 0)) return false;
       /* 该象限在「整幅画卷 2dw×2dh 坐标系」中的位置；cover 缩放按整幅
-       * 尺寸计算，短边铺满 + 居中裁切（与 drawBackdrop 同算法） */
+       * 尺寸计算，短边铺满 + 居中裁切（与 drawBackdrop 同算法）。
+       *
+       * 口径铁律：drawImage 的**源矩形**取自**原图像素坐标系**，故
+       * 「整幅可见源区域」须先换算回原图尺寸（sw = cw / scale），
+       * 再按象限取半——否则会取到原图的错误条带（放大 + 错位）。
+       * 修正后 4 块晶片拼合 = 整幅画卷的 cover 裁切结果，
+       * 与局内背景完全一致（FR-035 §6）。 */
       var cw = dw * 2, ch = dh * 2;                 /* 整幅画卷的显示尺寸 */
       var scale = Math.max(cw / iw, ch / ih);
-      var fw = iw * scale, fh = ih * scale;         /* 贴图缩放后的实际尺寸 */
-      var ox = (cw - fw) / 2, oy = (ch - fh) / 2;   /* 居中裁切的溢出量 */
+      var sw = cw / scale, sh = ch / scale;         /* 可见的源图区域（原图坐标） */
+      var sx = (iw - sw) / 2, sy = (ih - sh) / 2;   /* 居中裁切的起点（原图坐标） */
+      var qw = sw / 2, qh = sh / 2;                 /* 单象限的源尺寸 */
       ctx.drawImage(rec.img,
-        ox + qx * dw, oy + qy * dh, dw, dh,         /* 源: 本象限矩形 */
+        sx + qx * qw, sy + qy * qh, qw, qh,         /* 源: 本象限矩形 */
         dx, dy, dw, dh);                            /* 目标: 晶片矩形 */
       return true;
     } catch (errQ) {

@@ -956,7 +956,79 @@ $ node tools/lobby-smoke.js          # 空 assets 形态
 
 截图脚本最初用 `Profile.set('paintingProgress', ...)` 造数，静默失效（`set()` 的 switch 无该 case，走 default 分支返回原 state）。改用公开 API `unlockPaintingTile()` 递增——语义与真实通关完全一致。**这是一次测试脚本缺陷而非产品缺陷**，但暴露了一个可改进点：`Profile.set` 对未知字段静默忽略（设计如此，避免误写），调用方无法从返回值区分"设置成功"与"字段未知"。
 
+### Δ18 — Batch B 交互与视觉细节补强（T068/T069/T071 定点返修 + 一处渲染口径修复）
+
+| 日期 | commit | 内容 |
+|---|---|---|
+| 10-21 | （本次） | Δ18：徽标双层立体 3D 卡通字 + 纯白滑行风翼 + 棱镜星芒 + 萌宠探头呼吸浮动；棱晶栏七彩切面棱晶 SVG + 余额弹跳动效；棱晶星盘左右切换放开为全部 6 大大陆；未点亮晶片逐块独立 `第 X 关充能` 标注 + 第 4 块 `💎 ×150` 大奖预览；档案弹窗【确认】落库保存点 + 右上角圆润关闭按钮；局内购买 `-50 💎` 飘字 + 余额不足轻晃；**修复 `drawQuadrant` 源矩形口径缺陷** |
+
+#### 本轮的定位：定点补强而非新功能
+
+Δ17 解决了"视觉载体是什么"，Δ18 解决"载体够不够好使"。全部改动落在**已交付的 Batch B（T068~T071）**上——**关卡数据、RulesEngine 判定语义、profile v2 键结构、导航闭环与经济数值表零改动**，`src/data/levels.js` 本轮**零写入**（保持 FR-008 Δ16 扩容铁律）。Solver 报告仅 `generatedAt` 与 `elapsedMs` 变化，关卡指标字段逐项一致。
+
+#### 修复：`drawQuadrant` 源矩形坐标系缺陷（本轮最重要的发现）
+
+**现象**：大厅星盘已点亮的晶片显示的是**放大错位的条带**——四块拼起来既不是原图，也与局内背景对不上（违背 FR-035 §6「局内所见背景 = 星盘晶片所拼出的大图」铁律）。
+
+**根因**：`drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh)` 的**源矩形取自原图像素坐标**，而 cover 裁切的计算天然发生在**显示尺寸空间**。初版直接用缩放后的显示尺寸（`dw × dh`）当源坐标取样，等于在 1440×2560 的原图上取了中央 300×300 的一小块再放大到 300×300 显示——**放大约 2.4 倍**，且四块的取样窗口互相错位。
+
+**修复口径**（先换算回原图像素，再取半）：
+
+```
+scale = max(2dw/iw, 2dh/ih)   // cover 缩放比
+sw    = 2dw / scale            // 可见源区域（原图坐标）
+sx    = (iw - sw) / 2          // 居中裁切起点
+qw    = sw / 2                 // 单象限源宽
+→ drawImage(img, sx + qx*qw, sy + qy*qh, qw, qh, dx, dy, dw, dh)
+```
+
+**验证**：4 块象限取样不越界且恰好铺满可见源区域（数值自检断言入 `render-selftest.js`）；截图确认晶片显示 bg1 的雪山与城堡实景，与全屏传送门展板同一份 `bg{n}` 源。
+
+**教训**：跨坐标系的几何运算，必须在**取样前**统一到目标坐标系。凡是"从 A 坐标系算出的尺寸直接当 B 坐标系的坐标用"，几乎必然出错——而且当 A、B 都是"看起来对"的尺寸时，肉眼很难第一时间发现。
+
+#### 截图核查揪出的两处视觉缺陷
+
+1. **右侧滑行风翼隐形**——初版风翼用 `rgba(255,255,255,.98) → rgba(198,226,255,.42)` 半透明渐变，在左侧纯天空背景上清晰、在右侧樱花枝条背景上几乎融掉。DOM 位置断言（`wingR >= nameR`）**全绿**却仍不可见——**几何正确 ≠ 视觉可读**。改为不透明纯白 + 冷灰投影后两侧对称可读。
+2. **未点亮晶片标注全同**——三块晶片都显示 `第 1 关充能`。根因是标注取的是"下一块的充能关卡"（全局量）而非"本块的充能关卡"（逐块量），且旧公式 `range[0] + prog*3` 与实际的困难位关卡号（每第 3 关）差了两关。改为 `range[0] + 2 + 3*q`（第 1 大陆 → 3/6/9/12），并逐块独立取值。
+
+#### 测试补强：T071 购买闭环的浏览器端到端覆盖
+
+此前 T071 只有 `render-selftest` 的 profile 层断言（`spendShards` 原子性、余额下限钳制），**局内道具购买的 UI 链路无浏览器覆盖**。本轮新增 `lobby-smoke.js` N 组（12 项）：
+
+- N2~N4 免费次数用尽 → 角标切 `💎 50`、进入 `is-buyable` 态、按钮**不得禁用**；
+- N5~N7 点击 → 扣 50 棱晶 + `-50 💎` 飘字 + 提示"已消耗"；
+- N8~N10 余额不足 → **零扣费零消耗** + 明确提示 + 轻晃；
+- N11 余额**恰等于**价格 → 扣至 0 且道具**仍正常生效**（Edge Case「棱晶余额不足与购买竞态」铁律）。
+
+冒烟总数由 50 → **68 passed, 0 failed**。同时新增 B9~B14（徽标双层字 / 左右风翼几何 / 棱镜星芒 / 萌宠探头 / 棱晶 SVG）。
+
+#### 测试脚本的三处自伤与修正
+
+写 N 组用例时连续踩了三个坑，均为**测试脚本缺陷而非产品缺陷**，但都暴露了 API 契约的可改进点：
+
+1. **撤回需要快照栈非空**——`useItem('undo')` 在 `history` 为空时返回 `item-unavailable`，导致"耗尽免费次数"这一步根本没生效。修正：先做一次真实 `tap()` 产生快照。
+2. **场景入口未暴露**——冒烟前段用 `STM.Lobby.show({handlers:{}})` 造数，把真实 handlers 冲掉了，随后点大厅按钮进不了局内。修正：新增 `STM.main.enterGame` / `STM.main.enterLobby` 公开入口（与 `loadLevel` 同级，属合理的对外 API 补充）。
+3. **失败层是全屏模态**——`STM.Fail` / `STM.Result` 打开后拦截底层点击，N 组测试无法进入局内。修正：显式 `hide()` 后再走场景入口。
+
+另记录一条产品侧的可改进点：`Profile.set()` 对未知字段静默忽略（设计如此，避免越权写入），但调用方无法从返回值区分"设置成功"与"字段未知"——若后续要开放更多可写字段，宜改为返回显式的 ok 标志。
+
+#### 本轮验收输出
+
+```
+$ node tools/solver.js
+summary: 72/72 solvable, 耗时 12.07s
+$ node tools/solver.js --engine-selftest
+engine-selftest: 11/11 all green
+$ node tools/render-selftest.js
+render-selftest: all green（含新增 Δ18 象限取样口径断言 2 项）
+$ node tools/lobby-smoke.js
+[lobby-smoke] 结果: 68 passed, 0 failed
+```
+
+截图取证新增 `lobby-brand.png` / `lobby-shards.png` / `lobby-portal.png` / `lobby-portal-lit.png`（徽标、棱晶栏、星盘局部取证），并为 `tools/lobby-shots.js` 增加 `shotClip(selector, pad)` 裁剪截图能力。
 
 ---
 
-*本文依据 `specs/001-slide-triple-match-core/` 全套工件、`.specify/bugs/` 两份缺陷三件套、`tools/` 全部离线工具源码与 33 次 Git 提交记录撰写。所有命令输出与实测数值均在交付状态下复现（`node tools/solver.js` exit 0 / 60/60 solvable / 10.66s；`--engine-selftest` 11/11；`render-selftest.js` all green）。*
+---
+
+*本文依据 `specs/001-slide-triple-match-core/` 全套工件、`.specify/bugs/` 两份缺陷三件套、`tools/` 全部离线工具源码与 34 次 Git 提交记录撰写。所有命令输出与实测数值均在交付状态下复现（`node tools/solver.js` exit 0 / 72/72 solvable；`--engine-selftest` 11/11；`render-selftest.js` all green；`lobby-smoke.js` 68 passed / 0 failed）。*

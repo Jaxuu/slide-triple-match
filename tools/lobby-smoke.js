@@ -134,7 +134,14 @@ async function main() {
       brand: (L.querySelector('.lobby-brand-name')||{}).textContent,
       portal: !!L.querySelector('.portal'),
       levelBtn: (L.querySelector('.lobby-btn-level-text')||{}).textContent,
-      avatar: !!L.querySelector('.lobby-avatar')
+      avatar: !!L.querySelector('.lobby-avatar'),
+      /* Δ18: 双层立体字 + 两侧风翼 + 棱镜星芒 + 徽标萌宠探头 */
+      glide: !!L.querySelector('.lobby-brand-glide'),
+      critters: !!L.querySelector('.lobby-brand-critters'),
+      wings: L.querySelectorAll('.lobby-brand-wing').length,
+      burst: !!L.querySelector('.lobby-brand-burst'),
+      brandPet: !!L.querySelector('.lobby-brand-pet'),
+      gem: !!L.querySelector('.lobby-shards-icon svg')
     };
   })()`);
   check('B1 大厅根节点可见', zones && !zones.missing && zones.hidden === false);
@@ -145,6 +152,30 @@ async function main() {
   check('B6 中心: 棱晶星盘传送门', !!zones.portal);
   check('B7 中下: `关卡 X` 按钮', /^关卡 \d+$/.test(zones.levelBtn || ''), zones.levelBtn);
   check('B8 左下: 玩家头像按钮', !!zones.avatar);
+
+  console.log('\n[lobby-smoke] Δ18 徽标双层立体字 + 双风翼 + 棱晶图标');
+  check('B9 双层立体字（Glide 琥珀 + Critters 薄荷胶囊）',
+    zones.glide && zones.critters);
+  var brandGeo = await evalJs(`(function(){
+    var b = document.querySelector('.lobby-brand');
+    if (!b) return null;
+    var wl = b.querySelector('.lobby-brand-wing-l');
+    var wr = b.querySelector('.lobby-brand-wing-r');
+    var nw = b.querySelector('.lobby-brand-name');
+    if (!wl || !wr || !nw) return { missing: true };
+    var a = wl.getBoundingClientRect(), c = wr.getBoundingClientRect();
+    var n = nw.getBoundingClientRect();
+    return { wingL: Math.round(a.left), wingR: Math.round(c.left),
+             nameL: Math.round(n.left), nameR: Math.round(n.right),
+             lw: Math.round(a.width), rw: Math.round(c.width) };
+  })()`);
+  check('B10 左风翼位于标题左侧', brandGeo && !brandGeo.missing &&
+    brandGeo.wingL + brandGeo.lw <= brandGeo.nameL, JSON.stringify(brandGeo));
+  check('B11 右风翼位于标题右侧', brandGeo && !brandGeo.missing &&
+    brandGeo.wingR >= brandGeo.nameR, JSON.stringify(brandGeo));
+  check('B12 棱镜星芒装饰在位', zones.burst);
+  check('B13 徽标萌宠探头在位', zones.brandPet);
+  check('B14 棱晶栏七彩切面棱晶 SVG', zones.gem);
 
   console.log('\n[lobby-smoke] 棱晶星盘结构（Δ17 FR-039 §5）');
   var portal = await evalJs(`(function(){
@@ -362,6 +393,139 @@ async function main() {
     return hits;
   })()`);
   check('L1 无竞品视觉元素标记', banned.length === 0, banned.join(','));
+
+  console.log('\n[lobby-smoke] 局内棱晶购买道具闭环（Δ18 T071 / FR-041 §2）');
+  /* 进关 → 耗尽免费次数 → 角标切换 `💎 50` → 点击扣费生效 → 余额不足拒绝 */
+  /* 先关掉失败页并回到大厅（失败层为全屏模态，会拦截底层点击） */
+  await evalJs(`(function(){
+    if (window.STM.Fail && STM.Fail.hide) STM.Fail.hide();
+    if (window.STM.Result && STM.Result.hide) STM.Result.hide();
+    return true;
+  })()`);
+  await sleep(500);
+  var backLobby = await evalJs(`(function(){
+    var app = document.getElementById('app');
+    return { lobbyHidden: document.getElementById('lobby') ? document.getElementById('lobby').hidden : null,
+             sceneLobby: app ? app.classList.contains('scene-lobby') : null };
+  })()`);
+  check('N0 回到大厅（scene-lobby 生效）', backLobby && backLobby.lobbyHidden === false,
+    JSON.stringify(backLobby));
+  await evalJs('(function(){ STM.Profile.set("shards", 200); return true; })()');
+  /* 经场景入口进关（大厅的 `关卡 X` 点击链路已在 B 组覆盖） */
+  await evalJs('(function(){ STM.main.enterGame(1); return true; })()');
+  await sleep(1400);
+
+  var buySetup = await evalJs(`(function(){
+    var s = STM.main.session();
+    if (!s) return { noSession: true };
+    var st = s.state();
+    return { undo: st.items.undo, wrench: st.items.wrench, shards: STM.Profile.get().shards };
+  })()`);
+  check('N1 已进局内（会话存在）', buySetup && !buySetup.noSession, JSON.stringify(buySetup));
+
+  /* 耗尽撤回免费次数 → 角标 MUST 自动切换为 `💎 50`
+   * 注意：撤回依赖快照栈（需至少一步有效棋盘操作）——先做一次真实移动 */
+  await evalJs(`(function(){
+    var s = STM.main.session();
+    if (!s) return false;
+    var st = s.state();
+    var tiles = st.board || [];
+    for (var i = 0; i < tiles.length; i++) {
+      if (tiles[i] && tiles[i].id != null) { s.tap(tiles[i].id); return true; }
+    }
+    return false;
+  })()`);
+  await sleep(700);
+  await evalJs(`(function(){
+    var s = STM.main.session();
+    /* 连续使用撤回直到次数归零（免费次数用尽 → 购买态） */
+    for (var i = 0; i < 8; i++) {
+      var st = s.state();
+      if ((st.items.undo || 0) <= 0) break;
+      s.useItem('undo');
+    }
+    return true;
+  })()`);
+  await sleep(400);
+  var badge = await evalJs(`(function(){
+    var b = document.getElementById('item-undo');
+    var c = b ? b.querySelector('.item-count') : null;
+    return { text: c ? c.textContent : '', buyable: b ? b.classList.contains('is-buyable') : false,
+             disabled: b ? b.disabled : false };
+  })()`);
+  check('N2 免费次数用尽后角标 = `💎 50`', /50/.test(badge.text || ''), badge.text);
+  check('N3 角标进入购买态（is-buyable）', badge.buyable === true);
+  check('N4 购买态按钮仍可点击（不得禁用）', badge.disabled === false);
+
+  /* 点击撤回 → 扣 50 棱晶 + 飘字 `-50 💎` + 立即生效
+   * 前置：撤回需快照栈非空——先做一步真实移动（购买后即产生新快照） */
+  var beforeBuy = await evalJs('STM.Profile.get().shards');
+  await evalJs(`(function(){
+    var s = STM.main.session();
+    var st = s.state();
+    var tiles = st.board || [];
+    for (var i = 0; i < tiles.length; i++) {
+      if (tiles[i] && tiles[i].id != null) { s.tap(tiles[i].id); break; }
+    }
+    var b = document.getElementById('item-undo');
+    b.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));
+    return true;
+  })()`);
+  await sleep(400);
+  var afterBuy = await evalJs(`(function(){
+    return { shards: STM.Profile.get().shards,
+             float: (document.querySelector('.shard-float')||{}).textContent || '',
+             toast: (document.getElementById('toast')||{}).textContent || '' };
+  })()`);
+  check('N5 购买后扣除 50 棱晶', afterBuy.shards === beforeBuy - 50,
+    beforeBuy + ' -> ' + afterBuy.shards);
+  check('N6 扣费飘字 `-50 💎` 出现', /-50/.test(afterBuy.float), afterBuy.float);
+  check('N7 购买即生效（提示已消耗）', /消耗/.test(afterBuy.toast), afterBuy.toast);
+
+  /* 余额不足 → 零扣费零消耗 + 轻晃提示 */
+  await evalJs('(function(){ STM.Profile.set("shards", 10); return true; })()');
+  await sleep(200);
+  var beforeDeny = await evalJs('STM.Profile.get().shards');
+  await evalJs(`(function(){
+    var b = document.getElementById('item-undo');
+    b.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));
+    return true;
+  })()`);
+  await sleep(250);
+  var afterDeny = await evalJs(`(function(){
+    var b = document.getElementById('item-undo');
+    return { shards: STM.Profile.get().shards,
+             denied: b ? b.classList.contains('is-denied') : false,
+             toast: (document.getElementById('toast')||{}).textContent || '' };
+  })()`);
+  check('N8 余额不足时零扣费（余额不变且 ≥0）', afterDeny.shards === beforeDeny && afterDeny.shards >= 0,
+    beforeDeny + ' -> ' + afterDeny.shards);
+  check('N9 余额不足给出明确提示', /不足/.test(afterDeny.toast), afterDeny.toast);
+  check('N10 余额不足触发轻晃（is-denied）', afterDeny.denied === true);
+
+  /* 余额恰等于价格 → 扣至 0 且道具仍正常生效（Edge Case 竞态铁律） */
+  await evalJs('(function(){ STM.Profile.set("shards", 50); return true; })()');
+  await sleep(200);
+  var exactBefore = await evalJs('STM.Profile.get().shards');
+  await evalJs(`(function(){
+    var s = STM.main.session();
+    var st = s.state();
+    var tiles = st.board || [];
+    for (var i = 0; i < tiles.length; i++) {
+      if (tiles[i] && tiles[i].id != null) { s.tap(tiles[i].id); break; }
+    }
+    var b = document.getElementById('item-undo');
+    b.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));
+    return true;
+  })()`);
+  await sleep(400);
+  var exactAfter = await evalJs(`(function(){
+    return { shards: STM.Profile.get().shards,
+             toast: (document.getElementById('toast')||{}).textContent || '' };
+  })()`);
+  check('N11 余额恰等于价格 → 扣至 0 且道具正常生效',
+    exactAfter.shards === 0 && /消耗/.test(exactAfter.toast),
+    exactBefore + ' -> ' + exactAfter.shards + ' / ' + exactAfter.toast);
 
   console.log('\n[lobby-smoke] 页面错误哨兵');
   var errs = await evalJs('window.__stmErrors || []');
