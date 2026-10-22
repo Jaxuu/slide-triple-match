@@ -1,5 +1,7 @@
 # Data Model: Slide & Triple（滑块三消）
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-22 (Δ19: ① Tile 实体增补**层号 `z` 与渲染实坐标**（偶数层 `(r,c)` / 奇数层 `(r+0.5,c+0.5)`）、压制锁定态与支撑象限；② 新增实体 **Shape Mask**（36 套掩码模板，模板 id 落库于关卡 `cfg`）、**Bottleneck Chain**（咽喉点/连锁爽消段）、**IQ Meter**（纯局内表现态，不持久化）、**Top Dock Tray**（待消槽承载位置由底部迁至顶部）；③ 关卡 `cfg` 增列层数与掩码模板 id、**items 道具由 `{undo, wrench}` 改为 `{undo, magnet, shuffle}`**（扳手下线）；④ Solver Report 增列瓶颈节奏指标与零悬空违规计数；⑤ **原 FR-044 改号 FR-051**（画卷拼图进度系统，内容零改动）；⑥ FR-008 Δ13/Δ16 逐字节零改写铁律受控让位——既有 72 关全量受控迁移为 v2 布局，data-model 中的关卡数据契约与迁移器 `tools/migrate-layout-72.js` 需新增定义)。Run `/speckit.refine.propagate` to update this document.
+
 > ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: 新增实体 Painting Progress / Prism Balance / Player Profile；Level 与 Solver Report 实体口径由 60 关改为 72 关；Eco Background 实体由 20 景重排为 6 幅画卷 × 12 关；Stage Suit Mapping 阶段边界重划为 L1~24 / L25~48 / L49~72；Spatial Dispersion Profile 末档延展至 L72)。Run `/speckit.refine.propagate` to update this document.
 
 **Feature**: `001-slide-triple-match-core` | **Phase**: 1 | **Date**: 2026-10-17

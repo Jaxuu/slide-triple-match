@@ -1,5 +1,7 @@
 # Research: Slide & Triple（滑块三消）— 技术决策记录
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-22 (Δ19: ① D-01 整数格坐标决策需新增**奇偶层半格实坐标**（偶数层 `(r,c)` / 奇数层 `(r+0.5,c+0.5)`）的受控修订决策，以及同层射线几何、跨层命中优先级（最上层优先）、压角位对应关系（奇数层压下层 2×2 四格 / 偶数层被上方半格交点压制）；② 36 套掩码模板的具体几何定义（每套的格点集合）与瓶颈卡点算法（咽喉点构造、可行域收窄度量）需新增技术决策；③ 三大道具（撤销/灵犀三消/乾坤洗牌）的实现范式决策——**灵犀三消的「无视阻挡」语义 MUST NOT 进入 RulesEngine 常规 tap 判定与 Solver 动作集**（FR-032 铁律），乾坤洗牌亦不入动作集；④ 顶部待消槽带来的命中区域互斥与飞入动画终点坐标决策；⑤ 扳手下线导致 Solver 动作集 `k=2` 与死局谓词「扳手可救」豁免条款的移除决策；⑥ **原 FR-044 改号 FR-051**)。Run `/speckit.refine.propagate` to update this document.
+
 > ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: ① 关卡 60→72 扩容与三大阶段重划 24/24/24；② 背景贴图口径由 bg{1..20}/20 景重排为 bg{1..6}/6 幅 × 12 关；③ US6 新增 FR-038~FR-044——HooLey 开机动画、Glide Critters 主大厅、设置/个人信息弹窗、棱晶经济与道具购买闭环、通关结算与画卷解锁展板、失败与棱晶复活界面、画卷拼图进度系统；④ 新增 SC-009~SC-011)。Run `/speckit.refine.propagate` to update this document.
 
 **Feature**: `001-slide-triple-match-core` | **Phase**: 0 | **Date**: 2026-10-17

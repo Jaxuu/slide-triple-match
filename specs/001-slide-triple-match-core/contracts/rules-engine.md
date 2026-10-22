@@ -1,5 +1,7 @@
 # Contract: RulesEngine（前后端共用纯函数规则引擎）
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-22 (Δ19: **本契约为主要传播落点**——① FR-044 奇偶层半格错位**改写射线几何与命中判定**：同层射线 MUST 沿该层本层坐标系推进（奇数层格心位于半格位）、跨层命中取最上层、压角位对应关系（奇数层压下层 2×2 四格 / 偶数层被上方半格交点压制）、**压制锁定态**（被压滑块不可点击 + 32% 变暗）、**零悬空约束**；② FR-021/FR-022 的棱镜语义扩展为**贯穿全层**（任何层撞棱镜均折射，单次折射上限不变）；③ **扳手下线**——`applyItem(state,'wrench',tileId)` 与 Solver 动作集 `k=2` MUST 下线，死局谓词「扳手可救即非疑」豁免条款 MUST 移除；④ 灵犀三消与乾坤洗牌的语义 MUST NOT 进入 RulesEngine 常规判定（FR-032 铁律，仅存在于道具层）；⑤ **M2 规则冻结解除**，全量重跑 M3 流水线并重验 72 关)。Run `/speckit.refine.propagate` to update this document.
+
 > ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: **FR-043 §3 棱晶复活需新增"净化消除"规则语义（Dock 滞留滑块 + 板面同花色配对块成组消除、恢复生命值）——本契约为 RulesEngine 唯一潜在变更点**；FR-032 前后端口径一致铁律不破：FR-041 §4 棱晶/拼图进度/玩家档案均为独立于关卡数据的本地持久化状态，RulesEngine 判定语义除复活净化外零变化)。Run `/speckit.refine.propagate` to update this document.
 
 > ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——图鉴/背景/横幅/BGM 均为渲染与音频层，FR-033 §5 明确 RulesEngine 以 suit 整数为准、口径不变；预期无接口变更，propagate 时复核)；Δ15: 空间聚散度为生成/验证层指标，RulesEngine 口径零变化（贴图/Emoji/聚散度均不改 suit 整数判定）；预期无接口变更，propagate 时复核。Run `/speckit.refine.propagate` to update this document.
