@@ -389,6 +389,11 @@
   var REVEAL_MS = 380;     /* Δ7 次顶层暴露上浮 */
   var REVEAL_DELAY = 180;  /* Δ7 上浮延迟（等飞出滑块让位） */
   var PARTICLE_LIFE = 600; /* 三消粒子 */
+  var GAP = 1;               /* T081: 同层零缝隙紧凑排布——相邻滑块间距 1px */
+  var SHARD_LIFE_MIN = 650;  /* T082: 白瓷碎片生命周期 ms */
+  var SHARD_LIFE_MAX = 900;
+  var SHARD_COUNT_MIN = 48;
+  var SHARD_COUNT_MAX = 60;  /* T084: 碎片数 MUST 落入 45~60 区间（Δ19e/FR-049） */
 
   /* ---------- 通用工具 ---------- */
   var RENDER_DPR = 1;
@@ -427,7 +432,7 @@
     scale = scale || 1;
     alpha = alpha == null ? 1 : alpha;
     layerOff = layerOff || 0;
-    var w = cell * 0.84 * scale;
+    var w = Math.min(cell * 0.84, cell - GAP) * scale; /* T081/T084: 同层间距恒 ≥ GAP(1px)，零重叠 */
     var x = px - w / 2 + layerOff;
     var y = py - w / 2 + layerOff;
     var depth = Math.max(1, t.stackDepth || 1);
@@ -471,6 +476,8 @@
     ctx.stroke();
     /* 4. 图鉴图案（居中完整展示——零遮挡；Sprite 缓存加速） */
     drawBestiaryIcon(ctx, sv, x + w / 2, fz + w / 2, cell * 0.31 * scale);
+    /* T081: 被压卡牌自动变暗遮罩 —— covered === true 时叠加 rgba(15,23,42,0.34) */
+    /* 遮罩由 drawBoardTile 在 drawTileBody 之后叠加；此处仅留占位 */
     /* 5. 边缘嵌入式流光方向角标（朝向侧边正中——替代面部箭头圆圈） */
     drawWingBadge(ctx, t.d, x, fz, w, cell, sv, nowMs);
     /* 6. T034 机制角标: 齿轮(右上)/冰封(全牌覆层+厚度)/锁链(四角)/钥匙(左上) */
@@ -534,8 +541,8 @@
 
   function drawWingBadge(ctx, d, x, fz, w, cell, sv, nowMs) {
     var v = RE.DIR_VEC[d];
-    var cx = x + w / 2 + v.dc * (w / 2 - dprSafe(3)); /* 朝向边缘内侧正中，距边 3px */
-    var cy = fz + w / 2 + v.dr * (w / 2 - dprSafe(3));
+    var cx = x + w / 2 + v.dc * (w / 2 - dprSafe(4)); /* T081: 距外边框 4px 内侧安全区 */
+    var cy = fz + w / 2 + v.dr * (w / 2 - dprSafe(4));
     var hgt = Math.max(cell * 0.20, dprSafe(5)); /* 三角高（沿指向轴）——Δ11 分级下限 */
     var wid = hgt * 1.6; /* 宽翼: 翼展 ≈ 1.6× 高 */
     ctx.save();
@@ -697,10 +704,13 @@
     var rafId = 0;
     var anims = [];        /* {kind:'fly'|'block'|'match'|'reveal', tileId, ...} */
     var particles = [];
+    var shards = [];        /* T082: 白瓷多边形碎片池 */
     var highlight = -1;    /* Hint 高亮（M4 T055） */
+    var highlightIds = []; /* Δ19e/T087: 教学多目标高亮 */
     var highlightUntil = 0;  /* 高亮失效时间（ms）——M4 T055 自动 1.8s 清除 */
     function setHighlight(tileId, ttlMs) {
       highlight = tileId == null ? -1 : tileId;
+      highlightIds = [];
       if (highlight >= 0 && ttlMs) {
         highlightUntil = nowMs() + ttlMs;
       } else {
@@ -708,9 +718,17 @@
       }
       markDirty();
     }
+    /* Δ19e/T087: 一组教学目标高亮（ttlMs=0 表示常驻直到显式清除） */
+    function setHighlights(ids, ttlMs) {
+      highlight = -1;
+      highlightIds = (ids || []).slice();
+      highlightUntil = (highlightIds.length && ttlMs) ? (nowMs() + ttlMs) : 0;
+      markDirty();
+    }
     function tickHighlight(now) {
-      if (highlight >= 0 && highlightUntil > 0 && now > highlightUntil) {
+      if (highlightUntil > 0 && now > highlightUntil) {
         highlight = -1;
+        highlightIds = [];
         highlightUntil = 0;
         return true;
       }
@@ -759,7 +777,7 @@
       /* 幂等守卫须比对 **CSS 边长**（lastSideCss），不能拿物理像素
        * boardPx（= side × dpr）比——两者量纲不同，会导致守卫永不命中。
        * lastCellN 记录上次计算 cell 时用的关卡尺寸：换关时 n 变化，
-       * 即使位图未变也需重算 cell，否则 cell 会停在上���关的值。 */
+       * 即使位图未变也需重算 cell，否则 cell 会停在上一个关卡的值。 */
       if (side === lastSideCss && canvas.width === Math.round(side * dpr) &&
           lastCellN === (lastProbe ? lastProbe.n : 0)) {
         /* 尺寸未变——直接返回，避免无谓的位图重设（重设会清空画布） */
@@ -822,6 +840,7 @@
         var a = anims[i];
         if ((now - a.t0) / a.dur >= 1) {
           if (a.kind === 'match') spawnParticles(a, now);
+          if (a.kind === 'match') spawnShards(a, now);
           if (a.kind === 'reveal') delete revealAt[a.tileId];
           anims.splice(i, 1);
           dirty = true; /* 动画结束时强制重绘（防“末帧静默”——M1.6 渲染缺陷修复） */
@@ -834,26 +853,65 @@
         p.life -= 16;
         if (p.life <= 0) particles.splice(i, 1);
       }
+      for (i = shards.length - 1; i >= 0; i--) {
+        var sh = shards[i];
+        sh.x += sh.vx; sh.y += sh.vy;
+        sh.vy += 0.22 * dpr; /* 重力 */
+        sh.rot += sh.vr;
+        sh.life -= 16;
+        if (sh.life <= 0) shards.splice(i, 1);
+      }
+      if (shards.length > 0) active = true;
       if (particles.length > 0) active = true;
       return active;
     }
 
     /* 三消粒子：Δ14 图鉴主题色 12~20 个（单帧 ≤200） */
-    function spawnParticles(a, now) {
-      var sv = suitVisual(a.suit);
-      var count = 12 + Math.floor(Math.random() * 9);
-      if (particles.length + count > 200) count = Math.max(0, 200 - particles.length);
+    function spawnShards(a, now) {
+      var count = SHARD_COUNT_MIN + Math.floor(Math.random() * (SHARD_COUNT_MAX - SHARD_COUNT_MIN + 1));
+      if (shards.length + count > 400) count = Math.max(0, 400 - shards.length);
+      var cx = a.x != null ? a.x : boardPx / 2;
+      var cy = a.y != null ? a.y : -cell;
       for (var i = 0; i < count; i++) {
-        particles.push({
-          x: a.x, y: a.y,
-          vx: (Math.random() - 0.5) * 5 * dpr,
-          vy: (Math.random() - 0.9) * 5 * dpr,
-          life: PARTICLE_LIFE * (0.6 + Math.random() * 0.6),
-          color: sv.fill,
-          size: (2 + Math.random() * 3) * dpr
+        var ang = Math.random() * Math.PI * 2;
+        var speed = (1.5 + Math.random() * 3.5) * dpr;
+        var verts = [];
+        var n = 4 + Math.floor(Math.random() * 3); /* 4~6 边 */
+        var r0 = (4 + Math.random() * 6) * dpr;
+        for (var v = 0; v < n; v++) {
+          var a2 = (v / n) * Math.PI * 2 + Math.random() * 0.6;
+          var rr = r0 * (0.7 + Math.random() * 0.6);
+          verts.push({ x: Math.cos(a2) * rr, y: Math.sin(a2) * rr });
+        }
+        var life = SHARD_LIFE_MIN + Math.floor(Math.random() * (SHARD_LIFE_MAX - SHARD_LIFE_MIN));
+        shards.push({
+          x: cx, y: cy,
+          vx: Math.cos(ang) * speed,
+          vy: Math.sin(ang) * speed - 2 * dpr, /* 向上炸开 */
+          rot: Math.random() * Math.PI * 2,
+          vr: (Math.random() - 0.5) * 0.25,
+          verts: verts,
+          life: life,
+          life0: life
         });
       }
     }
+      /* 三消粒子：Δ14 图鉴主题色 12~20 个（单帧 ≤200） */
+      function spawnParticles(a, now) {
+        var sv = suitVisual(a.suit);
+        var count = 12 + Math.floor(Math.random() * 9);
+        if (particles.length + count > 200) count = Math.max(0, 200 - particles.length);
+        for (var i = 0; i < count; i++) {
+          particles.push({
+            x: a.x, y: a.y,
+            vx: (Math.random() - 0.5) * 5 * dpr,
+            vy: (Math.random() - 0.9) * 5 * dpr,
+            life: PARTICLE_LIFE * (0.6 + Math.random() * 0.6),
+            color: sv.fill,
+            size: (2 + Math.random() * 3) * dpr
+          });
+        }
+      }
 
     /* Δ14: 飞出白色推进云朵粒子（3 团柔白圆——沿路径尾部拖尾） */
     function drawFlyPuff(a, prog) {
@@ -913,7 +971,7 @@
       /* 棱镜（M1 关卡无——逻辑就绪，M2 T034 完整视觉） */
       drawPrisms(lastProbe.prisms);
 
-      /* 棋盘滑块：z 升序（底层先画，顶层覆盖）
+      /* 棋盘滑块：z 升序（底层先画，顶层覆盖）——T081 阴影
        * M1.6 缺陷修复：reveal 目标滑块不跳过——由 drawBoardTile 内按 revealAt 插值上浮
        * （此前 animSet 跳过 + 动画层 continue → 下层滑块 560ms 隐形甚至永久隐形）
        * 飞出/弹回/三消源滑块已 removed，renderProbe 不含 → 无需 animSet 过滤 */
@@ -933,8 +991,22 @@
       });
       for (i = 0; i < boardTiles.length; i++) {
         if (blockSet[boardTiles[i].id]) continue;
+        /* T081: 上层投射柔和立体环境阴影 */
+        var _z = boardTiles[i].z || 0;
+        if (_z > 0) {
+          ctx.shadowColor = 'rgba(15, 23, 42, 0.32)';
+          ctx.shadowBlur = 8;
+          ctx.shadowOffsetY = 4;
+        } else {
+          ctx.shadowColor = 'transparent';
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetY = 0;
+        }
         drawBoardTile(boardTiles[i], now);
       }
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
 
       /* 动画层（飞出/弹回/爆闪；reveal 由 drawBoardTile 上浮插值处理——不再跳过绘制） */
       for (i = 0; i < anims.length; i++) {
@@ -951,15 +1023,42 @@
         ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
       }
       ctx.globalAlpha = 1;
+      /* T082: 白瓷多边形碎片绘制（保留粒子绘制） */
+      for (i = 0; i < shards.length; i++) {
+        var sh = shards[i];
+        var alpha = Math.max(0, Math.min(1, sh.life / sh.life0));
+        ctx.globalAlpha = alpha;
+        ctx.save();
+        ctx.translate(sh.x, sh.y);
+        ctx.rotate(sh.rot);
+        ctx.beginPath();
+        ctx.moveTo(sh.verts[0].x, sh.verts[0].y);
+        for (var vi = 1; vi < sh.verts.length; vi++) ctx.lineTo(sh.verts[vi].x, sh.verts[vi].y);
+        ctx.closePath();
+        /* 受光面/背光面渐变——按旋转角度动态切面 */
+        var g = ctx.createLinearGradient(-8 * dpr, -8 * dpr, 8 * dpr, 8 * dpr);
+        g.addColorStop(0, '#FFFFFF');
+        g.addColorStop(1, Math.cos(sh.rot) > 0 ? '#CBD5E1' : '#94A3B8');
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(148,163,184,0.6)';
+        ctx.lineWidth = 0.6 * dpr;
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
 
-      /* Hint 高亮（脉冲描边，M4 启用） */
-      if (highlight >= 0) {
+      /* Hint 高亮 + Δ19e 教学引导高亮（脉冲描边，支持多目标） */
+      var hs = highlightIds.length ? highlightIds : (highlight >= 0 ? [highlight] : []);
+      for (var hi = 0; hi < hs.length; hi++) {
         for (i = 0; i < tiles.length; i++) {
-          if (tiles[i].id !== highlight) continue;
+          if (tiles[i].id !== hs[hi]) continue;
+          var hrr = (tiles[i].rr != null ? tiles[i].rr : ((tiles[i].z || 0) % 2 === 1 ? tiles[i].r + 0.5 : tiles[i].r));
+          var hcc = (tiles[i].cc != null ? tiles[i].cc : ((tiles[i].z || 0) % 2 === 1 ? tiles[i].c + 0.5 : tiles[i].c));
           var pulse = 0.5 + 0.5 * Math.sin(now / 180);
           ctx.strokeStyle = 'rgba(255,197,61,' + (0.4 + 0.6 * pulse) + ')';
           ctx.lineWidth = 3 * dpr;
-          ctx.strokeRect(tiles[i].c * cell + 3, tiles[i].r * cell + 3, cell - 6, cell - 6);
+          ctx.strokeRect(hcc * cell + 3, hrr * cell + 3, cell - 6, cell - 6);
         }
       }
     }
@@ -993,8 +1092,12 @@
     /* 棋盘滑块：Δ14 多层金字塔投影（向左上阶梯偏移 + 层间柔和投影）
      *     + Δ7 reveal 上浮；Δ11: 偏移系数按格宽分级收紧（8×8×5 层不越界） */
     function drawBoardTile(t, now) {
-      var px = (t.c + 0.5) * cell;
-      var py = (t.r + 0.5) * cell;
+      /* T081: 奇偶层半格错位坐标 —— renderProbe 提供 rr/cc 实坐标；优先使用 */
+      var rr = (t.rr != null ? t.rr : ((t.z || 0) % 2 === 1 ? (t.r + 0.5) : t.r));
+      var cc = (t.cc != null ? t.cc : ((t.z || 0) % 2 === 1 ? (t.c + 0.5) : t.c));
+      var px = (cc + 0.5) * cell;
+      var py = (rr + 0.5) * cell;
+      /* 保留原 rr/cc 语义：rr/cc 已是格坐标，px/py 为中心 */
       var stackN = t.stackDepth || 1;
       var offK = cell < 58 ? 0.05 : 0.07; /* 8×8 小格 5 层错层收紧 */
       var layerOff = -cell * offK * Math.max(0, stackN - 1 - (t.z || 0));
@@ -1023,6 +1126,14 @@
         }
       }
       drawTileBody(ctx, cell, px + layerOff, py + lift, t, 1, 1, layerOff, now);
+      /* T081: 被压卡牌自动变暗遮罩 —— covered === true 时叠加 rgba(15,23,42,0.32) */
+      if (t.covered) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.32)';
+        roundRect(ctx, px + layerOff, py + lift - (cell * 0.84 * 0.15), cell * 0.84, cell * 0.84, cell * 0.15);
+        ctx.fill();
+        ctx.restore();
+      }
     }
 
     /* ---------- 动画绘制 ---------- */
@@ -1031,6 +1142,16 @@
       if (!t) return;
       if (a.kind === 'fly') {
         var seg = pathPos(a.path, prog);
+        /* Δ19c: 所有飞出牌最终都汇聚向**顶部** #dock 对应槽位——
+         * 前 30% 沿本层射线滑行，之后平滑弯折向画面上方槽位并淡出。
+         * 槽位横坐标按 slotIndex 在 7 格中的比例换算（与 DOM 托盘同序）。 */
+        var slotX = ((a.slot != null ? a.slot : 3) + 0.5) / 7 * boardPx;
+        var turn = Math.max(0, (prog - 0.30) / 0.70);
+        var ease = turn * turn * (3 - 2 * turn);
+        var gx = (seg.c + 0.5) * cell;
+        var gy = (seg.r + 0.5) * cell;
+        gx += (slotX - gx) * ease;
+        gy += (-cell * 0.55 - gy) * ease;
         /* Δ8 凌空飞越感: z>=1 高层飞出保持层高——上移偏移 + 放大 + 底部投影 */
         var fz = t.z || 0;
         var lift = fz * cell * 0.22;          /* 高层牌浮在半空 */
@@ -1041,13 +1162,13 @@
           ctx.globalAlpha = 0.28 * (1 - prog) * alpha;
           ctx.fillStyle = 'rgba(0,0,0,0.8)';
           ctx.beginPath();
-          ctx.ellipse((seg.c + 0.5) * cell, (seg.r + 0.5) * cell + cell * 0.38, cell * 0.3 * sc, cell * 0.12, 0, 0, Math.PI * 2);
+          ctx.ellipse(gx, gy + cell * 0.38, cell * 0.3 * sc, cell * 0.12, 0, 0, Math.PI * 2);
           ctx.fill();
           ctx.globalAlpha = 1;
         }
         /* Δ14: 白色推进云朵粒子（轻盈拖尾——随飞出迸发） */
         drawFlyPuff(a, prog);
-        drawTileBody(ctx, cell, (seg.c + 0.5) * cell, (seg.r + 0.5) * cell - lift, t, sc, alpha, 0, now);
+        drawTileBody(ctx, cell, gx, gy - lift, t, sc, alpha, 0, now);
       } else if (a.kind === 'block') {
         var p = prog < 0.55 ? (prog / 0.55) : (1 - (prog - 0.55) / 0.45);
         var dir = RE.DIR_VEC[t.d];
@@ -1134,15 +1255,34 @@
     }
 
     /* ---------- 事件接入（session onEvent → 渲染动效） ---------- */
+    var lastDockSlot = 0; /* Δ19c: 最近一次入槽下标——飞出终点对准顶部待消槽 */
     function handleEvent(e) {
       var now = nowMs();
-      if (e.e === 'flyout' && e.path && e.path.length) {
-        anims.push({ kind: 'fly', tileId: e.tileId, path: e.path, t0: now, dur: FLY_MS });
+      if (e.e === 'dock' && e.slotIndex != null) {
+        lastDockSlot = Math.max(0, Math.min(6, e.slotIndex | 0));
+        refresh();
+        return;
+      }
+      if (e.e === 'magnet-absorb') {
+        /* Δ19d: 灵犀三消——无视阻挡，直接从牌位被吸向顶部待消槽 */
+        var mt = tileInfo[e.id] || null;
+        if (mt) {
+          anims.push({
+            kind: 'fly', tileId: e.id, slot: lastDockSlot, t0: now, dur: FLY_MS * 0.7,
+            path: [{ r: mt.r, c: mt.c }, { r: -0.6, c: mt.c }]
+          });
+        }
+      } else if (e.e === 'flyout' && e.path && e.path.length) {
+        anims.push({ kind: 'fly', tileId: e.tileId, path: e.path, slot: lastDockSlot, t0: now, dur: FLY_MS });
       } else if (e.e === 'blocked') {
         anims.push({ kind: 'block', tileId: e.tileId, t0: now, dur: BLOCK_MS });
         if (opts.onShake) opts.onShake();
       } else if (e.e === 'match') {
-        anims.push({ kind: 'match', tileId: e.ids[0], suit: e.suit, t0: now, dur: 300, x: boardPx / 2, y: -cell });
+        /* match 事件——顶部 Dock 槽位坐标爆发白瓷碎片 */
+        var cx = boardPx / 2;
+        var cy = -cell * 0.5; /* 顶部 Dock 槽位上方 */
+        anims.push({ kind: 'match', tileId: e.ids[0], suit: e.suit, t0: now, dur: 300, x: cx, y: cy });
+        spawnShards({ x: cx, y: cy }, now);
       } else if (e.e === 'reveal') {
         /* Δ7: 次顶层暴露——延迟后上浮（revealAt 驱动 drawBoardTile 内插值） */
         revealAt[e.id] = now + REVEAL_DELAY;
@@ -1197,25 +1337,56 @@
       markDirty();
     }
 
-    /* 点击命中检测：Δ7 仅命中该格最高 z 未移除滑块 */
+    /* T081: 命中测试 —— 奇偶层半格错位坐标；从最高层 z=4 向下遍历 */
     function hitTest(clientX, clientY) {
       if (!lastProbe) return -1;
       var rect = canvas.getBoundingClientRect();
-      var c = Math.floor((clientX - rect.left) / rect.width * lastProbe.n);
-      var r = Math.floor((clientY - rect.top) / rect.height * lastProbe.n);
-      if (r < 0 || r >= lastProbe.n || c < 0 || c >= lastProbe.n) return -1;
+      /* 将点击转换为画布坐标（CSS 像素） */
+      var mx = clientX - rect.left;
+      var my = clientY - rect.top;
+      var scaleX = rect.width > 0 ? (boardPx / dpr) / rect.width : 1;
+      var scaleY = rect.height > 0 ? (boardPx / dpr) / rect.height : 1;
+      var cx = mx * scaleX;
+      var cy = my * scaleY;
+      /* 从最高层 z=4 向下遍历 */
       var best = -1, bestZ = -1;
-      for (var i = 0; i < lastProbe.tiles.length; i++) {
-        var t = lastProbe.tiles[i];
-        if (t.r !== r || t.c !== c) continue;
-        if ((t.z || 0) > bestZ) { bestZ = t.z || 0; best = t.id; }
+      for (var zi = 4; zi >= 0; zi--) {
+        for (var i = 0; i < lastProbe.tiles.length; i++) {
+          var t = lastProbe.tiles[i];
+          if ((t.z || 0) !== zi) continue;
+          if (t.covered) continue; /* 仅未被压住可交互 */
+          /* 实坐标（奇偶层偏移） */
+          var rr = (t.rr != null ? t.rr : ((t.z || 0) % 2 === 1 ? (t.r + 0.5) : t.r));
+          var cc = (t.cc != null ? t.cc : ((t.z || 0) % 2 === 1 ? (t.c + 0.5) : t.c));
+          var tileX = cc * cell;
+          var tileY = rr * cell;
+          var tileW = cell * 0.84;
+          if (cx >= tileX && cx <= tileX + tileW && cy >= tileY && cy <= tileY + tileW) {
+            best = t.id; bestZ = zi; break;
+          }
+        }
+        if (best >= 0) break;
       }
       return best;
     }
 
-    function setHighlight(tileId) {
-      highlight = tileId == null ? -1 : tileId;
-      markDirty();
+    /* Δ19e/T087: 教学指引取牌——返回牌在视口中的 CSS 像素矩形
+     * （tutorial.js 据此把动态小手压在「实际可飞出」的滑块上）。 */
+    function tileRect(tileId) {
+      if (!lastProbe || !canvas.getBoundingClientRect) return null;
+      var t = null;
+      for (var i = 0; i < lastProbe.tiles.length; i++) {
+        if (lastProbe.tiles[i].id === tileId) { t = lastProbe.tiles[i]; break; }
+      }
+      if (!t) return null;
+      var rect = canvas.getBoundingClientRect();
+      var k = boardPx > 0 ? (rect.width / boardPx) : 1;
+      var rr = (t.rr != null ? t.rr : ((t.z || 0) % 2 === 1 ? t.r + 0.5 : t.r));
+      var cc = (t.cc != null ? t.cc : ((t.z || 0) % 2 === 1 ? t.c + 0.5 : t.c));
+      var side = cell * 0.84 * k;
+      var cx = rect.left + (cc + 0.5) * cell * k;
+      var cy = rect.top + (rr + 0.5) * cell * k;
+      return { x: cx, y: cy, w: side, h: side };
     }
 
     if (session && session.engineState) {
@@ -1245,6 +1416,8 @@
       handleEvent: handleEvent,
       hitTest: hitTest,
       setHighlight: setHighlight,
+      setHighlights: setHighlights,
+      tileRect: tileRect,
       setLevel: setLevel,
       SUITS: SUITS
     };
@@ -1781,6 +1954,8 @@
   STM.IconAssets = IconAssets;
   STM.BackdropStage = BackdropStage;
   STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets, dockIconDataURL: dockIconDataURL, paintDockIcons: paintDockIcons, DIR_COLORS: DIR_COLORS };
-
+  /* T084: Δ19 渲染常量外露（离线自测断言用——不参与运行时逻辑） */
+  STM.rendererTest.SHARDS = { min: SHARD_COUNT_MIN, max: SHARD_COUNT_MAX };
+  STM.rendererTest.GAP = GAP;
 
 })(typeof window !== 'undefined' ? window : globalThis);

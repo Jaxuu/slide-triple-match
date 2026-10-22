@@ -52,8 +52,10 @@
     }
 
     /* ---- T033 死锁复证搜索器（D-09 防误杀——M2 保守预算 3k 节点/60ms; M4 校准） ----
-     * 动作集与 Solver 同构: enumerateTaps ∪ 可用道具（wrench 目标遍历）
-     * （暂存区/stage 道具已移除——动作集仅 tap + wrench）
+     * 动作集与 Solver 同构: 仅 enumerateTaps
+     * Δ19: **扳手道具下线**（FR-048 §4）——道具动作不再进入死局复证搜索器；
+     *   灵犀三消/乾坤洗牌属道具层超常能力，MUST NOT 进入死局判定口径
+     *   （FR-032 铁律：玩家实际可玩局面集合 = 求解器验证过的可解局面集合）。
      * true = 复证通过（确死）; false = 找到出路（非死锁） */
     function verifyDeadlock() {
       var nodes = 0;
@@ -78,19 +80,6 @@
               out = dfs(depth - 1);
             }
             RE.restore(engine, snapI);
-          }
-          /* ② wrench 道具（方向扰动——仅普通/齿轮滑块） */
-          if (!out && engine.items && engine.items.wrench > 0) {
-            var tapsW = RE.enumerateTaps(engine);
-            for (var wi = 0; wi < tapsW.length && !out; wi++) {
-              var tile = engine.tiles[tapsW[wi]];
-              if (!tile || tile.ice > 0 || tile.locked) continue;
-              var snapW = RE.snapshot(engine);
-              var rw = RE.applyItem(engine, 'wrench', tapsW[wi]);
-              nodes++;
-              if (rw.type === 'wrench') out = dfs(depth - 1);
-              RE.restore(engine, snapW);
-            }
           }
         } finally {
           RE.restore(engine, snap);
@@ -144,6 +133,15 @@
       return false;
     }
 
+    /* Δ19c/T084: 受阻清空连击（表现层 IQ 不扣分，但 combo 必须归零）
+     * 引擎 combo 为连击倍率来源，归零后下一次三消从 base 重新起跳。 */
+    function breakCombo() {
+      engine.combo = 0;
+      comboActive = false;
+      lastMatchAt = 0;
+      emitPhase();
+    }
+
     /* ---- onRail 维护：动作序列 == solutionMoves 前缀 ---- */
     function trackRail(action) {
       if (!onRail) return false;
@@ -171,7 +169,14 @@
         isFly = true;
       }
       if (!isFly) {
-        emit({ e: 'input-locked' });
+        if (t && !t.removed) {
+          /* Δ19c/T085: 被压/冰封/机关锁定的滑块点击同样视为「受阻」——
+           * 不扣 IQ，但必须立即清空连击（与射线受阻同一表现口径）。 */
+          emit({ e: 'blocked', tileId: tileId, path: [], damage: 0 });
+          breakCombo();
+        } else {
+          emit({ e: 'input-locked' });
+        }
         return null;
       }
 
@@ -187,7 +192,10 @@
       var i;
       for (i = 0; i < result.events.length; i++) emit(result.events[i]);
       if (result.type === 'flyout' || result.type === 'prism-flyout') emit({ e: 'flyout', tileId: tileId, path: result.path });
-      if (result.type === 'blocked') emit({ e: 'blocked', tileId: tileId, path: result.path, damage: result.damage });
+      if (result.type === 'blocked') {
+        emit({ e: 'blocked', tileId: tileId, path: result.path, damage: result.damage });
+        breakCombo(); /* Δ19c/T084: 受阻 MUST 立即清空连击（IQ 不扣分） */
+      }
       for (i = 0; i < result.events.length; i++) {
         if (result.events[i].e === 'match') windowCombo();
       }
@@ -246,8 +254,11 @@
         emit({ e: 'reset-soft' });
         return { type: 'undo' };
       }
-      /* wrench: 需要目标（无目标时进入选择态由 UI 层处理——此层只执行） */
-      if (item === 'wrench' && tileId == null) { emit({ e: 'item-needs-target', item: 'wrench' }); return null; }
+      /* Δ19d: magnet/shuffle 为**无目标**道具（无需选牌）；undo 走上方分支 */
+      if ((item === 'magnet' || item === 'shuffle') && tileId != null) {
+        emit({ e: 'item-invalid', item: item });
+        return null;
+      }
 
       /* 执行前快照（与 tap 同——undo 可整体回滚道具动作） */
       history.push(RE.snapshot(engine));
@@ -256,12 +267,12 @@
       var result = RE.applyItem(engine, item, tileId);
       if (result.type === 'invalid') {
         history.pop(); /* 无效动作不入史 */
-        emit({ e: 'item-invalid', item: item, tileId: tileId });
+        emit({ e: 'item-invalid', item: item, tileId: tileId, reason: result.reason });
         return result;
       }
       /* 成功: 次数递减（cfg.items 拷贝上的运行时计数） */
       engine.items[item] = Math.max(0, (engine.items[item] || 0) - 1);
-      trackRail({ k: 2, t: tileId });
+      trackRail({ k: item === 'magnet' ? 3 : (item === 'shuffle' ? 4 : 2), t: tileId == null ? -1 : tileId });
       var i;
       for (i = 0; i < result.events.length; i++) emit(result.events[i]);
       for (i = 0; i < result.events.length; i++) {
@@ -283,11 +294,11 @@
      *   返回 { ok, reason }：ok=false 时调用方 MUST NOT 已扣费。 */
     function buyItemUse(item, tileId, cost) {
       if (phase !== PHASE.READY) return { ok: false, reason: 'locked' };
-      if (!engine.items) engine.items = { undo: 0, wrench: 0 };
+      if (!engine.items) engine.items = { undo: 0, magnet: 0, shuffle: 0 };
       /* 购买 = 免费次数用尽后，用棱晶临时补出一次可立即使用的次数 */
       engine.items[item] = (engine.items[item] || 0) + 1;
       var r = useItem(item, tileId);
-      if (!r || (r.type !== 'undo' && r.type !== 'invalid')) {
+      if (!r || (r.type !== 'undo' && r.type !== 'magnet' && r.type !== 'shuffle')) {
         /* 生效失败（例：undo 无快照可回滚）→ 回滚刚补的次数，MUST NOT
          * 让余额付出而道具未用（FR-041 §2 确定性铁律） */
         engine.items[item] = Math.max(0, engine.items[item] - 1);
@@ -326,6 +337,7 @@
       useItem: useItem,
       buyItemUse: buyItemUse,
       purify: purify,
+      breakCombo: breakCombo,
       reset: reset,
       state: state,
       onRail: onRailCheck,

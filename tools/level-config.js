@@ -131,6 +131,93 @@ function dispersionTierOf(levelId) {
   return DISPERSION_TIERS[DISPERSION_TIERS.length - 1];
 }
 
+/* =========================================================
+ * Δ19a/FR-029 §2~§4: 各档双连坐**目标**占比（档位带的中心轨迹）
+ *   L1~L6: 约 35%（带 [0.20, 0.50]）
+ *   L7~L21: 30% → 15% 线性递减（带 [0.15, 0.30]）
+ *   L22~L72: 15% → 5% 线性递减（带 [0.00, 0.15]）
+ *   生成器据此在剥洋葱阶段**主动布局**相邻对（元组级几何控制），
+ *   而非依赖随机涌现——带下界 MUST NOT 靠运气达成。
+ * ========================================================= */
+function dispersionPairTarget(levelId) {
+  if (levelId <= 6) return 0.35;
+  if (levelId <= 21) return 0.30 + (0.15 - 0.30) * ((levelId - 7) / 14);
+  return 0.15 + (0.05 - 0.15) * ((levelId - 22) / 50);
+}
+
+/* =========================================================
+ * Δ19b/FR-045 §2: 层数演进矩阵（v2 布局口径）
+ *   L1 = 1 层; L2 = 2 层; L3 起按 2-2-3 / 2-3-4 随进度提升至普遍 ≥3 层
+ *   7×7 简单关最高 4 层; 8×8 困难关最高 5 层
+ *   （对既有「L1 2 层 / L2 2 层 / 前期 2~3 / 中期 3~4 / 后期最高 5」档位的
+ *     受控修订——FR-008 Δ19 迁移条款 §3「迁移后以 FR-045 §2 为准」）
+ * ========================================================= */
+function v2LayerCount(levelId) {
+  if (levelId === 1) return 1;            /* L1 = 1 层（基础玩法教学） */
+  if (levelId === 2) return 2;            /* L2 = 2 层（层叠压制教学） */
+  if (levelId === 3) return 2;            /* L3 = 新手循环 1 难关 */
+  var n = waveGrid(levelId);
+  var isChallenge = wavePos(levelId) === 2;
+  var base;
+  if (levelId <= 12) base = isChallenge ? 3 : 2;      /* 2-2-3 */
+  else if (levelId <= 30) base = isChallenge ? 4 : (levelId % 3 === 0 ? 3 : 2); /* 2-3-4 */
+  else base = isChallenge ? 5 : 3;                     /* 3-4-5 */
+  /* 层数上限铁律: 7×7 简 ≤4 层 / 8×8 难 ≤5 层 */
+  var cap = isChallenge ? 5 : 4;
+  return Math.max(1, Math.min(cap, base));
+}
+
+/* Δ19b/FR-045 §1: 掩码模板 id 选取（确定性——禁 Math.random，D-08）
+ *   每关绑定「底层模板 id + 上层模板 id」——上层模板与底层同族但
+ *   取相邻 id（视觉上同主题、不同轮廓），全部落库于关卡 cfg。
+ *   模板 id MUST 落库于关卡 cfg（运行时 MUST NOT 随机选取）。
+ *   variant: 回炉重试用的**确定性变体偏移**（attempt 序号）——
+ *     同一关卡的失败重试须换轮廓，否则几何完全相同 → 重试无效。 */
+function v2MaskIds(levelId, variant) {
+  var v = variant || 0;
+  var base = (levelId * 7 + 3 + v * 13) % 36;     /* 底层模板（确定性散列） */
+  var upper = (base + 1 + ((levelId + v) % 5)) % 36;   /* 上层模板（同族相邻 + 偏移） */
+  return { base: base, upper: upper };
+}
+
+/* Δ19b/FR-045 §2: 关卡掩码落位集合（按层数矩阵产出，含零悬空剔除）
+ *   依赖 src/render/shape-masks.js（前端与离线工具共用同一份定义——
+ *   宪章 II 零构建约束不破：Node 直接 require 该 UMD 模块） */
+function loadShapeMasks() {
+  var path = require('path');
+  return require(path.join(__dirname, '..', 'src', 'render', 'shape-masks.js'));
+}
+
+function v2ShapeLayers(levelId, variant) {
+  var SM = loadShapeMasks();
+  var ids = v2MaskIds(levelId, variant);
+  var n = waveGrid(levelId);
+  var lc = v2LayerCount(levelId);
+  /* 底层用 base 模板（偶数层，n×n 域） */
+  var lower = SM.buildLayers(ids.base, n, 1);
+  var out = [{ z: 0, cells: lower[0].cells }];
+  if (lc > 1) {
+    var up = SM.buildLayers(ids.upper, n, lc - 1);
+    /* 上层模板的 z 需重映射为实际层号 1..lc-1：
+       ① 裁剪到该层的坐标域（奇数层 (n-1)×(n-1)）
+       ② 按引擎口径剔除悬空格（无下层支撑者） */
+    var prev = out[0].cells;
+    for (var i = 0; i < up.length; i++) {
+      var z = i + 1;
+      var cells = SM.clipToLayerDomain(up[i].cells, z, n);
+      var viol = SM.supportViolations(prev, cells, (z % 2) === 1);
+      if (viol.length) {
+        var bad = {};
+        for (var v = 0; v < viol.length; v++) bad[viol[v].r + ':' + viol[v].c] = true;
+        cells = cells.filter(function (cell) { return !bad[cell.r + ':' + cell.c]; });
+      }
+      out.push({ z: z, cells: cells });
+      prev = cells;
+    }
+  }
+  return { ids: ids, layers: out, n: n, layerCount: lc };
+}
+
 /* Solver 默认预算（章级可覆盖，见 CHAPTERS[i].budget） */
 var BUDGET = { nodes: 2000000, ms: 60000 };
 
@@ -297,6 +384,9 @@ function levelParams(levelId) {
     suits: suits,
     tiles: tiles,
     zMax: zMax,
+    /* Δ19b/FR-045 §2: v2 层数矩阵（zMax = layerCount - 1） */
+    v2Layers: v2LayerCount(levelId),
+    v2MaskIds: v2MaskIds(levelId),
     gearOn: gearOn,
     iceOn: iceOn,
     chainOn: chainOn,
@@ -311,9 +401,12 @@ function levelParams(levelId) {
     cfg: {
       lives: ch.lives,
       damageOnBlock: ch.damageOnBlock,
-      items: { undo: 1, wrench: 1 },
+      items: { undo: 1, magnet: 1, shuffle: 1 },
       iceMode: ch.iceMode,
       chains: [],
+      /* Δ19b/FR-045 §1: 掩码模板 id 落库（运行时 MUST NOT 随机选取） */
+      maskBase: v2MaskIds(levelId).base,
+      maskUpper: v2MaskIds(levelId).upper,
       scoring: { comboBase: 10, comboStep: 5 }
     },
     budget: ch.budget
@@ -337,10 +430,16 @@ module.exports = {
   DISPERSION_TIERS: DISPERSION_TIERS,
   DISPERSION_STRUCTURAL_LIMITS: DISPERSION_STRUCTURAL_LIMITS,
   dispersionTierOf: dispersionTierOf,
+  dispersionPairTarget: dispersionPairTarget,
   validateChapters: validateChapters,
   levelParams: levelParams,
   waveGrid: waveGrid,
   wavePos: wavePos,
   waveTiles: waveTiles,
-  waveZMax: waveZMax
+  waveZMax: waveZMax,
+  /* Δ19b/FR-045: v2 布局层数矩阵 + 掩码模板 id + 逐层落位 */
+  v2LayerCount: v2LayerCount,
+  v2MaskIds: v2MaskIds,
+  v2ShapeLayers: v2ShapeLayers,
+  loadShapeMasks: loadShapeMasks
 };
