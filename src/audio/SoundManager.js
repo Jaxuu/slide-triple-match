@@ -263,10 +263,33 @@
       },
       /* 三消: 三音上行琶音（连击数调制音高） */
       match: function (combo) {
-        var base = 523.25 * Math.pow(1.0595, Math.min(12, (combo || 1) - 1) * 2);
-        tone('sine', base, base, 0.14, 0.14, 0.00);
-        tone('sine', base * 1.26, base * 1.26, 0.14, 0.14, 0.09);
-        tone('sine', base * 1.5, base * 1.5, 0.20, 0.16, 0.18);
+        /* T083: 清脆薄瓷碎裂 ASMR 音效 —— 第一层薄瓷/冰晶瞬态脆裂声（高频带通白噪声 65ms）
+         * 第二层碎晶散落微颗粒（0ms/22ms/48ms/75ms 四颗高频木琴/水晶泛音） */
+        /* 第一层：白噪声带通滤波 2600->1800Hz, Q=3.5, 65ms */
+        if (ctx && !sfxMuted && noiseBuf) {
+          var t0 = ctx.currentTime;
+          var src = ctx.createBufferSource();
+          src.buffer = noiseBuf;
+          var bp = ctx.createBiquadFilter();
+          bp.type = 'bandpass';
+          bp.frequency.setValueAtTime(2600, t0);
+          bp.frequency.exponentialRampToValueAtTime(1800, t0 + 0.065);
+          bp.Q.value = 3.5;
+          var g = ctx.createGain();
+          g.gain.setValueAtTime(0.18, t0);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.065);
+          src.connect(bp); bp.connect(g); g.connect(master);
+          src.start(t0); src.stop(t0 + 0.07);
+        }
+        /* 第二层：4 颗高频木琴/水晶泛音颗粒（C6,D6,E6,G6,A6,C7 大调五声跳跃） */
+        var scale = [1046.5, 1174.66, 1318.51, 1567.98, 1760.0, 2093.0];
+        var idx0 = Math.min(scale.length - 1, Math.max(0, ((combo || 1) - 1) % scale.length));
+        var delays = [0, 0.022, 0.048, 0.075];
+        for (var gi = 0; gi < delays.length; gi++) {
+          var f = scale[(idx0 + gi) % scale.length];
+          tone('sine', f, f, 0.04, 0.10, delays[gi]);
+          tone('triangle', f * 2, f * 2, 0.03, 0.04, delays[gi]);
+        }
       },
       /* 胜利: 大三和弦琶音 */
       victory: function () {
