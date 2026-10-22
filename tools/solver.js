@@ -117,7 +117,8 @@ function undoTap(state, r) {
       state.cfg.chains.push(last.pair);
     }
   }
-  /* 主体滑块摘出 dock → 回棋盘（flyout/prism-flyout） */
+  /* 主体滑块摘出 dock → 回棋盘（flyout/prism-flyout）
+   * Δ19a: 插回**所属层**的独立容器（boards[z]） */
   if (r.type === 'flyout' || r.type === 'prism-flyout') {
     var t = state.tiles[r.tileId];
     var di = -1;
@@ -127,9 +128,10 @@ function undoTap(state, r) {
     if (di >= 0) state.dock.splice(di, 1);
     t.removed = false;
     /* 插回棋盘栈（按 z 升序位置） */
-    var cell = state.board[t.r][t.c];
+    var lb = RE.layerBoard(state, t.z || 0);
+    var cell = lb[t.r] && lb[t.r][t.c];
     if (!cell || cell.prism) {
-      state.board[t.r][t.c] = [t];
+      lb[t.r][t.c] = [t];
     } else {
       var pos = cell.length;
       for (j = 0; j < cell.length; j++) {
@@ -545,24 +547,20 @@ function testPrismTable() {
   assert(RE.REFLECT['\\'][0] === 3 && RE.REFLECT['\\'][1] === 2 && RE.REFLECT['\\'][2] === 1 && RE.REFLECT['\\'][3] === 0, "'\\' 反射表错误");
 }
 
-/* ---------- 3. Δ8 分层立体阻挡（本次核心新增） ---------- */
+/* ---------- 3. Δ19a 同层独立射线 + 压制锁定 + 零悬空 ---------- */
 function testLayerAwareRaycast() {
-  /* 3a. z=1 凌空飞越 z=0 行（前方全低层 → 畅通 flyout） */
+  /* 3a. 同层独立射线——奇数层 (0,1) 位于半格位 (0.5,1.5)，压住偶数层
+   *   (0,1)(0,2)(1,1)(1,2)，但 MUST NOT 阻挡偶数层 (0,0) 朝 R 的射线 */
   var L = mkLevel(5, [
-    { r: 0, c: 0, s: 0, d: 0 }, { r: 0, c: 1, s: 0, d: 0 }, { r: 0, c: 2, s: 0, d: 0 }, { r: 0, c: 3, s: 0, d: 0 },
-    { r: 2, c: 2, s: 1, d: 1, z: 1 },
-    { r: 2, c: 3, s: 2, d: 1 }, { r: 2, c: 4, s: 2, d: 1 },
-    { r: 2, c: 0, s: 2, d: 1 }, { r: 2, c: 1, s: 2, d: 1 },
-    { r: 4, c: 0, s: 2, d: 2 }, { r: 4, c: 1, s: 2, d: 2 }, { r: 4, c: 2, s: 2, d: 2 }
+    { r: 0, c: 0, s: 0, d: 1 }, { r: 1, c: 1, s: 0, d: 0 }, { r: 1, c: 2, s: 0, d: 0 },
+    { r: 3, c: 1, s: 1, d: 0 }, { r: 4, c: 0, s: 1, d: 0 }, { r: 4, c: 1, s: 1, d: 0 },
+    { r: 0, c: 1, s: 2, d: 1, z: 1 }, { r: 1, c: 1, s: 2, d: 1, z: 1 }, { r: 2, c: 1, s: 2, d: 1, z: 1 }
   ]);
   var s = RE.init(L);
-  var r = RE.applyTap(s, 4); /* id4 = (2,2) z=1 朝 R——前方 (2,3)(2,4) 全 z=0 */
-  assert(r.type === 'flyout', 'Δ8 3a: z=1 应凌空飞越 z=0 行, got ' + r.type);
-  assert(r.path.length >= 4, 'Δ8 3a: flyout path 应覆盖低层格, len=' + r.path.length);
-  var has23 = r.path.some(function (p) { return p.r === 2 && p.c === 3; });
-  assert(has23, 'Δ8 3a: path 应含凌空飞越格 (2,3)');
+  var r = RE.applyTap(s, 0); /* id0 = (0,0) z=0 朝 R——前方 (0,1)..(0,4) 偶数层全空，奇数层 MUST NOT 阻挡 */
+  assert(r.type === 'flyout', 'Δ19a 3a: 奇数层 MUST NOT 阻挡偶数层射线, got ' + r.type);
 
-  /* 3b. z=1 前方同层 z=1 → 受阻弹回 */
+  /* 3b. 同层 z=1 前方同层 z=1 → 受阻弹回 */
   var LB = mkLevel(5, [
     { r: 0, c: 0, s: 0, d: 0 }, { r: 0, c: 1, s: 0, d: 0 }, { r: 0, c: 2, s: 0, d: 0 },
     { r: 2, c: 2, s: 1, d: 1, z: 1 },
@@ -572,33 +570,31 @@ function testLayerAwareRaycast() {
   ]);
   var s2 = RE.init(LB);
   var r2 = RE.applyTap(s2, 3); /* id3 = (2,2) z=1——前方 (2,3) z=1 同层 */
-  assert(r2.type === 'blocked', 'Δ8 3b: z=1 应被前方 z=1 阻挡, got ' + r2.type);
-  assert(r2.blockedAt && r2.blockedAt.r === 2 && r2.blockedAt.c === 3, 'Δ8 3b: blockedAt 应为 (2,3)');
+  assert(r2.type === 'blocked', 'Δ19a 3b: 同层滑块应阻挡, got ' + r2.type);
+  assert(r2.blockedAt && r2.blockedAt.r === 2 && r2.blockedAt.c === 3, 'Δ19a 3b: blockedAt 应为 (2,3)');
 
   /* 3c. z=0 底层被前方 z=0 阻挡（经典行为不变） */
   var s3 = RE.init(LB);
   var r3 = RE.applyTap(s3, 6); /* id6 = (2,0) z=0 朝 R——前方 (2,1) z=0 */
-  assert(r3.type === 'blocked', 'Δ8 3c: z=0 经典阻挡应保留, got ' + r3.type);
+  assert(r3.type === 'blocked', 'Δ19a 3c: 同层经典阻挡应保留, got ' + r3.type);
 
-  /* 3d. z=2 从 z=1 塔顶飞越 + reveal 级联 */
-  var LD = mkLevel(5, [
-    { r: 2, c: 2, s: 1, d: 1, z: 2 }, { r: 2, c: 2, s: 2, d: 1, z: 1 }, { r: 2, c: 2, s: 2, d: 1, z: 0 },
-    { r: 2, c: 3, s: 2, d: 1, z: 1 }, { r: 2, c: 3, s: 2, d: 1 },
-    { r: 0, c: 0, s: 0, d: 0 }, { r: 0, c: 1, s: 0, d: 0 }, { r: 0, c: 2, s: 0, d: 0 }
-  ]);
-  var s4 = RE.init(LD);
-  var r4 = RE.applyTap(s4, 0);
-  assert(r4.type === 'flyout', 'Δ8 3d: z=2 应凌空飞越 z=1 塔, got ' + r4.type);
-  assert(r4.events.some(function (e) { return e.e === 'reveal' && e.id === 1; }), 'Δ8 3d: reveal 次顶层事件应触发');
+  /* 3d. Δ19a: 奇数层越界不多飞/少飞一格——奇数层坐标域为 (n-1)×(n-1) */
+  var s4 = RE.init(LB);
+  var r4 = RE.applyTap(s4, 4); /* id4 = (2,3) z=1 朝 R——奇数层域 4×4，(2,4) 越界 */
+  assert(r4.type !== 'invalid', 'Δ19a 3d: 奇数层瓦片应可操作, got ' + r4.type);
+  if (r4.type === 'flyout') {
+    var outIdx = r4.path[r4.path.length - 1];
+    assert(outIdx.c === 4, 'Δ19a 3d: 奇数层飞行应止于 c=4（越界一步），got c=' + outIdx.c);
+  }
 
-  /* 3e. 棱镜 = 全层高柱体: z=2 射线遇棱镜恒折射 */
+  /* 3e. 棱镜 = 贯穿全层: z=1 射线遇棱镜恒折射 */
   var LE = mkLevel(5, [
-    { r: 2, c: 2, s: 1, d: 1, z: 2 }, { r: 2, c: 2, s: 2, d: 1, z: 1 }, { r: 2, c: 2, s: 2, d: 1, z: 0 },
+    { r: 2, c: 2, s: 1, d: 1, z: 1 },
     { r: 0, c: 3, s: 0, d: 0 }, { r: 0, c: 4, s: 0, d: 0 }, { r: 1, c: 4, s: 0, d: 0 }
   ], [{ r: 2, c: 3, t: '/' }]);
   var s5 = RE.init(LE);
   var r5 = RE.applyTap(s5, 0);
-  assert(r5.type === 'prism-flyout' || r5.type === 'blocked', 'Δ8 3e: 棱镜应阻挡任意层高, got ' + r5.type);
+  assert(r5.type === 'prism-flyout' || r5.type === 'blocked', 'Δ19a 3e: 棱镜应阻挡任意层高, got ' + r5.type);
 }
 
 /* ---------- 4. 三消优先于爆槽 ---------- */
@@ -754,38 +750,143 @@ function testItems() {
     { r: 2, c: 0, s: 0, d: 3 }, { r: 2, c: 1, s: 0, d: 3 }
   ]);
   var s = RE.init(L);
-  /* wrench: 普通滑块顺时针转 */
+  /* Δ19: 扳手下线——applyItem('wrench') 恒 invalid */
   var w = RE.applyItem(s, 'wrench', 0);
-  assert(w.type === 'wrench' && s.tiles[0].d === 1, 'T030 扳手应顺时针转（0→1）');
-  /* wrench 对冰封 invalid */
-  var L2 = mkLevel(5, [
-    { r: 0, c: 1, s: 1, d: 0 },
-    { r: 2, c: 2, s: 0, d: 2, m: 'i', x: 1 },
-    { r: 3, c: 0, s: 2, d: 2 }, { r: 3, c: 1, s: 2, d: 2 },
+  assert(w.type === 'invalid', 'Δ19 扳手已下线: applyItem("wrench") 应恒 invalid, got ' + w.type);
+  assert(s.tiles[0].d === 0, 'Δ19 扳手下线 MUST NOT 改变滑块方向');
+  /* 未知道具恒 invalid */
+  var stX = RE.applyItem(s, 'stage');
+  assert(stX.type === 'invalid', 'stage 道具已移除: applyItem 恒 invalid');
+}
+
+/* ---------- 12. Δ19a 半格坐标换算 ---------- */
+function testHalfGridCoords() {
+  assert(RE.isOddZ(0) === false && RE.isOddZ(1) === true && RE.isOddZ(2) === false && RE.isOddZ(3) === true, 'Δ19a isOddZ 判定错误');
+  var p0 = RE.renderPos(2, 3, 0);
+  assert(p0.r === 2 && p0.c === 3, 'Δ19a 偶数层实坐标应为 (r,c), got ' + JSON.stringify(p0));
+  var p1 = RE.renderPos(2, 3, 1);
+  assert(p1.r === 2.5 && p1.c === 3.5, 'Δ19a 奇数层实坐标应为 (r+0.5,c+0.5), got ' + JSON.stringify(p1));
+  /* 层坐标域: 偶数层 n / 奇数层 n-1 */
+  assert(RE.layerSize(7, 0) === 7 && RE.layerSize(7, 1) === 6, 'Δ19a 层坐标域边长错误');
+  /* 压角位: 偶数层 (r,c) 查 (r-1,c-1)(r-1,c)(r,c-1)(r,c) */
+  var cp0 = RE.crossPositions(2, 2, 0);
+  assert(cp0.length === 4 && cp0[0][0] === 1 && cp0[0][1] === 1 && cp0[3][0] === 2 && cp0[3][1] === 2, 'Δ19a 偶数层压角位错误: ' + JSON.stringify(cp0));
+  /* 压角位: 奇数层 (r,c) 查 (r,c)(r,c+1)(r+1,c)(r+1,c+1) */
+  var cp1 = RE.crossPositions(2, 2, 1);
+  assert(cp1.length === 4 && cp1[0][0] === 2 && cp1[0][1] === 2 && cp1[3][0] === 3 && cp1[3][1] === 3, 'Δ19a 奇数层压角位错误: ' + JSON.stringify(cp1));
+  /* renderProbe 暴露实坐标 + covered */
+  var L = mkLevel(5, [
+    { r: 0, c: 0, s: 0, d: 0 },
+    { r: 0, c: 1, s: 0, d: 0 },
+    { r: 1, c: 0, s: 0, d: 0 }, { r: 1, c: 1, s: 0, d: 0 },
+    { r: 0, c: 0, s: 1, d: 1, z: 1 }
+  ]);
+  var s = RE.init(L);
+  var probe = RE.renderProbe(s);
+  var oddTile = probe.tiles.filter(function (t) { return t.z === 1; })[0];
+  assert(oddTile.rr === 0.5 && oddTile.cc === 0.5, 'Δ19a renderProbe 奇数层实坐标错误: ' + oddTile.rr + ',' + oddTile.cc);
+  var evenCovered = probe.tiles.filter(function (t) { return t.z === 0 && t.covered; });
+  assert(evenCovered.length === 4, 'Δ19a renderProbe covered 标记数应为 4, got ' + evenCovered.length);
+}
+
+/* ---------- 13. Δ19a 压制锁定（Overlap Lock） ---------- */
+function testOverlapLock() {
+  /* 奇数层 (1,1) 压住偶数层 (1,1)(1,2)(2,1)(2,2) */
+  var L = mkLevel(5, [
+    { r: 1, c: 1, s: 0, d: 0 },
+    { r: 1, c: 2, s: 0, d: 0 },
+    { r: 2, c: 1, s: 0, d: 0 },
+    { r: 2, c: 2, s: 0, d: 0 },
+    { r: 1, c: 1, s: 1, d: 1, z: 1 },
+    { r: 0, c: 0, s: 1, d: 0 }, { r: 0, c: 1, s: 1, d: 0 }, { r: 0, c: 2, s: 1, d: 0 }
+  ]);
+  var s = RE.init(L);
+  assert(RE.isCovered(s, s.tiles[0]) === true, 'Δ19a 偶数层 (1,1) 应被奇数层 (1,1) 压住');
+  assert(RE.isCovered(s, s.tiles[4]) === false, 'Δ19a 奇数层顶层自身不应被压住');
+  assert(RE.canTap(s, 0) === false, 'Δ19a 被压滑块 MUST 不可点击');
+  assert(RE.canTap(s, 4) === true, 'Δ19a 顶层滑块应可点击');
+  /* 上层移除后自动解锁 */
+  var r = RE.applyTap(s, 4);
+  assert(r.type === 'flyout', 'Δ19a 顶层应飞出, got ' + r.type);
+  assert(RE.isCovered(s, s.tiles[0]) === false, 'Δ19a 上层移除后下层应解锁');
+  assert(RE.canTap(s, 0) === true, 'Δ19a 解锁后应可点击');
+}
+
+/* ---------- 14. Δ19a 零悬空谓词 + validateLevel 支撑校验 ---------- */
+function testNoFloating() {
+  /* 悬空: z=1 滑块 (3,3) 下方 z=0 支撑象限 (3,3)(3,4)(4,3)(4,4) 全空 */
+  var bad = mkLevel(5, [
+    { r: 0, c: 0, s: 0, d: 0 },
+    { r: 0, c: 1, s: 0, d: 0 },
+    { r: 0, c: 2, s: 0, d: 0 },
+    { r: 0, c: 3, s: 1, d: 0 },
+    { r: 0, c: 4, s: 1, d: 0 },
+    { r: 3, c: 3, s: 1, d: 0, z: 1 }
+  ]);
+  var v = RE.validateLevel(bad);
+  assert(v.ok === false, 'Δ19a validateLevel 应拒绝悬空滑块');
+  assert(v.errors.some(function (e) { return e.indexOf('悬空') >= 0; }), 'Δ19a 悬空错误信息缺失: ' + v.errors.join('; '));
+  /* 合规: 奇数层 (1,1) 下方有偶数层 (1,1) 支撑（支撑象限 (1,1)(1,2)(2,1)(2,2)） */
+  var good = mkLevel(5, [
+    { r: 0, c: 0, s: 0, d: 0 },
+    { r: 0, c: 1, s: 0, d: 0 },
+    { r: 0, c: 2, s: 0, d: 0 },
+    { r: 1, c: 1, s: 1, d: 0 },
+    { r: 1, c: 2, s: 1, d: 0 },
+    { r: 1, c: 1, s: 1, d: 0, z: 1 }
+  ]);
+  var v2 = RE.validateLevel(good);
+  assert(v2.ok === true, 'Δ19a 合规关卡应通过校验: ' + v2.errors.join('; '));
+  /* 底层 MUST NOT 再要求 100% 满铺（Δ19a 废除旧断言） */
+  assert(!v2.errors.some(function (e) { return e.indexOf('未满铺') >= 0; }), 'Δ19a 底层满铺断言应已废除');
+}
+
+/* ---------- 15. Δ19d 灵犀三消 + 乾坤洗牌 ---------- */
+function testMagnetShuffle() {
+  var L = mkLevel(5, [
+    { r: 0, c: 0, s: 1, d: 0 }, { r: 0, c: 1, s: 1, d: 0 }, { r: 0, c: 2, s: 1, d: 0 },
     { r: 1, c: 0, s: 0, d: 0 }, { r: 1, c: 1, s: 0, d: 0 }, { r: 1, c: 2, s: 0, d: 0 },
-    { r: 2, c: 0, s: 0, d: 3 }, { r: 2, c: 1, s: 0, d: 3 }
+    { r: 2, c: 0, s: 2, d: 0 }, { r: 2, c: 1, s: 2, d: 0 }, { r: 2, c: 2, s: 2, d: 0 }
+  ]);
+  var s = RE.init(L);
+  var m = RE.applyItem(s, 'magnet');
+  assert(m.type === 'magnet', 'Δ19d 灵犀三消应成功, got ' + m.type);
+  assert(m.ids.length === 3, 'Δ19d 灵犀三消应吸走 3 张, got ' + m.ids.length);
+  assert(m.events.some(function (e) { return e.e === 'match'; }), 'Δ19d 灵犀三消应立即结算三消');
+  assert(s.dock.length === 0, 'Δ19d 灵犀三消后 Dock 应清空, got ' + s.dock.length);
+  /* 花色不足 3 → 拒绝 */
+  var L2 = mkLevel(5, [
+    { r: 0, c: 0, s: 1, d: 0 }, { r: 0, c: 1, s: 1, d: 0 },
+    { r: 1, c: 0, s: 0, d: 0 }, { r: 1, c: 1, s: 0, d: 0 },
+    { r: 2, c: 0, s: 2, d: 0 }, { r: 2, c: 1, s: 2, d: 0 }
   ]);
   var s2 = RE.init(L2);
-  var w2 = RE.applyItem(s2, 'wrench', 1);
-  assert(w2.type === 'invalid', 'T030 扳手对冰封滑块应 invalid');
-  /* （stage/stageTile 断言已随暂存区功能移除——applyItem('stage') 恒 invalid） */
-  var s3 = RE.init(L2);
-  var stX = RE.applyItem(s3, 'stage');
-  assert(stX.type === 'invalid', 'stage 道具已移除: applyItem 恒 invalid');
+  var m2 = RE.applyItem(s2, 'magnet');
+  assert(m2.type === 'invalid', 'Δ19d 同花色不足 3 张应拒绝, got ' + m2.type);
+  /* 乾坤洗牌: 花色总数守恒 + 每花色 %3 不变 */
+  var s3 = RE.init(L);
+  var before = {};
+  s3.tiles.forEach(function (t) { before[t.s] = (before[t.s] || 0) + 1; });
+  var sh = RE.applyItem(s3, 'shuffle');
+  assert(sh.type === 'shuffle', 'Δ19d 乾坤洗牌应成功, got ' + sh.type);
+  var after = {};
+  s3.tiles.forEach(function (t) { after[t.s] = (after[t.s] || 0) + 1; });
+  assert(JSON.stringify(before) === JSON.stringify(after), 'Δ19d 洗牌 MUST 保持各花色总数不变');
+  for (var k in after) assert(after[k] % 3 === 0, 'Δ19d 洗牌后花色 ' + k + ' 计数 %3 != 0');
 }
 
 /* ---------- 11. T028 死锁谓词不误杀 ---------- */
 function testDeadlockPredicate() {
-  /* 场景 A: 齿轮在场且可转（wrench 可用）→ 非疑 */
+  /* 场景 A: 全员受阻（无飞出型 tap）+ 齿轮在场 + 旧 wrench 豁免字段仍有余量
+   * Δ19: 扳手豁免条款已移除——死局谓词 MUST 判疑（true）而非豁免 */
   var L = mkLevel(5, [
-    { r: 2, c: 2, s: 1, d: 0, m: 'g' },  /* 齿轮朝 U 前方 (1,2) 有滑块 → blocked */
-    { r: 1, c: 2, s: 0, d: 0, m: 'i', x: 1 }, /* 冰封不可点 → 无飞出型 tap */
-    { r: 3, c: 0, s: 2, d: 2 }, { r: 3, c: 1, s: 2, d: 2 },
-    { r: 1, c: 0, s: 0, d: 0 }, { r: 1, c: 1, s: 0, d: 0 },
-    { r: 2, c: 0, s: 0, d: 3 }, { r: 2, c: 1, s: 0, d: 3 }
+    { r: 1, c: 1, s: 0, d: 1 },          /* 朝 R 被 (1,2) 挡 */
+    { r: 1, c: 2, s: 0, d: 3 },          /* 朝 L 被 (1,1) 挡 */
+    { r: 2, c: 2, s: 1, d: 0, m: 'g' }   /* 齿轮朝 U 被 (1,2) 挡 */
   ]);
   var s = RE.init(L);
-  assert(RE.deadlockSuspect(s) === false, 'T028 扳手可用 + 齿轮在场 → 非疑死锁');
+  s.items = { undo: 1, wrench: 1, magnet: 1, shuffle: 1 }; /* 旧 wrench 字段仍有余量 */
+  assert(RE.deadlockSuspect(s) === true, 'Δ19 死局谓词: 扳手豁免移除后齿轮在场不再豁免');
   /* 场景 B: 真死锁——清空自由滑块后仅剩互挡对、无道具 */
   var L2 = mkLevel(4, [
     { r: 1, c: 1, s: 0, d: 1 }, /* 朝 R 被 (1,2) 挡 */
@@ -794,7 +895,7 @@ function testDeadlockPredicate() {
   ]);
   var s2 = RE.init(L2);
   RE.applyTap(s2, 2); RE.applyTap(s2, 3); /* 清空第 0 行自由滑块（同花色×2 入槽——无三消不判胜） */
-  s2.items = { undo: 0, wrench: 0 };
+  s2.items = { undo: 0, magnet: 0, shuffle: 0 };
   s2.dock = []; /* 无关变量清空（两滑块仍在 dock——count=2 无三消） */
   var tapsB = RE.enumerateTaps(s2);
   assert(tapsB.length === 2, '互挡对均可 tap（弹回型）, got ' + tapsB.length);
@@ -805,15 +906,19 @@ function engineSelftest() {
   var tests = [
     ['转向加法 (d+1)%4', testDirection],
     ['棱镜 8 映射', testPrismTable],
-    ['Δ8 分层立体阻挡（凌空飞越/同层阻挡/全高棱镜/reveal 级联）', testLayerAwareRaycast],
+    ['Δ19a 同层独立射线 + 奇数层越界 + 全高棱镜', testLayerAwareRaycast],
     ['三消优先于爆槽', testTripleBeforeBurst],
     ['Δ3 胜利条件', testWinCondition],
     ['快照/restore 等价', testSnapshotRestore],
     ['T023 齿轮十字邻接触发/对角不触发', testGear],
     ['T024 破冰双口径（triple/adjacent）', testIce],
     ['T025 chains 解锁（或语义）', testChains],
-    ['T030 道具语义（wrench; stage 已移除）', testItems],
-    ['T028 死锁谓词不误杀', testDeadlockPredicate]
+    ['Δ19 道具语义（扳手下线 / magnet / shuffle）', testItems],
+    ['T028 死局谓词不误杀（扳手豁免已移除）', testDeadlockPredicate],
+    ['Δ19a 奇偶层半格坐标换算', testHalfGridCoords],
+    ['Δ19a 压制锁定（被压不可点 / 上层移除后解锁）', testOverlapLock],
+    ['Δ19a 零悬空谓词 + validateLevel 支撑校验', testNoFloating],
+    ['Δ19d 灵犀三消 + 乾坤洗牌（花色守恒）', testMagnetShuffle]
   ];
   var passed = 0;
   for (var i = 0; i < tests.length; i++) {
