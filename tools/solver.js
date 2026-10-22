@@ -442,6 +442,75 @@ function curveGates(levelsWithMetrics) {
  * 口径: 三元组按 solutionMoves 消除序划分（第 3k+1..3k+3 个同花色滑块为一组——
  *   Dock 按 3 计数清空，第 3 次到达即整组消除; FR-005 同口径）
  * ========================================================= */
+/* =========================================================
+ * Δ19a/FR-029 §7: 空间聚散度（v2 半格坐标口径）
+ *   邻接判据改用**渲染实坐标**（偶数层 (r,c) / 奇数层 (r+0.5,c+0.5)）:
+ *     · 曼哈顿距离 < 1.05（半格错位下的紧挨）→ 连坐
+ *     · 跨层同渲染位（奇数层压在偶数层四格交界中心）→ 视为空间相邻
+ *   三档曲线档位上限 MUST NOT 因坐标体系变化而放宽（FR-029 §7）
+ * ========================================================= */
+function realAdjacency(a, b) {
+  var pa = RE.renderPos(a.r, a.c, a.z || 0);
+  var pb = RE.renderPos(b.r, b.c, b.z || 0);
+  var d = Math.abs(pa.r - pb.r) + Math.abs(pa.c - pb.c);
+  if (d < 1.05) return 1;
+  if (d < 1.5) return 0.5;
+  return 0;
+}
+
+/* Δ19a/FR-044 §3: 零悬空违规计数（支撑性校验） */
+function floatingViolationsOf(levelDef) {
+  var tiles = levelDef.tiles || [];
+  var cellIndex = {};
+  for (var i = 0; i < tiles.length; i++) {
+    var t = tiles[i];
+    cellIndex[(t.z || 0) + ':' + t.r + ':' + t.c] = true;
+  }
+  var bad = 0;
+  for (var j = 0; j < tiles.length; j++) {
+    var st = tiles[j];
+    var z = st.z || 0;
+    if (z === 0) continue;
+    var sup = RE.crossPositions(st.r, st.c, z);
+    var ok = false;
+    for (var p = 0; p < sup.length; p++) {
+      if (cellIndex[(z - 1) + ':' + sup[p][0] + ':' + sup[p][1]]) { ok = true; break; }
+    }
+    if (!ok) bad++;
+  }
+  return bad;
+}
+
+/* =========================================================
+ * Δ19b/FR-030: 瓶颈节奏指标（咽喉点 / 最小可行操作集 / 最长连锁爽消段）
+ *   咽喉点 = 沿最优解路径推进时「合法可行操作集 ≤3」的位置
+ * ========================================================= */
+function bottleneckOf(levelDef) {
+  var st = RE.init(levelDef);
+  var chokePoints = 0, minChoke = null, maxChain = 0, chain = 0;
+  for (var i = 0; i < (levelDef.solutionMoves || []).length; i++) {
+    var mv = levelDef.solutionMoves[i];
+    var live = 0;
+    for (var t = 0; t < st.tiles.length; t++) if (!st.tiles[t].removed) live++;
+    if (!live) break;
+    var taps = RE.enumerateTaps(st);
+    if (taps.length <= 3) {
+      chokePoints++;
+      if (minChoke == null || taps.length < minChoke) minChoke = taps.length;
+      chain = 0;
+    } else {
+      chain++;
+      if (chain > maxChain) maxChain = chain;
+    }
+    var r = RE.applyTap(st, mv.t);
+    if (r.type === 'invalid' || r.type === 'blocked') break;
+  }
+  return {
+    chokePoints: chokePoints,
+    minChokeActions: minChoke == null ? 0 : minChoke,
+    maxChainLen: maxChain
+  };
+}
 function dispersionOf(levelDef) {
   var tiles = levelDef.tiles || [];
   var seq = (levelDef.solutionMoves || []).map(function (m) { return tiles[m.t]; });
@@ -463,9 +532,12 @@ function dispersionOf(levelDef) {
       var adj = 0, minD = null;
       for (var a = 0; a < 3; a++) {
         for (var b = a + 1; b < 3; b++) {
-          var d = Math.abs(tri[a].r - tri[b].r) + Math.abs(tri[a].c - tri[b].c);
-          if (d === 0) d = 1; /* 同格相邻层 = 连坐（邻接口径 §1） */
-          if (d <= 1) adj++;
+          /* Δ19a/FR-029 §7: 邻接改用**渲染实坐标**（半格错位下紧挨亦连坐） */
+          var pa = RE.renderPos(tri[a].r, tri[a].c, tri[a].z || 0);
+          var pb = RE.renderPos(tri[b].r, tri[b].c, tri[b].z || 0);
+          var d = Math.abs(pa.r - pb.r) + Math.abs(pa.c - pb.c);
+          if (d === 0) d = 1; /* 同渲染位 = 连坐（跨层同位视为相邻） */
+          if (d <= 1.05) adj++;
           if (minD == null || d < minD) minD = d;
         }
       }
@@ -473,7 +545,7 @@ function dispersionOf(levelDef) {
       if (adj >= 2) tripleClusters++;
       else if (adj === 1) pairClusters++;
       else dispersed++;
-      if (minD < 2) tripletsBelow2++;
+      if (minD < 1.05) tripletsBelow2++;
       if (minD < 3) tripletsBelow3++;
       if (minPairDist == null || minD < minPairDist) minPairDist = minD;
     }
@@ -1086,6 +1158,20 @@ function runFull(seed) {
      * 降级为警告 + 报告记录（不置 gate）; 白名单外不达标仍硬门禁 */
     var disp = dispersionOf(L3);
     rec2.dispersion = disp;
+
+    /* Δ19a/FR-044 §3: 零悬空违规计数（恒 MUST 为 0） */
+    var floatViol = floatingViolationsOf(L3);
+    rec2.floatingViolations = floatViol;
+    if (floatViol > 0) {
+      console.error("  ✗ L" + L3.id + " 零悬空违规计数=" + floatViol + "（MUST 为 0）");
+      gate = 1;
+    }
+
+    /* Δ19b/FR-030: 瓶颈节奏指标（咽喉点 / 最小可行操作集 / 最长连锁爽消段） */
+    var bn = bottleneckOf(L3);
+    rec2.bottleneck = bn;
+    /* 瓶颈节奏达标判定: 咽喉点 ≥1（存在窄可行域）且最长连锁段 ≥2（破局后有爽消段） */
+    rec2.bottleneckOk = (bn.chokePoints >= 1 && bn.maxChainLen >= 2);
     if (!disp.tierOk) {
       if ((CFG.DISPERSION_STRUCTURAL_LIMITS || []).indexOf(L3.id) >= 0) {
         console.warn('  ⚠ L' + L3.id + ' 聚散度档位结构极限受控降级: trip=' + disp.triplePct + '%(簇' + disp.tripleClusters + ') pair=' + disp.pairPct +
@@ -1146,6 +1232,26 @@ function runFull(seed) {
         return {
           tierPass: { L1_6: tiers.t1[0] + '/' + tiers.t1[1], L7_21: tiers.t2[0] + '/' + tiers.t2[1], L22_72: tiers.t3[0] + '/' + tiers.t3[1] },
           aggregate: { L1_6: fmt(agg.t1), L7_21: fmt(agg.t2), L22_72: fmt(agg.t3) }
+        };
+      })(),
+      /* Δ19a/Δ19b: 零悬空违规总计数 + 瓶颈节奏汇总 */
+      zeroFloatingViolations: records.reduce(function (a, r) { return a + (r.floatingViolations || 0); }, 0),
+      bottleneck: (function () {
+        var ok = 0, tot = 0, minChoke = Infinity, maxChain = 0, choke = 0;
+        for (var bi = 0; bi < records.length; bi++) {
+          var rb = records[bi];
+          if (!rb.bottleneck) continue;
+          tot++;
+          if (rb.bottleneckOk) ok++;
+          choke += rb.bottleneck.chokePoints;
+          if (rb.bottleneck.minChokeActions < minChoke) minChoke = rb.bottleneck.minChokeActions;
+          if (rb.bottleneck.maxChainLen > maxChain) maxChain = rb.bottleneck.maxChainLen;
+        }
+        return {
+          pass: ok + '/' + tot,
+          totalChokePoints: choke,
+          minChokeActions: minChoke === Infinity ? 0 : minChoke,
+          maxChainLen: maxChain
         };
       })()
     }

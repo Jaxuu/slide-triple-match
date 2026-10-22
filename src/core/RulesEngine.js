@@ -945,6 +945,8 @@
       var pos = sk.split(':');
       state.boards[parseInt(pos[0], 10)][parseInt(pos[1], 10)][parseInt(pos[2], 10)] = cellArr;
     }
+    /* Δ19a 向后兼容视图: `state.board` = 第 0 层容器（单层时代的公开契约）*/
+    state.board = state.boards[0];
   }
 
   /* T013: validateLevel 基础校验（+ 每关 id===i+1 连续性由消费方遍历保证）

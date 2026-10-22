@@ -847,8 +847,18 @@ function scenarioPurifyAndOriginality() {
   var st = RE.init(lvl);
   var baseTiles = st.tiles.length;
 
-  /* 造出 Dock 滞留（三个花色各一块）+ 生命耗尽态 */
-  st.dock = [{ id: 9001, s: st.tiles[0].s }, { id: 9002, s: st.tiles[1].s }, { id: 9003, s: st.tiles[2].s }];
+  /* 造出 Dock 滞留（三个**不同**花色各一块）+ 生命耗尽态
+     （Δ19 v2 布局：移除序前 3 块同属一个三元组（同花色）——
+       故 MUST 按花色去重取样，否则 Dock 内已是同色三张 → 板面无块可净化）*/
+  var pickSuits = [];
+  for (var pi = 0; pi < st.tiles.length && pickSuits.length < 3; pi++) {
+    if (pickSuits.indexOf(st.tiles[pi].s) < 0) pickSuits.push(st.tiles[pi].s);
+  }
+  st.dock = [
+    { id: 9001, s: pickSuits[0] },
+    { id: 9002, s: pickSuits[1] },
+    { id: 9003, s: pickSuits[2] }
+  ];
   st.lives = 0;
   check('Δ16g: 净化前处于 lost_lives 终局态', RE.terminal(st) === 'lost_lives', RE.terminal(st));
 

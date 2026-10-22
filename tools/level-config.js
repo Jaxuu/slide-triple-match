@@ -132,6 +132,20 @@ function dispersionTierOf(levelId) {
 }
 
 /* =========================================================
+ * Δ19a/FR-029 §2~§4: 各档双连坐**目标**占比（档位带的中心轨迹）
+ *   L1~L6: 约 35%（带 [0.20, 0.50]）
+ *   L7~L21: 30% → 15% 线性递减（带 [0.15, 0.30]）
+ *   L22~L72: 15% → 5% 线性递减（带 [0.00, 0.15]）
+ *   生成器据此在剥洋葱阶段**主动布局**相邻对（元组级几何控制），
+ *   而非依赖随机涌现——带下界 MUST NOT 靠运气达成。
+ * ========================================================= */
+function dispersionPairTarget(levelId) {
+  if (levelId <= 6) return 0.35;
+  if (levelId <= 21) return 0.30 + (0.15 - 0.30) * ((levelId - 7) / 14);
+  return 0.15 + (0.05 - 0.15) * ((levelId - 22) / 50);
+}
+
+/* =========================================================
  * Δ19b/FR-045 §2: 层数演进矩阵（v2 布局口径）
  *   L1 = 1 层; L2 = 2 层; L3 起按 2-2-3 / 2-3-4 随进度提升至普遍 ≥3 层
  *   7×7 简单关最高 4 层; 8×8 困难关最高 5 层
@@ -156,10 +170,13 @@ function v2LayerCount(levelId) {
 /* Δ19b/FR-045 §1: 掩码模板 id 选取（确定性——禁 Math.random，D-08）
  *   每关绑定「底层模板 id + 上层模板 id」——上层模板与底层同族但
  *   取相邻 id（视觉上同主题、不同轮廓），全部落库于关卡 cfg。
- *   模板 id MUST 落库于关卡 cfg（运行时 MUST NOT 随机选取）。 */
-function v2MaskIds(levelId) {
-  var base = (levelId * 7 + 3) % 36;             /* 底层模板（确定性散列） */
-  var upper = (base + 1 + (levelId % 5)) % 36;   /* 上层模板（同族相邻 + 偏移） */
+ *   模板 id MUST 落库于关卡 cfg（运行时 MUST NOT 随机选取）。
+ *   variant: 回炉重试用的**确定性变体偏移**（attempt 序号）——
+ *     同一关卡的失败重试须换轮廓，否则几何完全相同 → 重试无效。 */
+function v2MaskIds(levelId, variant) {
+  var v = variant || 0;
+  var base = (levelId * 7 + 3 + v * 13) % 36;     /* 底层模板（确定性散列） */
+  var upper = (base + 1 + ((levelId + v) % 5)) % 36;   /* 上层模板（同族相邻 + 偏移） */
   return { base: base, upper: upper };
 }
 
@@ -171,9 +188,9 @@ function loadShapeMasks() {
   return require(path.join(__dirname, '..', 'src', 'render', 'shape-masks.js'));
 }
 
-function v2ShapeLayers(levelId) {
+function v2ShapeLayers(levelId, variant) {
   var SM = loadShapeMasks();
-  var ids = v2MaskIds(levelId);
+  var ids = v2MaskIds(levelId, variant);
   var n = waveGrid(levelId);
   var lc = v2LayerCount(levelId);
   /* 底层用 base 模板（偶数层，n×n 域） */
@@ -413,6 +430,7 @@ module.exports = {
   DISPERSION_TIERS: DISPERSION_TIERS,
   DISPERSION_STRUCTURAL_LIMITS: DISPERSION_STRUCTURAL_LIMITS,
   dispersionTierOf: dispersionTierOf,
+  dispersionPairTarget: dispersionPairTarget,
   validateChapters: validateChapters,
   levelParams: levelParams,
   waveGrid: waveGrid,
