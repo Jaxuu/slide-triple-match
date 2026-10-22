@@ -176,16 +176,18 @@ function v2ShapeLayers(levelId) {
   var ids = v2MaskIds(levelId);
   var n = waveGrid(levelId);
   var lc = v2LayerCount(levelId);
-  /* 底层用 base 模板；上层（z≥1）用 upper 模板 */
+  /* 底层用 base 模板（偶数层，n×n 域） */
   var lower = SM.buildLayers(ids.base, n, 1);
   var out = [{ z: 0, cells: lower[0].cells }];
   if (lc > 1) {
     var up = SM.buildLayers(ids.upper, n, lc - 1);
-    /* 上层模板的 z 需重映射为实际层号 1..lc-1，并按引擎口径剔除悬空 */
+    /* 上层模板的 z 需重映射为实际层号 1..lc-1：
+       ① 裁剪到该层的坐标域（奇数层 (n-1)×(n-1)）
+       ② 按引擎口径剔除悬空格（无下层支撑者） */
     var prev = out[0].cells;
     for (var i = 0; i < up.length; i++) {
       var z = i + 1;
-      var cells = up[i].cells;
+      var cells = SM.clipToLayerDomain(up[i].cells, z, n);
       var viol = SM.supportViolations(prev, cells, (z % 2) === 1);
       if (viol.length) {
         var bad = {};

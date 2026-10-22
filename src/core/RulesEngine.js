@@ -91,9 +91,11 @@
 
   /* 该层某格内容（null = 空 / 越界） */
   function cellAt(state, z, r, c) {
-    var s = layerSize(state.n, z);
-    if (r < 0 || r >= s || c < 0 || c >= s) return null;
-    return layerBoard(state, z)[r][c];
+    var boards = state.boards;
+    if (!boards || z < 0 || z >= boards.length) return null;
+    var b = boards[z];
+    if (!b || r < 0 || r >= b.length || c < 0 || c >= b.length) return null;
+    return b[r][c];
   }
 
   /* 该层某格是否存在「同层 z 的未移除滑块」——Δ19a 同层独立射线判据 */
@@ -1255,6 +1257,10 @@
     cellAt: cellAt,
     isCovered: isCovered,
     isSupported: isSupported,
+    isTopOfStack: isTopOfStack,
+    /* Δ19a 同层射线（FR-044 §5）——离线生成器与 Solver 复用同一实现 */
+    castRay: castRay,
+    buildPath: buildPath,
     init: init,
     canTap: canTap,
     applyTap: applyTap,
