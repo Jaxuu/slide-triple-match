@@ -26,6 +26,7 @@ require('../src/render/backdrops.js'); /* Δ14/T052d: 生态背景池（BoardRen
 require('../src/render/BoardRenderer.js');
 require('../src/audio/SoundManager.js'); /* Δ16c: BGM/SFX 粒度 + Δ16d 开机和弦音 */
 require('../src/ui/splash.js'); /* Δ16d/T066: HooLey Games 开机动画 */
+require('../src/ui/tutorial.js'); /* Δ19e/T087: L1/L2 教学层（纯表现层） */
 var STM = globalThis.STM;
 var LEVELS = require('../src/data/levels.js'); /* T052c: 72 关映射断言只读消费 */
 
@@ -674,9 +675,9 @@ function scenarioBackdropStage() {
   check('Δ15b3f: #board CSS 正方形状由 aspect-ratio + width 声明',
     /aspect-ratio:\s*1\s*\/\s*1/.test(boardRule) && /width:\s*calc\(100% - 12px\)/.test(boardRule));
   check('Δ15b3f: #dock 固定死高度（chip 进出不挤压棋盘）',
-    /height:\s*clamp\(48px/.test((css.match(/#dock\s*\{[^}]*\}/) || [''])[0]));
+    /height:\s*clamp\(58px/.test((css.match(/#dock\s*\{[^}]*\}/) || [''])[0]));
   check('Δ15b3f: #hud 固定死高度（combo 文案不撑大）',
-    /height:\s*clamp\(44px/.test((css.match(/#hud\s*\{[^}]*\}/) || [''])[0]));
+    /height:\s*clamp\(50px/.test((css.match(/#hud\s*\{[^}]*\}/) || [''])[0]));
 }
 
 /* =========================================================
@@ -1068,7 +1069,136 @@ function scenarioPurifyAndOriginality() {
   })();
 }
 
-/* ---- 主入口 ---- */
+/* =========================================================
+ * 场景 I: Δ19/T084~T087 —— 局内 UI 重排 / IQ / 三大道具 / L1-L2 教学
+ * ========================================================= */
+function scenarioDelta19() {
+  console.log('场景 I: Δ19/T084~T087 局内 UI 重排 / IQ / 道具 / 教学');
+  var fs = require('fs');
+  var path = require('path');
+  var RT = path.join(__dirname, '..');
+  var brSrc = fs.readFileSync(path.join(RT, 'src', 'render', 'BoardRenderer.js'), 'utf8');
+  var mainSrc = fs.readFileSync(path.join(RT, 'src', 'main.js'), 'utf8');
+  var gsSrc = fs.readFileSync(path.join(RT, 'src', 'core', 'GameState.js'), 'utf8');
+  var css = fs.readFileSync(path.join(RT, 'css', 'style.css'), 'utf8');
+  var html = fs.readFileSync(path.join(RT, 'index.html'), 'utf8');
+
+  /* ---- T084: 零缝隙 / 半格错位 / 变暗 / 碎片 ---- */
+  check('T084: 同层间距 GAP ≥ 1px', STM.rendererTest.GAP >= 1);
+  check('T084: 牌宽以 cell-GAP 封顶（同层零重叠）',
+    brSrc.indexOf('Math.min(cell * 0.84, cell - GAP)') !== -1);
+  check('T084: 奇数层半格坐标 +0.5（压 2×2 交界）',
+    brSrc.indexOf("(t.z || 0) % 2 === 1 ? t.r + 0.5 : t.r") !== -1 &&
+    brSrc.indexOf("(t.z || 0) % 2 === 1 ? t.c + 0.5 : t.c") !== -1);
+  check('T084: 被压卡牌 32% 深色遮罩',
+    /if \(t\.covered\)/.test(brSrc) && brSrc.indexOf('rgba(15, 23, 42, 0.32)') !== -1);
+  var sh = STM.rendererTest.SHARDS;
+  check('T084: 白瓷碎片数落入 48~60', sh && sh.min >= 48 && sh.max <= 60 && sh.max > sh.min);
+
+  /* ---- T085: 顶栏 / IQ 条 / 顶部待消槽顺序 ---- */
+  var iqAt = html.indexOf('id="iq-bar"');
+  var dockAt = html.indexOf('id="dock"');
+  var boardAt = html.indexOf('id="board-wrap"');
+  var hudAt = html.indexOf('id="hud"');
+  check('T085: DOM 顺序为 顶栏 → IQ 条 → 待消槽 → 棋盘',
+    hudAt >= 0 && iqAt > hudAt && dockAt > iqAt && boardAt > dockAt);
+  check('T085: 顶栏仅 `关卡 X`（无 /72 后缀与副标题）',
+    html.indexOf('/72') === -1 && /els\.hudNo\.textContent = String\(currentId\)/.test(mainSrc));
+  check('T085: 顶栏左侧返回大厅 + 设置两键',
+    html.indexOf('id="btn-lobby"') !== -1 && html.indexOf('id="btn-settings"') !== -1 &&
+    /function bindHudButtons/.test(mainSrc));
+  check('T085: IQ 初始 90 / 增量 3+combo×2 / 四档头衔',
+    /var IQ_START = 90/.test(mainSrc) &&
+    /3 \+ \(e\.combo \|\| 0\) \* 2/.test(mainSrc) &&
+    mainSrc.indexOf("min: 100") !== -1 && mainSrc.indexOf("min: 120") !== -1 &&
+    mainSrc.indexOf("min: 150") !== -1 && mainSrc.indexOf("min: 180") !== -1);
+  check('T085: 受阻清空 combo（IQ 不扣）', /function breakCombo\(\)/.test(gsSrc) &&
+    /engine\.combo = 0/.test(gsSrc) && gsSrc.indexOf("result.type === 'blocked'") !== -1);
+
+  /* 运行时: 受阻 → engine.combo 归零 */
+  var blockedLevel = {
+    id: 1, n: 3,
+    tiles: [
+      { r: 1, c: 0, d: 1, s: 0 },  /* 向右被 t1 挡住 */
+      { r: 1, c: 1, d: 2, s: 1 }
+    ],
+    cfg: { items: { undo: 1, magnet: 1, shuffle: 1 } }
+  };
+  var gb = makeGame(blockedLevel);
+  gb.session.engineState().combo = 7;
+  var rb = gb.session.tap(0);
+  check('T085: 受阻后 combo 立即归零（IQ 不扣分）',
+    rb && rb.type === 'blocked' && gb.session.engineState().combo === 0);
+
+  /* 运行时: 被压锁定点击同样归零 combo（T085 契约） */
+  var stackedLevel = {
+    id: 1, n: 4,
+    tiles: [
+      { r: 1, c: 1, d: 0, s: 0, z: 0 },  /* 被 z=1 上层压住 */
+      { r: 0, c: 0, d: 0, s: 1, z: 1 }
+    ],
+    cfg: {}
+  };
+  var gs2 = makeGame(stackedLevel);
+  var coveredLocked = !RE.canTap(gs2.session.engineState(), 0);
+  gs2.session.engineState().combo = 4;
+  var rs2 = gs2.session.tap(0);
+  check('T085: 被压锁定点击也清空 combo',
+    coveredLocked && rs2 === null && gs2.session.engineState().combo === 0);
+
+  /* ---- T086: 三大道具（底部大圆按钮 + 灵犀/洗牌购买闭环） ---- */
+  check('T086: 底部三道具按钮（撤销/灵犀三消/乾坤洗牌）',
+    html.indexOf('id="item-undo"') !== -1 && html.indexOf('id="item-magnet"') !== -1 &&
+    html.indexOf('id="item-shuffle"') !== -1);
+  check('T086: 三按钮均带原创 SVG 图标',
+    (html.match(/class="item-icon"/g) || []).length === 3);
+  check('T086: 免费次数 0 时角标显示 `💎 50`', /var ITEM_PRICE_LABEL = '💎 50'/.test(mainSrc));
+  check('T086: 购买成功判定涵盖 magnet/shuffle（Δ19 修复）',
+    /r\.type !== 'undo' && r\.type !== 'magnet' && r\.type !== 'shuffle'/.test(gsSrc));
+
+  var magnetLevel = {
+    id: 1, n: 3,
+    tiles: [
+      { r: 0, c: 0, d: 0, s: 5 },
+      { r: 0, c: 1, d: 0, s: 5 },
+      { r: 0, c: 2, d: 0, s: 5 }
+    ],
+    cfg: { items: { undo: 0, magnet: 0, shuffle: 0 } }
+  };
+  var gm = makeGame(magnetLevel);
+  var buy = gm.session.buyItemUse('magnet', null, 50);
+  check('T086: 棱晶购买灵犀三消 → 扣费后立即生效',
+    buy && buy.ok === true && buy.result && buy.result.type === 'magnet');
+
+  /* ---- T087: L1/L2 教学边界与目标可达 ---- */
+  var Tut = STM.Tutorial;
+  check('T087: L1/L2 触发，L3+ 零提示',
+    !!Tut && Tut._shouldShow(1) === true && Tut._shouldShow(2) === true &&
+    Tut._shouldShow(3) === false && Tut._shouldShow(72) === false);
+  check('T087: 教学文案分层（L1 基础 / L2 层叠）',
+    Tut._text(1).indexOf('待消槽') !== -1 && Tut._text(2).indexOf('层叠') !== -1);
+  var tutorLevel = {
+    id: 1, n: 3,
+    tiles: [
+      { r: 0, c: 0, d: 0, s: 6 },
+      { r: 0, c: 1, d: 0, s: 6 },
+      { r: 0, c: 2, d: 0, s: 6 }
+    ],
+    cfg: {}
+  };
+  var gt = makeGame(tutorLevel);
+  var targets = Tut._targetsOf(1, gt.session);
+  check('T087: L1 目标为 3 张实际可飞出同花色',
+    targets.length === 3 && targets.every(function (id) {
+      var t = gt.session.engineState().tiles[id];
+      return !!t && !t.removed && t.s === 6;
+    }));
+  check('T087: 教学层非模态（pointer-events:none + 跳过按钮可点）',
+    /#tutorial-root[\s\S]*?pointer-events:\s*none/.test(css) &&
+    /\.tut-skip[\s\S]*?pointer-events:\s*auto/.test(css));
+}
+
+
 scenarioBlocked();
 scenarioMechAnims();
 scenarioPrismBlocked();
@@ -1078,6 +1208,7 @@ scenarioSpriteSheets();
 scenarioBackdropStage();
 scenarioDelta16();
 scenarioPurifyAndOriginality();
+scenarioDelta19();
 
 console.log('');
 if (failures.length) {

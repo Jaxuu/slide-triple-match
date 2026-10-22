@@ -393,7 +393,7 @@
   var SHARD_LIFE_MIN = 650;  /* T082: 白瓷碎片生命周期 ms */
   var SHARD_LIFE_MAX = 900;
   var SHARD_COUNT_MIN = 48;
-  var SHARD_COUNT_MAX = 64;
+  var SHARD_COUNT_MAX = 60;  /* T084: 碎片数 MUST 落入 45~60 区间（Δ19e/FR-049） */
 
   /* ---------- 通用工具 ---------- */
   var RENDER_DPR = 1;
@@ -432,7 +432,7 @@
     scale = scale || 1;
     alpha = alpha == null ? 1 : alpha;
     layerOff = layerOff || 0;
-    var w = cell * 0.84 * scale; /* T081: gap=1px 由 cell 步进保证 */
+    var w = Math.min(cell * 0.84, cell - GAP) * scale; /* T081/T084: 同层间距恒 ≥ GAP(1px)，零重叠 */
     var x = px - w / 2 + layerOff;
     var y = py - w / 2 + layerOff;
     var depth = Math.max(1, t.stackDepth || 1);
@@ -706,9 +706,11 @@
     var particles = [];
     var shards = [];        /* T082: 白瓷多边形碎片池 */
     var highlight = -1;    /* Hint 高亮（M4 T055） */
+    var highlightIds = []; /* Δ19e/T087: 教学多目标高亮 */
     var highlightUntil = 0;  /* 高亮失效时间（ms）——M4 T055 自动 1.8s 清除 */
     function setHighlight(tileId, ttlMs) {
       highlight = tileId == null ? -1 : tileId;
+      highlightIds = [];
       if (highlight >= 0 && ttlMs) {
         highlightUntil = nowMs() + ttlMs;
       } else {
@@ -716,9 +718,17 @@
       }
       markDirty();
     }
+    /* Δ19e/T087: 一组教学目标高亮（ttlMs=0 表示常驻直到显式清除） */
+    function setHighlights(ids, ttlMs) {
+      highlight = -1;
+      highlightIds = (ids || []).slice();
+      highlightUntil = (highlightIds.length && ttlMs) ? (nowMs() + ttlMs) : 0;
+      markDirty();
+    }
     function tickHighlight(now) {
-      if (highlight >= 0 && highlightUntil > 0 && now > highlightUntil) {
+      if (highlightUntil > 0 && now > highlightUntil) {
         highlight = -1;
+        highlightIds = [];
         highlightUntil = 0;
         return true;
       }
@@ -767,7 +777,7 @@
       /* 幂等守卫须比对 **CSS 边长**（lastSideCss），不能拿物理像素
        * boardPx（= side × dpr）比——两者量纲不同，会导致守卫永不命中。
        * lastCellN 记录上次计算 cell 时用的关卡尺寸：换关时 n 变化，
-       * 即使位图未变也需重算 cell，否则 cell 会停在上���关的值。 */
+       * 即使位图未变也需重算 cell，否则 cell 会停在上一个关卡的值。 */
       if (side === lastSideCss && canvas.width === Math.round(side * dpr) &&
           lastCellN === (lastProbe ? lastProbe.n : 0)) {
         /* 尺寸未变——直接返回，避免无谓的位图重设（重设会清空画布） */
@@ -1038,14 +1048,17 @@
       }
       ctx.globalAlpha = 1;
 
-      /* Hint 高亮（脉冲描边，M4 启用） */
-      if (highlight >= 0) {
+      /* Hint 高亮 + Δ19e 教学引导高亮（脉冲描边，支持多目标） */
+      var hs = highlightIds.length ? highlightIds : (highlight >= 0 ? [highlight] : []);
+      for (var hi = 0; hi < hs.length; hi++) {
         for (i = 0; i < tiles.length; i++) {
-          if (tiles[i].id !== highlight) continue;
+          if (tiles[i].id !== hs[hi]) continue;
+          var hrr = (tiles[i].rr != null ? tiles[i].rr : ((tiles[i].z || 0) % 2 === 1 ? tiles[i].r + 0.5 : tiles[i].r));
+          var hcc = (tiles[i].cc != null ? tiles[i].cc : ((tiles[i].z || 0) % 2 === 1 ? tiles[i].c + 0.5 : tiles[i].c));
           var pulse = 0.5 + 0.5 * Math.sin(now / 180);
           ctx.strokeStyle = 'rgba(255,197,61,' + (0.4 + 0.6 * pulse) + ')';
           ctx.lineWidth = 3 * dpr;
-          ctx.strokeRect(tiles[i].c * cell + 3, tiles[i].r * cell + 3, cell - 6, cell - 6);
+          ctx.strokeRect(hcc * cell + 3, hrr * cell + 3, cell - 6, cell - 6);
         }
       }
     }
@@ -1113,10 +1126,10 @@
         }
       }
       drawTileBody(ctx, cell, px + layerOff, py + lift, t, 1, 1, layerOff, now);
-      /* T081: 被压卡牌自动变暗遮罩 —— covered === true 时叠加 rgba(15,23,42,0.34) */
+      /* T081: 被压卡牌自动变暗遮罩 —— covered === true 时叠加 rgba(15,23,42,0.32) */
       if (t.covered) {
         ctx.save();
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.34)';
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.32)';
         roundRect(ctx, px + layerOff, py + lift - (cell * 0.84 * 0.15), cell * 0.84, cell * 0.84, cell * 0.15);
         ctx.fill();
         ctx.restore();
@@ -1129,6 +1142,16 @@
       if (!t) return;
       if (a.kind === 'fly') {
         var seg = pathPos(a.path, prog);
+        /* Δ19c: 所有飞出牌最终都汇聚向**顶部** #dock 对应槽位——
+         * 前 30% 沿本层射线滑行，之后平滑弯折向画面上方槽位并淡出。
+         * 槽位横坐标按 slotIndex 在 7 格中的比例换算（与 DOM 托盘同序）。 */
+        var slotX = ((a.slot != null ? a.slot : 3) + 0.5) / 7 * boardPx;
+        var turn = Math.max(0, (prog - 0.30) / 0.70);
+        var ease = turn * turn * (3 - 2 * turn);
+        var gx = (seg.c + 0.5) * cell;
+        var gy = (seg.r + 0.5) * cell;
+        gx += (slotX - gx) * ease;
+        gy += (-cell * 0.55 - gy) * ease;
         /* Δ8 凌空飞越感: z>=1 高层飞出保持层高——上移偏移 + 放大 + 底部投影 */
         var fz = t.z || 0;
         var lift = fz * cell * 0.22;          /* 高层牌浮在半空 */
@@ -1139,13 +1162,13 @@
           ctx.globalAlpha = 0.28 * (1 - prog) * alpha;
           ctx.fillStyle = 'rgba(0,0,0,0.8)';
           ctx.beginPath();
-          ctx.ellipse((seg.c + 0.5) * cell, (seg.r + 0.5) * cell + cell * 0.38, cell * 0.3 * sc, cell * 0.12, 0, 0, Math.PI * 2);
+          ctx.ellipse(gx, gy + cell * 0.38, cell * 0.3 * sc, cell * 0.12, 0, 0, Math.PI * 2);
           ctx.fill();
           ctx.globalAlpha = 1;
         }
         /* Δ14: 白色推进云朵粒子（轻盈拖尾——随飞出迸发） */
         drawFlyPuff(a, prog);
-        drawTileBody(ctx, cell, (seg.c + 0.5) * cell, (seg.r + 0.5) * cell - lift, t, sc, alpha, 0, now);
+        drawTileBody(ctx, cell, gx, gy - lift, t, sc, alpha, 0, now);
       } else if (a.kind === 'block') {
         var p = prog < 0.55 ? (prog / 0.55) : (1 - (prog - 0.55) / 0.45);
         var dir = RE.DIR_VEC[t.d];
@@ -1232,15 +1255,30 @@
     }
 
     /* ---------- 事件接入（session onEvent → 渲染动效） ---------- */
+    var lastDockSlot = 0; /* Δ19c: 最近一次入槽下标——飞出终点对准顶部待消槽 */
     function handleEvent(e) {
       var now = nowMs();
-      if (e.e === 'flyout' && e.path && e.path.length) {
-        anims.push({ kind: 'fly', tileId: e.tileId, path: e.path, t0: now, dur: FLY_MS });
+      if (e.e === 'dock' && e.slotIndex != null) {
+        lastDockSlot = Math.max(0, Math.min(6, e.slotIndex | 0));
+        refresh();
+        return;
+      }
+      if (e.e === 'magnet-absorb') {
+        /* Δ19d: 灵犀三消——无视阻挡，直接从牌位被吸向顶部待消槽 */
+        var mt = tileInfo[e.id] || null;
+        if (mt) {
+          anims.push({
+            kind: 'fly', tileId: e.id, slot: lastDockSlot, t0: now, dur: FLY_MS * 0.7,
+            path: [{ r: mt.r, c: mt.c }, { r: -0.6, c: mt.c }]
+          });
+        }
+      } else if (e.e === 'flyout' && e.path && e.path.length) {
+        anims.push({ kind: 'fly', tileId: e.tileId, path: e.path, slot: lastDockSlot, t0: now, dur: FLY_MS });
       } else if (e.e === 'blocked') {
         anims.push({ kind: 'block', tileId: e.tileId, t0: now, dur: BLOCK_MS });
         if (opts.onShake) opts.onShake();
-      /* match 事件——Dock 顶部 3 槽位坐标爆发白瓷碎片 */
-      if (e.e === 'match') {
+      } else if (e.e === 'match') {
+        /* match 事件——顶部 Dock 槽位坐标爆发白瓷碎片 */
         var cx = boardPx / 2;
         var cy = -cell * 0.5; /* 顶部 Dock 槽位上方 */
         anims.push({ kind: 'match', tileId: e.ids[0], suit: e.suit, t0: now, dur: 300, x: cx, y: cy });
@@ -1332,9 +1370,23 @@
       return best;
     }
 
-    function setHighlight(tileId) {
-      highlight = tileId == null ? -1 : tileId;
-      markDirty();
+    /* Δ19e/T087: 教学指引取牌——返回牌在视口中的 CSS 像素矩形
+     * （tutorial.js 据此把动态小手压在「实际可飞出」的滑块上）。 */
+    function tileRect(tileId) {
+      if (!lastProbe || !canvas.getBoundingClientRect) return null;
+      var t = null;
+      for (var i = 0; i < lastProbe.tiles.length; i++) {
+        if (lastProbe.tiles[i].id === tileId) { t = lastProbe.tiles[i]; break; }
+      }
+      if (!t) return null;
+      var rect = canvas.getBoundingClientRect();
+      var k = boardPx > 0 ? (rect.width / boardPx) : 1;
+      var rr = (t.rr != null ? t.rr : ((t.z || 0) % 2 === 1 ? t.r + 0.5 : t.r));
+      var cc = (t.cc != null ? t.cc : ((t.z || 0) % 2 === 1 ? t.c + 0.5 : t.c));
+      var side = cell * 0.84 * k;
+      var cx = rect.left + (cc + 0.5) * cell * k;
+      var cy = rect.top + (rr + 0.5) * cell * k;
+      return { x: cx, y: cy, w: side, h: side };
     }
 
     if (session && session.engineState) {
@@ -1364,6 +1416,8 @@
       handleEvent: handleEvent,
       hitTest: hitTest,
       setHighlight: setHighlight,
+      setHighlights: setHighlights,
+      tileRect: tileRect,
       setLevel: setLevel,
       SUITS: SUITS
     };
@@ -1900,8 +1954,8 @@
   STM.IconAssets = IconAssets;
   STM.BackdropStage = BackdropStage;
   STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets, dockIconDataURL: dockIconDataURL, paintDockIcons: paintDockIcons, DIR_COLORS: DIR_COLORS };
-  /* T081-T082 exports */
-  STM.createBoardRenderer = createBoardRenderer;
-} /* close IIFE inner? */
+  /* T084: Δ19 渲染常量外露（离线自测断言用——不参与运行时逻辑） */
+  STM.rendererTest.SHARDS = { min: SHARD_COUNT_MIN, max: SHARD_COUNT_MAX };
+  STM.rendererTest.GAP = GAP;
 
 })(typeof window !== 'undefined' ? window : globalThis);

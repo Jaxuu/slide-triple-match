@@ -133,6 +133,15 @@
       return false;
     }
 
+    /* Δ19c/T084: 受阻清空连击（表现层 IQ 不扣分，但 combo 必须归零）
+     * 引擎 combo 为连击倍率来源，归零后下一次三消从 base 重新起跳。 */
+    function breakCombo() {
+      engine.combo = 0;
+      comboActive = false;
+      lastMatchAt = 0;
+      emitPhase();
+    }
+
     /* ---- onRail 维护：动作序列 == solutionMoves 前缀 ---- */
     function trackRail(action) {
       if (!onRail) return false;
@@ -160,7 +169,14 @@
         isFly = true;
       }
       if (!isFly) {
-        emit({ e: 'input-locked' });
+        if (t && !t.removed) {
+          /* Δ19c/T085: 被压/冰封/机关锁定的滑块点击同样视为「受阻」——
+           * 不扣 IQ，但必须立即清空连击（与射线受阻同一表现口径）。 */
+          emit({ e: 'blocked', tileId: tileId, path: [], damage: 0 });
+          breakCombo();
+        } else {
+          emit({ e: 'input-locked' });
+        }
         return null;
       }
 
@@ -176,7 +192,10 @@
       var i;
       for (i = 0; i < result.events.length; i++) emit(result.events[i]);
       if (result.type === 'flyout' || result.type === 'prism-flyout') emit({ e: 'flyout', tileId: tileId, path: result.path });
-      if (result.type === 'blocked') emit({ e: 'blocked', tileId: tileId, path: result.path, damage: result.damage });
+      if (result.type === 'blocked') {
+        emit({ e: 'blocked', tileId: tileId, path: result.path, damage: result.damage });
+        breakCombo(); /* Δ19c/T084: 受阻 MUST 立即清空连击（IQ 不扣分） */
+      }
       for (i = 0; i < result.events.length; i++) {
         if (result.events[i].e === 'match') windowCombo();
       }
@@ -279,7 +298,7 @@
       /* 购买 = 免费次数用尽后，用棱晶临时补出一次可立即使用的次数 */
       engine.items[item] = (engine.items[item] || 0) + 1;
       var r = useItem(item, tileId);
-      if (!r || (r.type !== 'undo' && r.type !== 'invalid')) {
+      if (!r || (r.type !== 'undo' && r.type !== 'magnet' && r.type !== 'shuffle')) {
         /* 生效失败（例：undo 无快照可回滚）→ 回滚刚补的次数，MUST NOT
          * 让余额付出而道具未用（FR-041 §2 确定性铁律） */
         engine.items[item] = Math.max(0, engine.items[item] - 1);
@@ -318,6 +337,7 @@
       useItem: useItem,
       buyItemUse: buyItemUse,
       purify: purify,
+      breakCombo: breakCombo,
       reset: reset,
       state: state,
       onRail: onRailCheck,

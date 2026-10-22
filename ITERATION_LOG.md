@@ -1115,8 +1115,87 @@ $ node tools/playthrough.js
 
 `tools/solver-report.json` 重跑后逐字段比对：**72/72 关指标零差异**（仅 `elapsedMs` 与 `generatedAt` 抖动），`summary.curveGate` 与 `summary.dispersion` 逐项一致。`src/data/levels.js` **零写入**（FR-008 Δ16 扩容铁律与 FR-031 复核均不破）。
 
----
+### Δ19 终章 — T084~T088：局内 UI 重排 + IQ 指数 + 三大道具 + L1/L2 教学
+
+**触发**：执行 Phase 9 / Milestone 6 最后一批（T084~T087 + T088 收口）。目标不是新增玩法，而是把局内信息层级、正反馈和首次上手体验一次收口。
+
+#### 1. 局内 UI 重排（T084/T085）
+
+| 改动 | 旧实现 | 新实现 |
+|---|---|---|
+| 顶栏 | 关卡名 + `/72` + 副标题 + 静音 + 生命/得分/连击混排 | 左【↩ 返回大厅】【⚙️ 设置】· 中仅 `关卡 X` · 右 💎 棱晶胶囊 |
+| IQ 条 | 无 | 顶栏下方独立状态条：初始 90 + 头衔 + 绿色 `+N` 跳字 |
+| 待消槽 | 屏幕底部 | IQ 条与棋盘之间；银白金属外框 + 深棕木纹内凹托盘 + 7 个深色凹坑 |
+| 飞出终点 | 屏幕边缘 | 画面上方对应槽位（前 30% 沿射线、后 70% 弯折上升淡出） |
+| 道具栏 | 撤销 / 灵犀三消 / 乾坤洗牌混排 + 扳手 | 底部三大立体大圆按钮 + 原创 SVG 图标 + 红徽章免费次数 |
+
+**IQ 规则**：每次三消 `IQ += 3 + combo × 2`；100/120/150/180 晋升「逻辑达人 → 超凡头脑 → 最强大脑 → 旷世奇才」；受阻 **不扣 IQ**，但 combo 立即归零并红闪。IQ 是纯局内表现态，不写存档、不影响棱晶与进度。
+
+**受阻归零的落点**：新增 `GameState.breakCombo()`，同时清 `engine.combo`、`comboActive`、`lastMatchAt` 并广播 `phase`。表现层只做红闪与 HUD 刷新，不拥有规则——避免出现“UI 清零了但引擎倍率还在”的双源状态。射线受阻、被压锁定、冰封/机关锁定三类点击都走同一分支：**不扣 IQ，但 combo 立即归零**。
+
+#### 2. 三大道具接线（T086）
+
+- **撤销**：沿用快照栈整条级联回滚；无快照时明确拒绝。
+- **灵犀三消**：`applyMagnet` 优先补 Dock 已有花色，按层高从高到低取 3−k 张，移除后校验零悬空。
+- **乾坤洗牌**：`applyShuffle` 按花色分组守恒重排 + 按拓扑可达序重排方向，洗牌后仍可解。
+- 免费次数用尽 → 角标 `💎 50`，按钮**不禁用**，点击进入“校验余额 → 扣费 → 使用 → 失败原路退还”的原子闭环。
+
+**发现并修复的购买判定缺陷**：`GameState.buyItemUse` 原成功集合写成 `r.type !== 'undo' && r.type !== 'invalid'`，把 `magnet` / `shuffle` 误判为失败——玩家花 50 棱晶买了灵犀三消，道具生效了却被退款判定覆盖。成功集合改为 `undo / magnet / shuffle`，并新增运行时断言：magnet 购买后 `ok === true && result.type === 'magnet'`。
+
+#### 3. L1/L2 交互式教学（T087）
+
+新建 `src/ui/tutorial.js`（挂 `STM.Tutorial`，加载序在 main 之前，DOM 惰性创建）：
+
+- L1：点击前方无阻挡的萌宠 → 滑入上方待消槽；3 次有效飞出后消失。
+- L2：变暗的下层被上层压住 → 先消亮色上层；2 次上层点击后消失。
+- L3+：零提示。
+- 非模态：`#tutorial-root { pointer-events: none }`，只有“跳过”按钮可点；不冻结输入、不改棋盘、不写关卡数据。
+- 小手位置来自 `renderer.tileRect()`，指向当前实际可飞出目标；目标被消掉后重算。
+- 消失为 320ms `tut-out` 淡出；换关时取消上一关定时器，避免新引导被误关。
+
+**发现并修复的事件契约错误**：教学进度最初挂在 `click` 事件上，而 `GameState` 在 `applyTap` **之后**才发 `click`，此时牌已 `removed`，`onTap` 的 `if (t.removed) return` 让进度永远不增长。改为挂在 `flyout` 事件（仅有效飞出才发），并移除 `removed` 前置判断。受阻点击因此不会计入教学进度。
+
+#### 4. 渲染口径收口（T084）
+
+- 牌宽 `min(cell × 0.84, cell − GAP)`，`GAP = 1px` 成为真实下限。
+- 奇数层半格坐标 `(r + 0.5, c + 0.5)`，被压牌遮罩 `rgba(15,23,42,0.32)`。
+- 白瓷碎片 48~60；消除时向外迸发。
+- **发现并修复 IIFE 括号错位**：上一提交在 `else if (e.e === 'blocked')` 分支少了一个 `}`，导致 `createBoardRenderer` 及全部导出被吞进该分支，`STM.createBoardRenderer is not a function`，render-selftest 全红；补 `}` 并删除文件末尾多余 `}`。
+- **截图验收发现并修复**：移动端调试按钮 `#debug-toggle` 固定定位在左上角，正好压住新的【返回大厅】按钮。改为左下角 38px 图标态（`🛠`），并保留 PC 端隐藏逻辑。
+
+#### 5. 验证与截图
+
+新增 `tools/ingame-shots.js`：headless Chrome + CDP，L1 走真实大厅入口，L2/L3 走深链，产出：
+
+```
+shots/ingame-l1.png          L1 完整局内（教学卡片 + 小手 + 高亮）
+shots/ingame-l1-top.png      顶栏局部（返回/设置/关卡 X/棱晶）
+shots/ingame-l1-items.png    底部三道具局部
+shots/ingame-l1-progress.png Auto-Play 三消后 IQ=102「逻辑达人」/ 得分 75 / x2
+shots/ingame-l1-skip.png     点击“跳过”后教学隐藏
+shots/ingame-l2.png          L2 层叠教学 + 变暗下层
+shots/ingame-l3.png          L3 零提示
+```
+
+断言覆盖：DOM 顺序（顶栏 → IQ → 待消槽 → 棋盘）、`关卡 X` 无 `/72`、棱晶胶囊、三道具完整可见、L1/L2 教学出现、L3 不出现、小手对位、无横纵向溢出、实际三消后 IQ 与得分增长。
+
+```
+$ node tools/solver.js --engine-selftest
+engine-selftest: 15/15 all green
+$ node tools/solver.js
+summary: 72/72 solvable, 耗时 23.90s（exit 0）
+$ node tools/render-selftest.js
+render-selftest: all green（新增场景 I：T084~T087 共 20 项断言）
+$ node tools/ingame-shots.js
+ingame-shots: all green（布局/教学/IQ/道具/溢出）
+```
+
+#### 6. 流程收口
+
+`.specify/extensions.yml` 仅配置 `after_specify` / `after_plan`，无 `after_implement` hook，本轮实现后无需执行额外扩展命令。`specs/001-slide-triple-match-core/tasks.md` 的 T084~T088 全部勾选。
 
 ---
 
-*本文依据 `specs/001-slide-triple-match-core/` 全套工件、`.specify/bugs/` 两份缺陷三件套、`tools/` 全部离线工具源码与 34 次 Git 提交记录撰写。所有命令输出与实测数值均在交付状态下复现（`node tools/solver.js` exit 0 / 72/72 solvable；`--engine-selftest` 11/11；`render-selftest.js` all green；`lobby-smoke.js` 68 passed / 0 failed）。*
+---
+
+*本文依据 `specs/001-slide-triple-match-core/` 全套工件、`.specify/bugs/` 两份缺陷三件套、`tools/` 全部离线工具源码与全部 Git 提交记录撰写。所有命令输出与实测数值均在交付状态下复现（`node tools/solver.js` exit 0 / 72/72 solvable；`--engine-selftest` 15/15；`render-selftest.js` all green；`ingame-shots.js` all green；`lobby-smoke.js` 68 passed / 0 failed）。*

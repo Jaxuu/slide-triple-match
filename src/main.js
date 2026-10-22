@@ -147,6 +147,7 @@
      * 表现为按钮「点了毫无反应」。失败层是唯一独立于大厅/局内的模态层，
      * 故在此处（唯一的场景切换入口）统一 teardown，与 Lobby.hide() 并列。 */
     if (STM.Fail) STM.Fail.hide();
+    if (STM.Tutorial) STM.Tutorial.dismiss();
     var app = global.document.getElementById('app');
     if (app) app.classList.add('scene-lobby');
     scene = SCENE.LOBBY;
@@ -167,6 +168,7 @@
   function enterGame(id) {
     /* Δ20 Bug 2 修复：同上——进入局内前关闭残留失败层（幂等） */
     if (STM.Fail) STM.Fail.hide();
+    if (STM.Tutorial) STM.Tutorial.dismiss();
     var app = global.document.getElementById('app');
     if (app) app.classList.remove('scene-lobby');
     if (STM.Lobby) STM.Lobby.hide();
@@ -217,6 +219,26 @@
         syncAvatarEverywhere();
       }
     });
+  }
+
+  /* Δ19c/T085: 局内顶栏左侧两个按钮
+   * 【↩ 返回大厅】直接切场景（保留关卡进度，幂等 teardown）
+   * 【⚙️ 设置】复用大厅同一设置弹窗（audio / 返回大厅 / 重开均可用） */
+  function bindHudButtons() {
+    if (els.btnLobby) {
+      els.btnLobby.addEventListener('pointerdown', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        enterLobby({ unlocked: progress.unlocked, level: progress.last });
+      });
+    }
+    if (els.btnSettings) {
+      els.btnSettings.addEventListener('pointerdown', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openSettingsModal(true);
+      });
+    }
   }
 
   /* 大厅刷新参数（Δ20 Bug 1：携带已通关集合 → 晶片点亮态反推） */
@@ -279,6 +301,9 @@
       renderMuteBtn();
     }
 
+    /* Δ19c/T085: 顶栏左侧【返回大厅】/【设置】——设置与主大厅同一弹窗 */
+    bindHudButtons();
+
     /* Δ16c/T065: 玩家档案与经济态持久化（profile v2——与 progress v1 并存
      * 不迁移; 纯读取，不改写任何关卡数据——FR-041 §4 铁律） */
     try {
@@ -333,11 +358,19 @@
   function cacheEls() {
     var d = global.document;
     els = {
-      hudName: d.getElementById('hud-level-name'),
+      hudTitle: d.getElementById('hud-title'),
       hudNo: d.getElementById('hud-level-no'),
+      hudShards: d.getElementById('hud-shards'),
       hudLives: d.getElementById('hud-lives'),
       hudCombo: d.getElementById('hud-combo'),
       hudScore: d.getElementById('hud-score'),
+      iqBar: d.getElementById('iq-bar'),
+      iqPill: d.getElementById('iq-pill'),
+      iqValue: d.getElementById('iq-value'),
+      iqTitle: d.getElementById('iq-title'),
+      iqDelta: d.getElementById('iq-delta'),
+      btnLobby: d.getElementById('btn-lobby'),
+      btnSettings: d.getElementById('btn-settings'),
       board: d.getElementById('board'),
       boardWrap: d.getElementById('board-wrap'),
       dock: d.getElementById('dock'),
@@ -355,7 +388,8 @@
       debugMute: d.getElementById('debug-mute')
     };
   }
-  /* M4 T053: 移动端调试面板折叠按钮（PC 端不显示） */
+  /* M4 T053: 移动端调试面板折叠按钮（PC 端不显示）
+   * Δ19c: 图标化放在左下角——避免遮挡顶栏【返回大厅/设置】主按钮 */
   function ensureDebugToggle(d) {
     var t = d.getElementById('debug-toggle');
     if (!t) {
@@ -363,7 +397,7 @@
       t.id = 'debug-toggle';
       t.type = 'button';
       t.title = '调试面板';
-      t.textContent = '🛠 调试';
+      t.textContent = '🛠';
       d.getElementById('app').appendChild(t);
     }
     return t;
@@ -571,7 +605,13 @@
     renderItems();
     bindBoardInput();
     bindItemInput(); /* T035: 道具栏 + 暂存区输入绑定 */
-    exitWrenchMode();
+    resetIq(); /* Δ19c/T085: 每关 IQ 重置为 90（纯局内表现态，不持久化） */
+
+    /* Δ19e/T087: L1/L2 交互式教学（L3+ 零提示——纯表现层，不阻塞输入） */
+    if (STM.Tutorial) {
+      if (STM.Tutorial.dismiss) STM.Tutorial.dismiss();
+      STM.Tutorial.maybeStart(id, { session: session, renderer: renderer });
+    }
 
     /* M4: 调试面板首次初始化（DOM 订阅 + 1~LEVELS.length 动态选项） */
     var panelNeedsInit = !els.debugPanel || !els.debugPanel._stmDebugInitialized;
@@ -652,24 +692,113 @@
   /* =========================================================
    * T021: HUD / Dock DOM 视图与结算浮层
    * ========================================================= */
+  /* =========================================================
+   * T021 + Δ19c/T085: HUD / IQ 指数条 / Dock / 道具栏视图
+   *   · 顶栏中央仅 `关卡 X`（MUST NOT 带 /72 后缀与关卡副标题）
+   *   · 右上角棱晶胶囊实时反映 profile v2 余额
+   *   · IQ 为纯局内表现态（不持久化、不影响棱晶与进度）
+   * ========================================================= */
+  var IQ_START = 90;
+  var IQ_TITLES = [
+    { min: 180, name: '旷世奇才' },
+    { min: 150, name: '最强大脑' },
+    { min: 120, name: '超凡头脑' },
+    { min: 100, name: '逻辑达人' },
+    { min: 0, name: '敏锐直觉' }
+  ];
+  var iqValue = IQ_START;
+  var iqTitle = '敏锐直觉';
+  var iqDeltaTimer = null;
+
+  function iqTitleOf(v) {
+    for (var i = 0; i < IQ_TITLES.length; i++) {
+      if (v >= IQ_TITLES[i].min) return IQ_TITLES[i].name;
+    }
+    return IQ_TITLES[IQ_TITLES.length - 1].name;
+  }
+
+  function resetIq() {
+    iqValue = IQ_START;
+    iqTitle = iqTitleOf(iqValue);
+    if (els.iqValue) els.iqValue.textContent = String(iqValue);
+    if (els.iqTitle) els.iqTitle.textContent = iqTitle;
+    if (els.iqPill) {
+      els.iqPill.classList.remove('level-up');
+      els.iqPill.classList.remove('iq-broken');
+    }
+    if (els.iqDelta) { els.iqDelta.textContent = ''; els.iqDelta.classList.remove('show'); }
+  }
+
+  /* 每次成功三消: IQ += 3 + combo × 2（绿色跳字 + 放大动效）；
+   * 头衔在 100 / 120 / 150 / 180 处依次晋升。 */
+  function addIq(gain, combo) {
+    iqValue += gain;
+    var next = iqTitleOf(iqValue);
+    var leveled = next !== iqTitle;
+    iqTitle = next;
+    if (els.iqValue) els.iqValue.textContent = String(iqValue);
+    if (els.iqTitle) els.iqTitle.textContent = iqTitle;
+    if (els.iqDelta) {
+      /* 绿色跳字固定展示本次增量（如 +5 / +9） */
+      els.iqDelta.textContent = '+' + gain;
+      els.iqDelta.classList.remove('show');
+      void els.iqDelta.offsetWidth;
+      els.iqDelta.classList.add('show');
+      if (iqDeltaTimer) clearTimeout(iqDeltaTimer);
+      iqDeltaTimer = setTimeout(function () {
+        if (els.iqDelta) els.iqDelta.classList.remove('show');
+      }, 820);
+    }
+    if (els.iqPill) {
+      if (leveled) {
+        els.iqPill.classList.remove('level-up');
+        void els.iqPill.offsetWidth;
+        els.iqPill.classList.add('level-up');
+        if (sound) sound.play('unlock');
+      }
+    }
+  }
+
+  /* 受阻反弹: IQ 不减少，但连击立即归零（重置由 GameState.breakCombo 权威执行，
+   * 此函数仅负责表现层的红闪与 HUD 刷新） */
+  function breakComboOnBlocked() {
+    if (els.iqPill) {
+      els.iqPill.classList.remove('iq-broken');
+      void els.iqPill.offsetWidth;
+      els.iqPill.classList.add('iq-broken');
+    }
+    renderHud();
+  }
+
   function renderHud() {
     var s = session.state();
-    els.hudName.textContent = currentLevel.name || ('Level ' + currentId);
-    els.hudNo.textContent = currentId + '/' + (STM.LEVELS.length); /* 动态关数（Δ4） */
-    /* 生命 ♥×3 DOM */
-    var livesHtml = '';
-    var total = (currentLevel.cfg && currentLevel.cfg.lives) || 3;
-    for (var i = 0; i < total; i++) {
-      livesHtml += '<span class="life' + (i < s.lives ? '' : ' lost') + '">♥</span>';
+    /* 中央: 干净醒目的 `关卡 X`——彻底去掉 /72 与关卡副标题 */
+    if (els.hudNo) els.hudNo.textContent = String(currentId);
+    if (els.hudTitle) els.hudTitle.setAttribute('aria-label', '关卡 ' + currentId);
+    /* 右上角: 💎 棱晶数量（与大厅 profile v2 实时同步） */
+    if (els.hudShards) {
+      var bal = 0;
+      try { bal = STM.Profile ? STM.Profile.get().shards : 0; } catch (e) { bal = 0; }
+      els.hudShards.textContent = '💎 ' + bal;
     }
-    els.hudLives.innerHTML = livesHtml;
-    els.hudCombo.textContent = s.combo > 0 ? 'x' + s.combo + ' combo' : '';
-    els.hudScore.textContent = String(s.score);
-    if (s.combo > 0) {
+    /* 生命 ♥×3 DOM */
+    if (els.hudLives) {
+      var livesHtml = '';
+      var total = (currentLevel.cfg && currentLevel.cfg.lives) || 3;
+      for (var i = 0; i < total; i++) {
+        livesHtml += '<span class="life' + (i < s.lives ? '' : ' lost') + '">♥</span>';
+      }
+      els.hudLives.innerHTML = livesHtml;
+    }
+    if (els.hudCombo) els.hudCombo.textContent = s.combo > 0 ? 'x' + s.combo : '';
+    if (els.hudScore) els.hudScore.textContent = String(s.score);
+    if (els.hudCombo && s.combo > 0) {
       els.hudCombo.classList.remove('bump');
       void els.hudCombo.offsetWidth; /* 重启动画 */
       els.hudCombo.classList.add('bump');
     }
+    if (els.iqValue) els.iqValue.textContent = String(iqValue);
+    if (els.iqTitle) els.iqTitle.textContent = iqTitle;
   }
 
   function renderDock() {
@@ -693,16 +822,13 @@
   function renderItems() {
     var s = session.state();
     var it = s.items || {};
-    setItemBtn('item-undo', it.undo, false);
-    /* 扳手: 无余量禁用; 扳手选择态由 wrenchMode 控制（道具仅 2 种——暂存区已移除） */
-    setItemBtn('item-wrench', it.wrench, wrenchMode);
-    if (wrenchMode) {
-      var wb = global.document.getElementById('item-wrench');
-      if (wb) wb.classList.add('selecting');
-    }
+    setItemBtn('item-undo', it.undo || 0);
+    setItemBtn('item-magnet', it.magnet || 0);
+    setItemBtn('item-shuffle', it.shuffle || 0);
     /* Δ16f/T071: 免费次数用尽后角标变为 `💎 50`（不再显示数字次数） */
     renderItemBadge('item-undo', (it.undo || 0) > 0);
-    renderItemBadge('item-wrench', (it.wrench || 0) > 0);
+    renderItemBadge('item-magnet', (it.magnet || 0) > 0);
+    renderItemBadge('item-shuffle', (it.shuffle || 0) > 0);
   }
 
   /* 道具角标：免费可用 → 显次数；用尽 → 显 `💎 50` 购买价 */
@@ -715,7 +841,7 @@
     if (!hasFree) cnt.textContent = ITEM_PRICE_LABEL;
   }
 
-  function setItemBtn(btnId, count, selecting, disabledExtra) {
+  function setItemBtn(btnId, count) {
     var btn = global.document.getElementById(btnId);
     if (!btn) return;
     var cnt = count == null ? 0 : count;
@@ -725,8 +851,7 @@
     if (countEl) countEl.textContent = String(cnt);
     /* Δ16f/T071: 次数用尽**不得**禁用——按钮进入购买态仍可点击
      * （余额不足时在点击时提示，FR-041 §2：拒绝扣费、拒绝消耗） */
-    btn.disabled = !!disabledExtra;
-    if (!selecting) btn.classList.remove('selecting');
+    btn.disabled = false;
   }
 
   /* ---------- Δ16f/T071: 棱晶购买（原子扣费 + 立即生效，FR-041 §2） ----------
@@ -735,11 +860,13 @@
    * 不得扣成负数）。余额恰好等于价格时扣费后归零、道具仍正常生效。 */
   var ITEM_PRICE = 50;
   var ITEM_PRICE_LABEL = '💎 50';
+  var ITEM_BTN = { undo: 'item-undo', magnet: 'item-magnet', shuffle: 'item-shuffle' };
+  var ITEM_NAME = { undo: '撤销', magnet: '灵犀三消', shuffle: '乾坤洗牌' };
 
   function buyItemAndUse(item, tileId) {
     if (!session || !STM.Profile) return false;
     var cost = ITEM_PRICE;
-    var btnId = item === 'undo' ? 'item-undo' : 'item-wrench';
+    var btnId = ITEM_BTN[item] || 'item-undo';
     if (!STM.Profile.spendShards(cost)) {
       /* 余额不足 → 明确提示，零扣费零消耗（余额恒 ≥0）+ 按钮轻晃 */
       toast('棱晶不足，需要 ' + cost + ' 💎');
@@ -752,34 +879,59 @@
       /* 生效失败 → 退还已扣的棱晶（扣费与生效必须原子，不得白扣） */
       STM.Profile.addShards(cost);
       toast('本次无法使用该道具');
+      sound.play('blocked');
       shakeItemBtn(btnId);
       return false;
     }
-    sound.play('match');
+    if (item !== 'undo') flashItemBtn(btnId);
+    sound.play(item === 'shuffle' ? 'gear' : 'match');
+    if (item === 'shuffle') playShuffleFx();
     renderer.refresh();
     renderDock();
     renderHud();
     renderItems();
     /* 扣费飘字 `-50 💎`（锚定触发道具按钮） */
     spawnShardFloat('-' + cost + ' 💎', global.document.getElementById(btnId));
-    toast('已消耗 ' + cost + ' 💎 使用一次' + (item === 'undo' ? '撤回' : '扳手'));
+    toast('已消耗 ' + cost + ' 💎 使用一次' + ITEM_NAME[item]);
     return true;
   }
 
-  /* ---------- T031/T035 道具交互编排（道具 2 种: undo/wrench——暂存区已移除） ---------- */
-  var wrenchMode = false; /* 扳手目标选择模式 */
-
+  /* ---------- Δ19d/T086 道具交互编排（撤销 / 灵犀三消 / 乾坤洗牌） ---------- */
   function bindItemInput() {
     var undo = global.document.getElementById('item-undo');
-    var wrench = global.document.getElementById('item-wrench');
+    var magnet = global.document.getElementById('item-magnet');
+    var shuffle = global.document.getElementById('item-shuffle');
     if (undo) {
       undo.removeEventListener('pointerdown', onUndoDown);
       undo.addEventListener('pointerdown', onUndoDown);
     }
-    if (wrench) {
-      wrench.removeEventListener('pointerdown', onWrenchDown);
-      wrench.addEventListener('pointerdown', onWrenchDown);
+    if (magnet) {
+      magnet.removeEventListener('pointerdown', onMagnetDown);
+      magnet.addEventListener('pointerdown', onMagnetDown);
     }
+    if (shuffle) {
+      shuffle.removeEventListener('pointerdown', onShuffleDown);
+      shuffle.addEventListener('pointerdown', onShuffleDown);
+    }
+  }
+
+  function flashItemBtn(btnId) {
+    var btn = global.document.getElementById(btnId);
+    if (!btn) return;
+    btn.classList.remove('item-flash');
+    void btn.offsetWidth;
+    btn.classList.add('item-flash');
+  }
+
+  /* 乾坤洗牌棋盘整体旋转缩放动效（纯表现层——不改布局盒） */
+  function playShuffleFx() {
+    if (!els.boardWrap) return;
+    els.boardWrap.classList.remove('shuffling');
+    void els.boardWrap.offsetWidth;
+    els.boardWrap.classList.add('shuffling');
+    setTimeout(function () {
+      if (els.boardWrap) els.boardWrap.classList.remove('shuffling');
+    }, 660);
   }
 
   function onUndoDown() {
@@ -789,45 +941,63 @@
     var left = (session.state().items || {}).undo || 0;
     if (left <= 0) { buyItemAndUse('undo'); return; }
     var r = session.useItem('undo');
-    if (r) {
+    if (r && r.type === 'undo') {
       sound.play('undo');
       renderer.refresh();
       renderDock();
       renderHud();
       renderItems();
       toast('已撤回一步');
+    } else {
+      toast('暂无可撤回的步骤');
+      sound.play('blocked');
+      shakeItemBtn('item-undo');
     }
   }
 
-  function onWrenchDown() {
+  /* 灵犀三消：无视阻挡与层叠锁定，吸走 3 张同花色直接爆裂消除 */
+  function onMagnetDown() {
     if (!session) return;
-    notifyBotInterruption(); /* M4 T056: 玩家道具操作 → 打断 Bot */
-    var s = session.state();
-    /* Δ16f/T071: 免费次数用尽 → 进入购买态（点选目标时原子扣费并生效），
-     * 不在按钮点击时提前扣费——避免「买了却没点中」白扣（FR-041 §2） */
-    if (!s.items || s.items.wrench <= 0) {
-      if (!STM.Profile || STM.Profile.get().shards < ITEM_PRICE) {
-        toast('棱晶不足，需要 ' + ITEM_PRICE + ' 💎');
-        sound.play('blocked');
-        shakeItemBtn('item-wrench');
-        return;
-      }
-    }
-    wrenchMode = !wrenchMode;
-    renderItems();
-    if (wrenchMode) toast(wrenchPaidPending() ? '点选要转向的滑块（将消耗 ' + ITEM_PRICE + ' 💎）' : '点选要转向的滑块');
-  }
-
-  /* 扳手是否处于「待付费」购买态（免费次数已用尽） */
-  function wrenchPaidPending() {
-    if (!session) return false;
-    return ((session.state().items || {}).wrench || 0) <= 0;
-  }
-
-  function exitWrenchMode() {
-    if (wrenchMode) {
-      wrenchMode = false;
+    notifyBotInterruption();
+    var left = (session.state().items || {}).magnet || 0;
+    if (left <= 0) { buyItemAndUse('magnet'); return; }
+    var r = session.useItem('magnet');
+    if (r && r.type === 'magnet') {
+      flashItemBtn('item-magnet');
+      sound.play('prism');
+      renderer.refresh();
+      renderDock();
+      renderHud();
       renderItems();
+      toast('灵犀三消！同色萌宠已吸入待消槽');
+    } else {
+      var why = r && r.reason === 'insufficient' ? '场上同花色不足 3 张' : '当前无法使用灵犀三消';
+      toast(why);
+      sound.play('blocked');
+      shakeItemBtn('item-magnet');
+    }
+  }
+
+  /* 乾坤洗牌：剩余卡牌花色与方向随机重排（洗牌后仍必胜可解） */
+  function onShuffleDown() {
+    if (!session) return;
+    notifyBotInterruption();
+    var left = (session.state().items || {}).shuffle || 0;
+    if (left <= 0) { buyItemAndUse('shuffle'); return; }
+    var r = session.useItem('shuffle');
+    if (r && r.type === 'shuffle') {
+      flashItemBtn('item-shuffle');
+      playShuffleFx();
+      sound.play('gear');
+      renderer.refresh();
+      renderDock();
+      renderHud();
+      renderItems();
+      toast('乾坤洗牌！场上卡牌已重新分布');
+    } else {
+      toast('当前无法使用乾坤洗牌');
+      sound.play('blocked');
+      shakeItemBtn('item-shuffle');
     }
   }
 
@@ -835,22 +1005,36 @@
   function handleSessionEvent(e) {
     if (e.e === 'phase') { renderHud(); return; }
     if (e.e === 'reset') {
+      resetIq();
       renderer.refresh(); renderHud(); renderDock(); renderItems();
       return;
     }
     /* Δ10: 「别急，动画中…」Toast 与 input-locked 提示音已删除——
      * 动画期间不再拦截点击；仅终态时 GameState 才发 input-locked（静默忽略） */
     if (e.e === 'input-locked') return;
-    if (e.e === 'click') { sound.play('click'); return; }
-    if (e.e === 'flyout') { sound.play('flyout'); renderer.handleEvent(e); renderer.refresh(); renderDock(); renderHud(); return; }
+    if (e.e === 'click') {
+      sound.play('click');
+      return;
+    }
+    if (e.e === 'flyout') {
+      /* Δ19e/T087: 仅在「有效飞出」时推进 L1/L2 教学进度（受阻不计） */
+      if (STM.Tutorial) STM.Tutorial.onTap(e.tileId);
+      sound.play('flyout'); renderer.handleEvent(e); renderer.refresh(); renderDock(); renderHud(); return;
+    }
     if (e.e === 'blocked') {
+      /* Δ19c/T085: 受阻反弹 → IQ 不减少，但 combo 立即归零（FR-047 §2） */
       sound.play('blocked');
       renderer.handleEvent(e);
       renderer.refresh(); /* Δ10: 弹回动画滑块由动画层绘制（blockSet 防重影），逻辑态即时刷新 */
+      breakComboOnBlocked();
       return;
     }
     if (e.e === 'dock' || e.e === 'match' || e.e === 'remove') {
-      if (e.e === 'match') sound.play('match', e.combo);
+      if (e.e === 'match') {
+        sound.play('match', e.combo);
+        /* Δ19c/T085: 每次三消 IQ += 3 + combo × 2（绿色跳字 + 放大动效） */
+        addIq(3 + (e.combo || 0) * 2, e.combo || 0);
+      }
       renderer.handleEvent(e);
       renderer.refresh();
       renderDock();
@@ -1420,28 +1604,6 @@
     if (st.phase !== 'READY' && st.phase !== 'LOADING') return;
     var id = renderer.hitTest(ev.clientX, ev.clientY);
     if (id < 0) return;
-    /* T035 扳手目标选择模式: 点击即施加转向（不 tap） */
-    if (wrenchMode) {
-      /* Δ16f/T071: 免费次数用尽 → 此处原子「扣 50 棱晶 + 立即生效」 */
-      if (wrenchPaidPending()) {
-        /* 成功或失败均退出选择态（失败分支内部已退还棱晶并提示） */
-        buyItemAndUse('wrench', id);
-        exitWrenchMode();
-        return;
-      }
-      var r = session.useItem('wrench', id);
-      if (r && r.type === 'wrench') {
-        sound.play('gear');
-        exitWrenchMode();
-        renderer.refresh();
-        renderHud();
-        renderItems();
-        toast('已顺时针转向');
-      } else if (r && r.type === 'invalid') {
-        toast('该滑块不可转向');
-      }
-      return;
-    }
     /* Δ10 无锁连点: 瞬时结算（0ms）——连续狂点直接命中最新逻辑态的栈顶滑块 */
     session.tap(id);
   }

@@ -12,6 +12,11 @@
           "speckit.bug.assess",
           "speckit.bug.fix",
           "speckit.bug.test"
+        ],
+        "opencode": [
+          "speckit.bug.assess",
+          "speckit.bug.fix",
+          "speckit.bug.test"
         ]
       },
       "registered_skills": [],
@@ -25,6 +30,12 @@
       "priority": 10,
       "registered_commands": {
         "claude": [
+          "speckit.refine.update",
+          "speckit.refine.propagate",
+          "speckit.refine.diff",
+          "speckit.refine.status"
+        ],
+        "opencode": [
           "speckit.refine.update",
           "speckit.refine.propagate",
           "speckit.refine.diff",
