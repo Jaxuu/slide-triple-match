@@ -3,6 +3,30 @@
   overflow: hidden;
   border-radius: 10px;
 }
+
+/* Δ20/T092: 顶部待消槽匹配卡牌 180ms 碎裂驻留演出 */
+.slot-shattering {
+  animation: slot-shatter 180ms steps(6, end) forwards;
+  position: relative;
+  overflow: visible;
+}
+.slot-shattering::before,
+.slot-shattering::after {
+  content: '';
+  position: absolute;
+  inset: 6% 8%;
+  border-top: 1px solid rgba(255, 255, 255, 0.95);
+  pointer-events: none;
+}
+.slot-shattering::before { transform: rotate(18deg); top: 30%; }
+.slot-shattering::after { transform: rotate(-24deg); top: 62%; }
+@keyframes slot-shatter {
+  0%   { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  25%  { transform: translate(2px, -1px) rotate(2deg); opacity: 1; }
+  50%  { transform: translate(-2px, 1px) rotate(-2deg); opacity: 1; }
+  75%  { transform: translate(1px, 2px) rotate(1deg); opacity: 0.85; }
+  100% { transform: scale(0.55) rotate(6deg); opacity: 0; }
+}
 /* =========================================================
  * Slide & Triple（滑块三消）— 9:16 响应式外壳（D-13）
  * 零外部资源：全部 CSS 渐变/动效程序化（宪章 III）
@@ -45,6 +69,16 @@ html, body {
   z-index: 0;
 }
 #fx-canvas { z-index: 1; } /* 前景粒子层高于底图、低于棋盘 */
+
+/* Δ20/T092: 全屏顶层特效画布（白瓷碎片瀑布 / 卡牌碎裂） */
+#vfx-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 950;
+}
 
 /* HUD / 棋盘 / Dock / 道具栏 / 教学层 抬升至背景层之上 */
 #hud, #board-wrap, #dock, #items, #toast, #challenge-banner {

@@ -534,8 +534,8 @@ T014/T015 GameState（依赖引擎 API）→ T020/T021 main.js 集成 → T022 M
 
 ### Batch 3 — 全屏白瓷碎片瀑布与卡牌碎裂延迟（T092~T093）
 
-- [ ] T092 [Δ20] 在 `index.html` 与 `css/style.css` 中新建全屏顶层 `#vfx-canvas`（`position: fixed; inset: 0; pointer-events: none; z-index: 950`），并在 `src/render/BoardRenderer.js` 中实现 `#dock` 匹配卡牌 180ms 震颤延迟消失（伴随震颤裂纹）。
-- [ ] T093 [Δ20] 在 `src/main.js` 与 `src/render/BoardRenderer.js` 中实现从 3 个 `#dock .slot` 的精确屏幕坐标（`getBoundingClientRect()`）处爆发 120~150 枚 100% 不透明（alpha=1.0）3D 白瓷碎片向下方倾泻的瀑布特效（亮白受光面 `#FFFFFF` + 冷灰折面 `#CBD5E1` + 细深灰轮廓线与阴影）；3 张槽内卡牌在碎片爆开瞬间碎裂消失；更新 SC-016 采样帧计数断言为 120~150。
+- [x] T092 [Δ20] 在 `index.html` 与 `css/style.css` 中新建全屏顶层 `#vfx-canvas`（`position: fixed; inset: 0; pointer-events: none; z-index: 950`），并在 `src/render/BoardRenderer.js` 中实现 `#dock` 匹配卡牌 180ms 震颤延迟消失（伴随震颤裂纹）。
+- [x] T093 [Δ20] 在 `src/main.js` 与 `src/render/BoardRenderer.js` 中实现从 3 个 `#dock .slot` 的精确屏幕坐标（`getBoundingClientRect()`）处爆发 120~150 枚 100% 不透明（alpha=1.0）3D 白瓷碎片向下方倾泻的瀑布特效（亮白受光面 `#FFFFFF` + 冷灰折面 `#CBD5E1` + 细深灰轮廓线与阴影）；3 张槽内卡牌在碎片爆开瞬间碎裂消失；更新 SC-016 采样帧计数断言为 120~150。
 
 ### Batch 4 — IQ 50→200 动态曲线、结算直通下一关与终验（T094~T095）
 

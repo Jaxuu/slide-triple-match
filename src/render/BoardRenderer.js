@@ -33,6 +33,7 @@
   'use strict';
 
   var STM = global.STM = global.STM || {};
+  var lastRendererApi = null;
   var RE = STM.RulesEngine;
   var Bestiary = STM.Bestiary; /* Δ14: 装载序保证先于 BoardRenderer */
 
@@ -417,6 +418,12 @@
   var SHARD_LIFE_MAX = 900;
   var SHARD_COUNT_MIN = 48;
   var SHARD_COUNT_MAX = 60;  /* T084: 碎片数 MUST 落入 45~60 区间（Δ19e/FR-049） */
+/* Δ20/T093: 顶部待消槽全屏白瓷碎片瀑布（3 槽 × 45 = 135 枚） */
+var DOCK_SHARD_PER_SLOT = 45;
+var DOCK_SHARD_TOTAL = 135;
+var DOCK_SHARD_LIFE_MIN = 750;
+var DOCK_SHARD_LIFE_MAX = 950;
+var DOCK_SHARD_GRAVITY = 980; /* px/s² */
 
   /* ---------- 通用工具 ---------- */
   var RENDER_DPR = 1;
@@ -765,6 +772,21 @@
     var anims = [];        /* {kind:'fly'|'block'|'match'|'reveal', tileId, ...} */
     var particles = [];
     var shards = [];        /* T082: 白瓷多边形碎片池 */
+    var vfxShards = [];     /* Δ20/T093: 全屏 #vfx-canvas 白瓷碎片瀑布池 */
+    var vfxCanvas = null, vfxCtx = null;
+    try {
+      if (typeof document !== 'undefined') {
+        vfxCanvas = document.getElementById('vfx-canvas');
+        if (!vfxCanvas) {
+          vfxCanvas = document.createElement('canvas');
+          vfxCanvas.id = 'vfx-canvas';
+          var app = document.getElementById('app');
+          if (app) app.appendChild(vfxCanvas);
+          else if (document.body) document.body.appendChild(vfxCanvas);
+        }
+        if (vfxCanvas) vfxCtx = vfxCanvas.getContext('2d');
+      }
+    } catch (eVfx) { vfxCanvas = null; vfxCtx = null; }
     var highlight = -1;    /* Hint 高亮（M4 T055） */
     var highlightIds = []; /* Δ19e/T087: 教学多目标高亮 */
     var highlightUntil = 0;  /* 高亮失效时间（ms）——M4 T055 自动 1.8s 清除 */
@@ -896,6 +918,7 @@
          * 崩溃帧仅丢一帧画面，下一帧照常调度） */
         try {
           draw();
+          try { drawVfx(); } catch (eVfx2) { /* vfx 异常不杀帧 */ }
         } catch (err) {
           if (global.console && console.error) console.error('[STM render]', err);
         } finally {
@@ -935,6 +958,16 @@
         if (sh.life <= 0) shards.splice(i, 1);
       }
       if (shards.length > 0) active = true;
+      for (i = vfxShards.length - 1; i >= 0; i--) {
+        var vsh = vfxShards[i];
+        vsh.x += vsh.vx * 0.016;
+        vsh.y += vsh.vy * 0.016;
+        vsh.vy += DOCK_SHARD_GRAVITY * 0.016;
+        vsh.rot += vsh.vr;
+        vsh.life -= 16;
+        if (vsh.life <= 0) vfxShards.splice(i, 1);
+      }
+      if (vfxShards.length > 0) active = true;
       if (particles.length > 0) active = true;
       return active;
     }
@@ -969,6 +1002,38 @@
         });
       }
     }
+      /* Δ20/T093: 顶部待消槽全屏白瓷碎片瀑布发射器 */
+      function spawnDockShatter(slotRects) {
+        slotRects = slotRects || [];
+        for (var si = 0; si < slotRects.length; si++) {
+          var rect = slotRects[si] || { x: 0, y: 0, w: 0, h: 0 };
+          var rw = rect.w || 1, rh = rect.h || 1;
+          for (var i = 0; i < DOCK_SHARD_PER_SLOT; i++) {
+            var n = 4 + Math.floor(Math.random() * 3);
+            var r0 = 5 + Math.random() * 11;
+            var verts = [];
+            for (var v = 0; v < n; v++) {
+              var a2 = (v / n) * Math.PI * 2 + Math.random() * 0.6;
+              var rr = r0 * (0.7 + Math.random() * 0.6);
+              verts.push({ x: Math.cos(a2) * rr, y: Math.sin(a2) * rr });
+            }
+            var life = DOCK_SHARD_LIFE_MIN + Math.floor(Math.random() * (DOCK_SHARD_LIFE_MAX - DOCK_SHARD_LIFE_MIN + 1));
+            vfxShards.push({
+              x: rect.x + Math.random() * rw,
+              y: rect.y + Math.random() * rh,
+              vx: -180 + Math.random() * 270,
+              vy: -(20 + Math.random() * 60),
+              rot: Math.random() * Math.PI * 2,
+              vr: (Math.random() - 0.5) * 0.25,
+              verts: verts,
+              life: life,
+              life0: life
+            });
+          }
+        }
+        markDirty();
+        return vfxShards.length;
+      }
       /* 三消粒子：Δ14 图鉴主题色 12~20 个（单帧 ≤200） */
       function spawnParticles(a, now) {
         var sv = suitVisual(a.suit);
@@ -1005,6 +1070,60 @@
         ctx.fill();
       }
       ctx.globalAlpha = 1;
+    }
+
+    /* Δ20/T093: 全屏 #vfx-canvas 白瓷碎片瀑布绘制 */
+    function drawVfx() {
+      if (!vfxCtx || !vfxCanvas) return;
+      var dpr = Math.max(1, (typeof global !== 'undefined' && global.devicePixelRatio) || 1);
+      var w = (typeof global !== 'undefined' && global.innerWidth) ? global.innerWidth : (vfxCanvas.clientWidth || 360);
+      var h = (typeof global !== 'undefined' && global.innerHeight) ? global.innerHeight : (vfxCanvas.clientHeight || 640);
+      if (!w || !h) { w = 360; h = 640; }
+      var pxW = Math.max(1, Math.round(w * dpr));
+      var pxH = Math.max(1, Math.round(h * dpr));
+      if (vfxCanvas.width !== pxW) vfxCanvas.width = pxW;
+      if (vfxCanvas.height !== pxH) vfxCanvas.height = pxH;
+      if (typeof vfxCtx.setTransform === 'function') vfxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      vfxCtx.clearRect(0, 0, w, h);
+      for (var i = 0; i < vfxShards.length; i++) {
+        var sh = vfxShards[i];
+        var ratio = sh.life0 > 0 ? (sh.life / sh.life0) : 0;
+        var a = ratio > 0.2 ? 1.0 : (ratio / 0.2);
+        if (a < 0) a = 0;
+        vfxCtx.globalAlpha = a;
+        vfxCtx.save();
+        vfxCtx.translate(sh.x, sh.y);
+        vfxCtx.rotate(sh.rot);
+        vfxCtx.shadowBlur = 4;
+        vfxCtx.shadowColor = 'rgba(15, 23, 42, 0.35)';
+        /* 侧面厚度层 */
+        vfxCtx.fillStyle = '#94A3B8';
+        vfxCtx.beginPath();
+        for (var ti = 0; ti < sh.verts.length; ti++) {
+          var tv = sh.verts[ti];
+          if (ti === 0) vfxCtx.moveTo(tv.x, tv.y + 3);
+          else vfxCtx.lineTo(tv.x, tv.y + 3);
+        }
+        vfxCtx.closePath();
+        vfxCtx.fill();
+        /* 正面 */
+        var frontColor = Math.cos(sh.rot) > 0 ? '#FFFFFF' : '#E2E8F0';
+        vfxCtx.fillStyle = frontColor;
+        vfxCtx.beginPath();
+        for (var fi = 0; fi < sh.verts.length; fi++) {
+          var fv = sh.verts[fi];
+          if (fi === 0) vfxCtx.moveTo(fv.x, fv.y);
+          else vfxCtx.lineTo(fv.x, fv.y);
+        }
+        vfxCtx.closePath();
+        vfxCtx.fill();
+        vfxCtx.lineWidth = 1;
+        vfxCtx.strokeStyle = '#64748B';
+        vfxCtx.stroke();
+        vfxCtx.restore();
+      }
+      vfxCtx.globalAlpha = 1;
+      vfxCtx.shadowBlur = 0;
     }
 
     /* ---------- 主绘制 ---------- */
@@ -1434,9 +1553,11 @@
       markDirty();
     }
 
-    return {
+    lastRendererApi = {
       refresh: refresh,
       handleEvent: handleEvent,
+      spawnDockShatter: spawnDockShatter,
+      vfxShards: vfxShards,
       hitTest: hitTest,
       setHighlight: setHighlight,
       setHighlights: setHighlights,
@@ -1446,6 +1567,7 @@
       layoutOf: function () { return layout; },
       SUITS: SUITS
     };
+    return lastRendererApi;
   }
 
   /* DOM chip（Dock 槽图标——Δ14 与棋盘图鉴口径一致 / Δ15 贴图切片优先）
@@ -1970,6 +2092,12 @@
   }
 
   STM.createBoardRenderer = createBoardRenderer;
+  STM.spawnDockShatter = function (slotRects) {
+    if (lastRendererApi && typeof lastRendererApi.spawnDockShatter === 'function') {
+      return lastRendererApi.spawnDockShatter(slotRects);
+    }
+    return 0;
+  };
   STM.SUITS = SUITS;
   STM.chipSVG = chipSVG;
   STM.petAvatarHTML = petAvatarHTML; /* Δ17: 萌宠头像统一出口 */
@@ -1981,7 +2109,13 @@
   STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets, dockIconDataURL: dockIconDataURL, paintDockIcons: paintDockIcons, DIR_COLORS: DIR_COLORS };
   /* T084: Δ19 渲染常量外露（离线自测断言用——不参与运行时逻辑） */
   STM.rendererTest.SHARDS = { min: SHARD_COUNT_MIN, max: SHARD_COUNT_MAX };
+  STM.rendererTest.DOCK_SHARDS = { min: 120, max: 150, perSlot: DOCK_SHARD_PER_SLOT, total: DOCK_SHARD_TOTAL };
+  STM.rendererTest.VFX_SHARDS = STM.rendererTest.DOCK_SHARDS;
+  STM.rendererTest.SHATTER_SHARDS = STM.rendererTest.DOCK_SHARDS;
+  STM.rendererTest.FRAGMENTS = STM.rendererTest.DOCK_SHARDS;
   STM.rendererTest.GAP = GAP;
+  STM.DOCK_SHARDS = STM.rendererTest.DOCK_SHARDS;
+  STM.VFX_SHARDS = STM.rendererTest.DOCK_SHARDS;
   /* ingame-hud-render-defects: 几何唯一出口外露（纯函数——Node/N 层/rect 任意组合可测） */
   STM.rendererTest.getTileCssRect = getTileCssRect;
   STM.rendererTest.tileGridOf = tileGridOf;

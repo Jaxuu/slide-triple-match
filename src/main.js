@@ -16,6 +16,7 @@
   var currentLevel = null;
   var currentId = 1;
   var dockReadyHooked = false; /* Δ15b3e: Dock 贴图就绪回调仅注册一次（防逐关累积） */
+var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于定位消除槽） */
 
   /* =========================================================
    * T050: 进度持久化（data-model.md §8，D-03 隐私模式降级）
@@ -784,6 +785,7 @@
 
   function renderDock() {
     var s = session.state();
+    lastDockSnapshot = (s.dock || []).map(function (t) { return { id: t.id, s: t.s }; });
     /* Dock 7 格（Δ14: chipSVG 消费当前关花色映射——与棋盘图鉴口径一致） */
     var html = '';
     for (var i = 0; i < 7; i++) {
@@ -1017,6 +1019,31 @@
         sound.play('match', e.combo);
         /* Δ19c/T085: 每次三消 IQ += 3 + combo × 2（绿色跳字 + 放大动效） */
         addIq(3 + (e.combo || 0) * 2, e.combo || 0);
+        /* Δ20/T093: 从 #dock 对应 3 个槽位真实屏幕坐标爆发白瓷碎片瀑布 */
+        try {
+          var slotIndices = [];
+          if (lastDockSnapshot && e.suit != null) {
+            for (var si = 0; si + 2 < lastDockSnapshot.length; si++) {
+              if (lastDockSnapshot[si].s === e.suit && lastDockSnapshot[si+1].s === e.suit && lastDockSnapshot[si+2].s === e.suit) {
+                slotIndices = [si, si+1, si+2]; break;
+              }
+            }
+            if (!slotIndices.length) {
+              var idxs = [];
+              for (var sj = 0; sj < lastDockSnapshot.length; sj++) if (lastDockSnapshot[sj].s === e.suit) idxs.push(sj);
+              slotIndices = idxs.slice(0, 3);
+            }
+          }
+          var slotNodes = els.dock ? els.dock.querySelectorAll('.slot') : [];
+          var rects = [];
+          for (var sk = 0; sk < slotIndices.length; sk++) {
+            var idx = slotIndices[sk];
+            if (slotNodes[idx] && slotNodes[idx].getBoundingClientRect) {
+              rects.push(slotNodes[idx].getBoundingClientRect());
+            }
+          }
+          if (rects.length && renderer && renderer.spawnDockShatter) renderer.spawnDockShatter(rects);
+        } catch (eSh) { /* VFX 失败不阻断主流程 */ }
       }
       renderer.handleEvent(e);
       renderer.refresh();
