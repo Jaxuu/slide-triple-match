@@ -95,7 +95,14 @@ function check(name, cond, extra) {
     var F = FORMS[f];
     console.log('\n===== 形态: ' + F.name + ' =====');
     await c.send('Page.navigate', { url: F.url });
-    await sleep(3000);
+    /* 就绪轮询（开机动画 2.0s + 淡出 0.38s）——固定 sleep 在慢机/二次加载时
+     * 会抢跑，导致 Dock 探针在 session 为 null 时抛错 */
+    for (var w = 0; w < 80; w++) {
+      var ready = await ev('!!(window.STM && STM.main && STM.main.session && STM.main.session())');
+      if (ready === true) break;
+      await sleep(200);
+    }
+    await sleep(600);
 
     /* ---- Bug A ---- */
     var dockInfo = await ev('(function(){' +
@@ -112,7 +119,12 @@ function check(name, cond, extra) {
       '  out.push({i:k, kind: img?("IMG["+img.naturalWidth+"x"+img.naturalHeight+"]") : (cv?("CANVAS["+cv.width+"x"+cv.height+"]"):(sp?("EMOJI:"+sp.textContent):"EMPTY"))});}' +
       ' return JSON.stringify(out); })()');
 
-    console.log('  Dock 内容: ' + dockInfo);
+    console.log('  Dock 内容: ' + (typeof dockInfo === 'string' ? dockInfo : JSON.stringify(dockInfo)));
+    if (typeof dockInfo !== 'string') {
+      console.error('  Dock 探针异常: ' + JSON.stringify(dockInfo));
+      check('Bug A: Dock 探针可执行（无 JS 异常）', false, JSON.stringify(dockInfo));
+      dockInfo = '[]';
+    }
     var dArr = JSON.parse(dockInfo);
     var imgN = dArr.filter(function (x) { return x.kind.indexOf('IMG') === 0; }).length;
     var cvN = dArr.filter(function (x) { return x.kind.indexOf('CANVAS') === 0; }).length;
@@ -180,8 +192,9 @@ function check(name, cond, extra) {
       ' var found=[];' +
       ' for(var i=0;i<lv.tiles.length && found.length<4;i++){ var t=lv.tiles[i]; if(t.z) continue;' +
       '   var d=t.d, dc=[0,1,0,-1][d], dr=[-1,0,1,0][d];' +
-      '   var w=cell*0.84, x=(t.c+0.5)*cell-w/2, y=(t.r+0.5)*cell-w/2;' +
-      '   var ax=Math.round(x+w/2+dc*(w/2-3)), ay=Math.round(y+w/2+dr*(w/2-3));' +
+      '   var w=cell-2, x=(t.c+0.5)*cell-w/2, y=(t.r+0.5)*cell-w/2;' +
+      '   /* 方向角标贴在新牌面（tileSize = cellStep-1）内侧 4 CSS px 处 */' +
+      '   var ax=Math.round(x+w/2+dc*(w/2-8)), ay=Math.round(y+w/2+dr*(w/2-8));' +
       '   var vals=[],sat=0;' +
       '   try{ for(var dx=-6;dx<=6;dx++) for(var dy=-6;dy<=6;dy++){' +
       '     var xx=ax+dx,yy=ay+dy; if(xx<0||yy<0||xx>=cv.width||yy>=cv.height) continue;' +
@@ -208,36 +221,49 @@ function check(name, cond, extra) {
         A.some(function (x) { return x.maxSaturation >= 60; }), JSON.stringify(A));
     }
 
-    /* ---- hitTest 回归（Bug B 位图口径改动的最高风险处）----
-     * 走真实 pointerdown 管线（main.js bindBoardInput → renderer.hitTest），
-     * 点击每枚滑块格中心，断言命中的 tileId 与该格最高 z 的滑块一致。 */
+    /* ---- hitTest 回归（ingame-hud-render-defects / Bug 1）----
+     * 原断言是**死代码**：__hitGot 从未被写入，也没有任何 check()。
+     * 现在直接对真实 renderer 实例断言：逐格点击可视中心必须命中该格
+     * 卡牌（被压牌跳过），右/下半区不得再出现「点了没反应」。
+     * 这是唯一能真正防住「绘制/命中坐标系分裂」复发的测试。 */
     var hit = await ev('(function(){' +
-      ' var cv=document.getElementById("board"); var r=cv.getBoundingClientRect();' +
-      ' var es=STM.main.session().engineState(); var n=es.n;' +
-      ' var win=[];' +
-      ' for(var i=0;i<es.tiles.length && win.length<20;i++){ var t=es.tiles[i];' +
-      '   if(win.some(function(w){return w.r===t.r&&w.c===t.c;})) continue;' +
-      '   var bz=-1,bid=-1;' +
-      '   for(var k=0;k<es.tiles.length;k++){ var q=es.tiles[k];' +
-      '     if(q.r===t.r&&q.c===t.c&&(q.z||0)>bz){bz=q.z||0;bid=q.id;} }' +
-      '   win.push({r:t.r,c:t.c,expect:bid,x:r.left+r.width*(t.c+0.5)/n,y:r.top+r.height*(t.r+0.5)/n}); }' +
-      ' window.__hitWins=win; window.__hitGot=[];' +
-      ' var orig=STM.createBoardRenderer;' +
-      ' /* 拦截 renderer.hitTest 记录返回值（不改变交互行为）*/' +
-      ' cv.__probe=1;' +
-      ' for(var i=0;i<win.length;i++){ var w=win[i];' +
-      '   var o={bubbles:true,cancelable:true,clientX:w.x,clientY:w.y,pointerId:1,isPrimary:true};' +
-      '   cv.dispatchEvent(new PointerEvent("pointerdown",o));' +
-      '   cv.dispatchEvent(new PointerEvent("pointerup",o));' +
-      ' }' +
-      ' return JSON.stringify({windows:win.length}); })()');
-    console.log('  hitTest 取样: ' + hit);
-
-    /* 直接对 renderer 实例做 hitTest 断言 */
-    var hit2 = await ev('(function(){' +
-      ' var cv=document.getElementById("board"); var r=cv.getBoundingClientRect();' +
-      ' var es=STM.main.session().engineState(); var n=es.n;' +
-      ' var R=STM.main.renderer? STM.main.renderer() : null; return R?"has":"no"; })()');
+      ' var R=STM.main.renderer && STM.main.renderer(); if(!R) return "NO_RENDERER";' +
+      ' var cv=document.getElementById("board"); var fr=cv.getBoundingClientRect();' +
+      ' var lay=R.layoutOf(); if(!lay||!lay.cellStep) return "NO_LAYOUT";' +
+      ' var pr=STM.RulesEngine.renderProbe(STM.main.session().engineState());' +
+      ' var tested=0, miss=[], wrong=[];' +
+      ' function inside(id,x,y){ var tr=R.tileRect(id); if(!tr) return false;' +
+      '   return x>=tr.x-tr.w/2-1 && x<=tr.x+tr.w/2+1 && y>=tr.y-tr.h/2-1 && y<=tr.y+tr.h/2+1; }' +
+      ' for(var i=0;i<pr.tiles.length;i++){ var t=pr.tiles[i]; if(t.covered) continue;' +
+      '   var tr=R.tileRect(t.id); if(!tr) continue; tested++;' +
+      '   var got=R.hitTest(tr.x, tr.y);' +
+      '   if(got<0){ miss.push("id"+t.id+"@("+t.r+","+t.c+")"); continue; }' +
+      '   if(!inside(got,tr.x,tr.y)) wrong.push("id"+t.id+"→"+got); }' +
+      ' /* 独立坐标验证: 由 DOM 盒宽直接换算 z=0 牌中心（不经 renderer 几何）*/' +
+      ' var probe=null, pgot=-1;' +
+      ' for(var k=0;k<pr.tiles.length;k++){ var q=pr.tiles[k]; if(q.covered||q.z) continue;' +
+      '   probe=q; break; }' +
+      ' if(probe){ var rr=probe.rr!=null?probe.rr:probe.r, cc=probe.cc!=null?probe.cc:probe.c;' +
+      '   pgot=R.hitTest(fr.left+(cc+0.5)*fr.width/pr.n, fr.top+(rr+0.5)*fr.height/pr.n); }' +
+      ' var out=R.hitTest(fr.left-40, fr.top-40);' +
+      ' return JSON.stringify({n:pr.n, tested:tested, miss:miss, wrong:wrong,' +
+      '   domProbeId:probe?probe.id:-1, domProbeGot:pgot, outside:out}); })()');
+    console.log('  hitTest: ' + hit);
+    if (hit === 'NO_RENDERER' || hit === 'NO_LAYOUT') {
+      check('Bug 1: renderer 实例可访问（hitTest 回归前置）', false);
+    } else {
+      var HI = JSON.parse(hit);
+      check('Bug 1: 每张未被压卡牌的可视中心都能命中（无「点了没反应」）',
+        HI.tested > 0 && HI.miss.length === 0,
+        'tested=' + HI.tested + ' miss=' + HI.miss.slice(0, 6).join(','));
+      check('Bug 1: 命中结果包含点击点（100% 落在被点卡牌的矩形内）',
+        HI.wrong.length === 0, HI.wrong.slice(0, 6).join(','));
+      check('Bug 1: DOM 盒宽直接换算的 z=0 牌中心可命中',
+        HI.domProbeId >= 0 && HI.domProbeGot >= 0, JSON.stringify({
+          expect: HI.domProbeId, got: HI.domProbeGot
+        }));
+      check('Bug 1: 棋盘外点击返回 -1', HI.outside === -1, String(HI.outside));
+    }
     /* 网格对齐验证（结构性，非像素猜测）。
      * 逐像素探针在实测中不可靠：45 种图标的实际占幅差异很大
      * （tools/scan-card.cjs 实测某宽图标达 ±0.25 cell 以上），任一固定

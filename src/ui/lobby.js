@@ -34,17 +34,11 @@
   var STAR_TICK_MS = 120;   /* 星盘辉光呼吸节拍 */
   var BUDGET_LETTERS = 24;  /* 预算提示（实现期自检用） */
 
-  /* 七彩切面棱晶 SVG（棱晶货币栏图标——程序化切面，零外部资源） */
-  var GEM_SVG =
-    '<svg class="lobby-gem" viewBox="0 0 32 32" aria-hidden="true">' +
-    '<polygon points="16,2 28,9 28,17 16,30 4,17 4,9" fill="#8F6FD6" opacity=".32"/>' +
-    '<polygon points="16,2 28,9 16,14" fill="#FF6B9D"/>' +
-    '<polygon points="16,2 16,14 4,9" fill="#FFC53D"/>' +
-    '<polygon points="4,9 16,14 9,30" fill="#7AE582"/>' +
-    '<polygon points="16,14 28,9 23,30" fill="#4CC8F5"/>' +
-    '<polygon points="9,30 16,14 23,30" fill="#A78BFA"/>' +
-    '<polygon points="16,2 22,5.5 16,9 10,5.5" fill="#FFFFFF" opacity=".9"/>' +
-    '</svg>';
+  /* 七彩切面棱晶 SVG —— 图标本体见 src/ui/prism-icon.js（单一来源，
+   * 局内顶栏 / 道具角标 / 大厅货币栏共用；本文件不得再持有私有副本） */
+  function gemSvg(cls) {
+    return STM.PrismIcon ? STM.PrismIcon.html(cls || 'lobby-gem') : '';
+  }
 
   /* ---------- 运行时状态 ---------- */
   var root = null;          /* #lobby 根节点 */
@@ -135,7 +129,7 @@
     var shardBar = h('div', 'lobby-shards', topR);
     shardBar.setAttribute('aria-label', '棱晶余额');
     var gemWrap = h('span', 'lobby-shards-icon', shardBar);
-    gemWrap.innerHTML = GEM_SVG;
+    gemWrap.innerHTML = gemSvg('lobby-gem');
     h('span', 'lobby-shards-value', shardBar).textContent = '0';
 
     /* ④ 中上区: Glide Critters 原创 3D 浮雕徽标

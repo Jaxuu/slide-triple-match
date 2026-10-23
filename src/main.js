@@ -358,16 +358,11 @@
   function cacheEls() {
     var d = global.document;
     els = {
-      hudTitle: d.getElementById('hud-title'),
+      hud: d.getElementById('hud'),
       hudNo: d.getElementById('hud-level-no'),
       hudShards: d.getElementById('hud-shards'),
-      hudLives: d.getElementById('hud-lives'),
-      hudCombo: d.getElementById('hud-combo'),
-      hudScore: d.getElementById('hud-score'),
-      iqBar: d.getElementById('iq-bar'),
       iqPill: d.getElementById('iq-pill'),
       iqValue: d.getElementById('iq-value'),
-      iqTitle: d.getElementById('iq-title'),
       iqDelta: d.getElementById('iq-delta'),
       btnLobby: d.getElementById('btn-lobby'),
       btnSettings: d.getElementById('btn-settings'),
@@ -412,7 +407,7 @@
     return t;
   }
 
-  /* ---------- Δ18/T071: 棱晶飘字（`-50 💎` 扣费反馈） ----------
+  /* ---------- Δ18/T071: 棱晶飘字（`-50 棱晶` 扣费反馈） ----------
    * 纯 DOM 飘字（一次性元素 + CSS 动画，动画结束自动移除）——
    * 不复用 toast（toast 为居中横幅语义，与飘字不同）。 */
   function spawnShardFloat(text, anchorEl) {
@@ -693,10 +688,10 @@
    * T021: HUD / Dock DOM 视图与结算浮层
    * ========================================================= */
   /* =========================================================
-   * T021 + Δ19c/T085: HUD / IQ 指数条 / Dock / 道具栏视图
-   *   · 顶栏中央仅 `关卡 X`（MUST NOT 带 /72 后缀与关卡副标题）
-   *   · 右上角棱晶胶囊实时反映 profile v2 余额
-   *   · IQ 为纯局内表现态（不持久化、不影响棱晶与进度）
+   * T021 + Δ19c/T085 + ingame-hud-render-defects: HUD / IQ / Dock / 道具栏
+   *   · 顶栏中央仅极简 `IQ: XX`（关号降级为不可见节点）
+   *   · 右上角棱晶胶囊实时反映 profile v2 余额（七彩棱晶 SVG，与大厅同源）
+   *   · IQ 为纯局内表现态（不持久化、不影响棱晶与进度）；称号仅驱动升段音效
    * ========================================================= */
   var IQ_START = 90;
   var IQ_TITLES = [
@@ -721,7 +716,6 @@
     iqValue = IQ_START;
     iqTitle = iqTitleOf(iqValue);
     if (els.iqValue) els.iqValue.textContent = String(iqValue);
-    if (els.iqTitle) els.iqTitle.textContent = iqTitle;
     if (els.iqPill) {
       els.iqPill.classList.remove('level-up');
       els.iqPill.classList.remove('iq-broken');
@@ -737,7 +731,6 @@
     var leveled = next !== iqTitle;
     iqTitle = next;
     if (els.iqValue) els.iqValue.textContent = String(iqValue);
-    if (els.iqTitle) els.iqTitle.textContent = iqTitle;
     if (els.iqDelta) {
       /* 绿色跳字固定展示本次增量（如 +5 / +9） */
       els.iqDelta.textContent = '+' + gain;
@@ -770,35 +763,23 @@
     renderHud();
   }
 
+  /* Bug 9: 棱晶图标唯一来源——与大厅货币栏同一颗七彩切面 SVG */
+  function prismHtml(cls) {
+    return (STM.PrismIcon && STM.PrismIcon.html) ? STM.PrismIcon.html(cls) : '';
+  }
+
   function renderHud() {
-    var s = session.state();
-    /* 中央: 干净醒目的 `关卡 X`——彻底去掉 /72 与关卡副标题 */
+    /* 关号仅保留不可见节点（a11y / 自动化断言 / 调试）——
+     * 顶栏中央已改为极简 `IQ: XX`（无大脑图标、无称号、无关卡标题） */
     if (els.hudNo) els.hudNo.textContent = String(currentId);
-    if (els.hudTitle) els.hudTitle.setAttribute('aria-label', '关卡 ' + currentId);
-    /* 右上角: 💎 棱晶数量（与大厅 profile v2 实时同步） */
+    if (els.hud) els.hud.setAttribute('aria-label', '关卡 ' + currentId + ' · 局内导航栏');
+    /* 右上角: 七彩棱晶图标 + 数量（与大厅同一颗 SVG，profile v2 实时同步） */
     if (els.hudShards) {
       var bal = 0;
       try { bal = STM.Profile ? STM.Profile.get().shards : 0; } catch (e) { bal = 0; }
-      els.hudShards.textContent = '💎 ' + bal;
-    }
-    /* 生命 ♥×3 DOM */
-    if (els.hudLives) {
-      var livesHtml = '';
-      var total = (currentLevel.cfg && currentLevel.cfg.lives) || 3;
-      for (var i = 0; i < total; i++) {
-        livesHtml += '<span class="life' + (i < s.lives ? '' : ' lost') + '">♥</span>';
-      }
-      els.hudLives.innerHTML = livesHtml;
-    }
-    if (els.hudCombo) els.hudCombo.textContent = s.combo > 0 ? 'x' + s.combo : '';
-    if (els.hudScore) els.hudScore.textContent = String(s.score);
-    if (els.hudCombo && s.combo > 0) {
-      els.hudCombo.classList.remove('bump');
-      void els.hudCombo.offsetWidth; /* 重启动画 */
-      els.hudCombo.classList.add('bump');
+      els.hudShards.innerHTML = prismHtml('prism-gem') + '<b>' + bal + '</b>';
     }
     if (els.iqValue) els.iqValue.textContent = String(iqValue);
-    if (els.iqTitle) els.iqTitle.textContent = iqTitle;
   }
 
   function renderDock() {
@@ -825,20 +806,23 @@
     setItemBtn('item-undo', it.undo || 0);
     setItemBtn('item-magnet', it.magnet || 0);
     setItemBtn('item-shuffle', it.shuffle || 0);
-    /* Δ16f/T071: 免费次数用尽后角标变为 `💎 50`（不再显示数字次数） */
+    /* Δ16f/T071: 免费次数用尽后角标变为「棱晶图标 50」（不再显示数字次数） */
     renderItemBadge('item-undo', (it.undo || 0) > 0);
     renderItemBadge('item-magnet', (it.magnet || 0) > 0);
     renderItemBadge('item-shuffle', (it.shuffle || 0) > 0);
   }
 
-  /* 道具角标：免费可用 → 显次数；用尽 → 显 `💎 50` 购买价 */
+  /* 道具角标：免费可用 → 显次数；用尽 → 显「棱晶图标 + 50」购买价
+   * （Bug 9: 图标与大厅棱晶栏同源 SVG，不再使用蓝色宝石 Emoji） */
   function renderItemBadge(btnId, hasFree) {
     var btn = global.document.getElementById(btnId);
     if (!btn) return;
     var cnt = btn.querySelector('.item-count');
     if (!cnt) return;
     btn.classList.toggle('is-buyable', !hasFree);
-    if (!hasFree) cnt.textContent = ITEM_PRICE_LABEL;
+    if (!hasFree) {
+      cnt.innerHTML = prismHtml('prism-gem-sm') + '<span>' + ITEM_PRICE + '</span>';
+    }
   }
 
   function setItemBtn(btnId, count) {
@@ -859,7 +843,6 @@
    * 余额不足 MUST 拒绝扣费、拒绝消耗道具次数并给出明确提示（不得静默失败、
    * 不得扣成负数）。余额恰好等于价格时扣费后归零、道具仍正常生效。 */
   var ITEM_PRICE = 50;
-  var ITEM_PRICE_LABEL = '💎 50';
   var ITEM_BTN = { undo: 'item-undo', magnet: 'item-magnet', shuffle: 'item-shuffle' };
   var ITEM_NAME = { undo: '撤销', magnet: '灵犀三消', shuffle: '乾坤洗牌' };
 
@@ -869,7 +852,7 @@
     var btnId = ITEM_BTN[item] || 'item-undo';
     if (!STM.Profile.spendShards(cost)) {
       /* 余额不足 → 明确提示，零扣费零消耗（余额恒 ≥0）+ 按钮轻晃 */
-      toast('棱晶不足，需要 ' + cost + ' 💎');
+      toast('棱晶不足，需要 ' + cost + ' 棱晶');
       sound.play('blocked');
       shakeItemBtn(btnId);
       return false;
@@ -890,9 +873,9 @@
     renderDock();
     renderHud();
     renderItems();
-    /* 扣费飘字 `-50 💎`（锚定触发道具按钮） */
-    spawnShardFloat('-' + cost + ' 💎', global.document.getElementById(btnId));
-    toast('已消耗 ' + cost + ' 💎 使用一次' + ITEM_NAME[item]);
+    /* 扣费飘字 `-50 棱晶`（锚定触发道具按钮） */
+    spawnShardFloat('-' + cost + ' 棱晶', global.document.getElementById(btnId));
+    toast('已消耗 ' + cost + ' 棱晶，使用一次' + ITEM_NAME[item]);
     return true;
   }
 
@@ -1621,6 +1604,8 @@
     enterGame: enterGame,   /* Δ18: 场景入口（大厅 → 局内）——供测试与深链复用 */
     enterLobby: enterLobby, /* Δ18: 场景入口（局内 → 大厅） */
     session: function () { return session; },
+    /* 只读渲染器句柄（自动化测试断言 hitTest / 几何——不参与运行时逻辑） */
+    renderer: function () { return renderer; },
     progress: progress,
     /* Δ20 Bug 1：有效已通关最大关卡号（大厅晶片点亮态的权威口径） */
     maxPassedLevel: maxPassedLevel

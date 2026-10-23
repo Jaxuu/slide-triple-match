@@ -611,8 +611,8 @@ function scenarioBackdropStage() {
    * 蒙版字面量，改为反向断言「雾遮罩不得回归」+ 正向断言新可读性载体。 */
   check('Bug B: 磨砂暖白 veil 已移除（不再有雾遮罩——高清背景锐利透出）',
     src.indexOf('rgba(255,252,246,0.10)') === -1);
-  check('Bug B: 滑块改由深色投影承载对比度（rgba(15,23,42,0.35)）',
-    src.indexOf('rgba(15, 23, 42, 0.35)') !== -1);
+  check('Bug B: 滑块改由深色投影承载对比度（rgba(15,23,42,0.30)）',
+    src.indexOf('rgba(15, 23, 42, 0.30)') !== -1);
   check('Bug B: 切片分辨率提升至 256（SLICE_PX=256，非 128）',
     /SLICE_PX\s*=\s*256/.test(src) && src.indexOf('cv.width = 128') === -1);
   check('Bug B: DPR 2x 下限超采样（Math.max(2, devicePixelRatio)）',
@@ -668,16 +668,17 @@ function scenarioBackdropStage() {
     /Math\.max\(280,\s*Math\.floor\(Math\.min\(/.test(srcCode));
   check('Δ15b3f: setBitmapSize 幂等（尺寸未变直接返回，不重置画布）',
     /side === lastSideCss/.test(srcCode));
-  check('Δ15b3f: 每帧 draw 开头绝对重置变换矩阵 setTransform',
-    /ctx\.setTransform\(1, 0, 0, 1, 0, 0\)/.test(srcCode));
+  check('Δ15b3f: 每帧 draw 开头绝对重置变换矩阵（CSS 空间 dpr 矩阵）',
+    /ctx\.setTransform\(dpr, 0, 0, dpr, 0, 0\)/.test(srcCode) &&
+    /ctx\.setTransform\(dpr, 0, 0, dpr, 0, 0\);\s*\n\s*ctx\.clearRect/.test(srcCode));
   check('Δ15b3f: 全文件无 ctx.scale 累加调用（变换只经 setTransform 绝对赋值）',
     srcCode.indexOf('ctx.scale(') === -1);
   check('Δ15b3f: #board CSS 正方形状由 aspect-ratio + width 声明',
     /aspect-ratio:\s*1\s*\/\s*1/.test(boardRule) && /width:\s*calc\(100% - 12px\)/.test(boardRule));
   check('Δ15b3f: #dock 固定死高度（chip 进出不挤压棋盘）',
     /height:\s*clamp\(58px/.test((css.match(/#dock\s*\{[^}]*\}/) || [''])[0]));
-  check('Δ15b3f: #hud 固定死高度（combo 文案不撑大）',
-    /height:\s*clamp\(50px/.test((css.match(/#hud\s*\{[^}]*\}/) || [''])[0]));
+  check('Δ15b3f: #hud 固定死高度（IQ 文案不撑大）',
+    /height:\s*clamp\(54px/.test((css.match(/#hud\s*\{[^}]*\}/) || [''])[0]));
 }
 
 /* =========================================================
@@ -1079,34 +1080,80 @@ function scenarioDelta19() {
   var RT = path.join(__dirname, '..');
   var brSrc = fs.readFileSync(path.join(RT, 'src', 'render', 'BoardRenderer.js'), 'utf8');
   var mainSrc = fs.readFileSync(path.join(RT, 'src', 'main.js'), 'utf8');
+  var lobbySrc = fs.readFileSync(path.join(RT, 'src', 'ui', 'lobby.js'), 'utf8');
+  var prismSrc = fs.readFileSync(path.join(RT, 'src', 'ui', 'prism-icon.js'), 'utf8');
   var gsSrc = fs.readFileSync(path.join(RT, 'src', 'core', 'GameState.js'), 'utf8');
   var css = fs.readFileSync(path.join(RT, 'css', 'style.css'), 'utf8');
   var html = fs.readFileSync(path.join(RT, 'index.html'), 'utf8');
 
-  /* ---- T084: 零缝隙 / 半格错位 / 变暗 / 碎片 ---- */
+  /* ---- T084: 1px 紧贴 / 半格错位 / 无遮罩伪影 / 碎片 ---- */
   check('T084: 同层间距 GAP ≥ 1px', STM.rendererTest.GAP >= 1);
-  check('T084: 牌宽以 cell-GAP 封顶（同层零重叠）',
-    brSrc.indexOf('Math.min(cell * 0.84, cell - GAP)') !== -1);
+  check('T084: 牌宽 = cellStep - 1（同层 1px 细缝紧贴）',
+    brSrc.indexOf('Math.max(1, cell - GAP)') !== -1 &&
+    /tileSize:\s*Math\.max\(1, cell - GAP\)/.test(brSrc));
   check('T084: 奇数层半格坐标 +0.5（压 2×2 交界）',
-    brSrc.indexOf("(t.z || 0) % 2 === 1 ? t.r + 0.5 : t.r") !== -1 &&
-    brSrc.indexOf("(t.z || 0) % 2 === 1 ? t.c + 0.5 : t.c") !== -1);
-  check('T084: 被压卡牌 32% 深色遮罩',
-    /if \(t\.covered\)/.test(brSrc) && brSrc.indexOf('rgba(15, 23, 42, 0.32)') !== -1);
+    brSrc.indexOf('z % 2 === 1 ? t.r + 0.5 : t.r') !== -1 &&
+    brSrc.indexOf('z % 2 === 1 ? t.c + 0.5 : t.c') !== -1);
+  check('T084: 变暗遮罩 / 层间灰影块 / 点阵底纹已彻底移除',
+    brSrc.indexOf('rgba(15, 23, 42, 0.32)') === -1 &&
+    brSrc.indexOf('0.16 * aboveN') === -1 &&
+    brSrc.indexOf('var dotR') === -1 &&
+    brSrc.indexOf('rgba(120,135,155,0.55)') === -1);
+  check('T084: 动物图标 iconSize = tileSize × 0.84（居中铺满）',
+    /drawBestiaryIcon\(ctx,\s*sv,\s*x \+ w \/ 2,\s*y \+ w \/ 2,\s*w \* 0\.84\)/.test(brSrc));
+  check('T084: 卡牌内无内缩白描边（drawTileBody 内零 strokeRect）', (function () {
+    var i = brSrc.indexOf('function drawTileBody');
+    var j = brSrc.indexOf('function drawBestiaryIcon', i);
+    return i >= 0 && j > i && brSrc.slice(i, j).indexOf('strokeRect') === -1;
+  })());
   var sh = STM.rendererTest.SHARDS;
   check('T084: 白瓷碎片数落入 48~60', sh && sh.min >= 48 && sh.max <= 60 && sh.max > sh.min);
 
-  /* ---- T085: 顶栏 / IQ 条 / 顶部待消槽顺序 ---- */
-  var iqAt = html.indexOf('id="iq-bar"');
+  /* ---- T085: 顶栏（含 IQ 胶囊）→ 待消槽 → 棋盘 ---- */
+  var iqPillAt = html.indexOf('id="iq-pill"');
   var dockAt = html.indexOf('id="dock"');
   var boardAt = html.indexOf('id="board-wrap"');
   var hudAt = html.indexOf('id="hud"');
-  check('T085: DOM 顺序为 顶栏 → IQ 条 → 待消槽 → 棋盘',
-    hudAt >= 0 && iqAt > hudAt && dockAt > iqAt && boardAt > dockAt);
-  check('T085: 顶栏仅 `关卡 X`（无 /72 后缀与副标题）',
-    html.indexOf('/72') === -1 && /els\.hudNo\.textContent = String\(currentId\)/.test(mainSrc));
-  check('T085: 顶栏左侧返回大厅 + 设置两键',
+  check('T085: DOM 顺序为 顶栏（含 IQ）→ 待消槽 → 棋盘，无独立 #iq-bar',
+    hudAt >= 0 && iqPillAt > hudAt && dockAt > iqPillAt && boardAt > dockAt &&
+    html.indexOf('id="iq-bar"') === -1);
+  check('T085: 顶栏中央为极简 IQ（无 `关卡` 文本 / 无 /72 / 无标题节点）',
+    html.indexOf('/72') === -1 && html.indexOf('id="iq-value"') !== -1 &&
+    html.indexOf('hud-title') === -1 && html.indexOf('关卡') === -1 &&
+    /els\.hudNo\.textContent = String\(currentId\)/.test(mainSrc));
+  check('T085: 生命/分数/连击次级栏彻底移除',
+    html.indexOf('id="hud-lives"') === -1 && html.indexOf('id="hud-score"') === -1 &&
+    html.indexOf('id="hud-combo"') === -1 && html.indexOf('iq-side') === -1 &&
+    mainSrc.indexOf('els.hudLives') === -1 && css.indexOf('.iq-side') === -1);
+  check('T085: 顶栏左侧为无文字纯图标键（.hud-round-cap 已删除）',
     html.indexOf('id="btn-lobby"') !== -1 && html.indexOf('id="btn-settings"') !== -1 &&
+    html.indexOf('hud-round-cap') === -1 && css.indexOf('.hud-round-cap') === -1 &&
     /function bindHudButtons/.test(mainSrc));
+  check('T085: 棱晶图标单一来源（大厅 / 局内共用 STM.PrismIcon）',
+    prismSrc.indexOf('STM.PrismIcon') !== -1 &&
+    prismSrc.indexOf('var BODY') !== -1 &&
+    (prismSrc.slice(prismSrc.indexOf('var BODY')).match(/<polygon /g) || []).length === 7 &&
+    lobbySrc.indexOf('GEM_SVG') === -1 && lobbySrc.indexOf('gemSvg(') !== -1 &&
+    mainSrc.indexOf('STM.PrismIcon.html(cls)') !== -1 &&
+    html.indexOf('src/ui/prism-icon.js') !== -1 &&
+    html.indexOf('prism-icon.js') < html.indexOf('lobby.js'));
+  check('T085: 局内零 💎 Emoji（顶栏 / 道具角标 / 提示文案）',
+    mainSrc.indexOf('💎') === -1 && html.indexOf('💎') === -1);
+  check('T085: 棋盘无外框线（#board border:none）',
+    /#board\s*\{[\s\S]*?border:\s*none/.test(css));
+  check('T085: 待消槽为简约托盘（无木纹 / 无槽内横线）',
+    css.indexOf('#dock::before') === -1 &&
+    /#dock\s*\{[\s\S]*?rgba\(30, 41, 59, \.45\)/.test(css) &&
+    /\.slot\.empty::after\s*\{\s*content:\s*none/.test(css) &&
+    /\.slot\s*\{[\s\S]*?rgba\(15, 23, 42, \.42\)/.test(css));
+  /* file:// 下 getImageData 被跨源污染阻断，白键控失败 → 切片保留不透明白底。
+   * 若不处理，0.84×tile 的白底会在奶油白卡面上露出「内嵌白方框」。
+   * 修法: keyingAvailable() 为 false 时该图标绘制改用 darken 合成（白→卡面本色）。 */
+  check('T085: file:// 白键控失败时用 darken 合成消除内嵌白框',
+    /keyingOk = false/.test(brSrc) &&
+    /keyingAvailable: function \(\) \{ return keyingOk; \}/.test(brSrc) &&
+    /!IconAssets\.keyingAvailable\(\)/.test(brSrc) &&
+    /globalCompositeOperation = 'darken'/.test(brSrc));
   check('T085: IQ 初始 90 / 增量 3+combo×2 / 四档头衔',
     /var IQ_START = 90/.test(mainSrc) &&
     /3 \+ \(e\.combo \|\| 0\) \* 2/.test(mainSrc) &&
@@ -1152,7 +1199,9 @@ function scenarioDelta19() {
     html.indexOf('id="item-shuffle"') !== -1);
   check('T086: 三按钮均带原创 SVG 图标',
     (html.match(/class="item-icon"/g) || []).length === 3);
-  check('T086: 免费次数 0 时角标显示 `💎 50`', /var ITEM_PRICE_LABEL = '💎 50'/.test(mainSrc));
+  check('T086: 免费次数 0 时角标显示「棱晶图标 + 50」',
+    /var ITEM_PRICE = 50/.test(mainSrc) &&
+    /cnt\.innerHTML = prismHtml\('prism-gem-sm'\) \+ '<span>' \+ ITEM_PRICE \+ '<\/span>'/.test(mainSrc));
   check('T086: 购买成功判定涵盖 magnet/shuffle（Δ19 修复）',
     /r\.type !== 'undo' && r\.type !== 'magnet' && r\.type !== 'shuffle'/.test(gsSrc));
 
@@ -1199,6 +1248,104 @@ function scenarioDelta19() {
 }
 
 
+/* =========================================================
+ * 场景 J: ingame-hud-render-defects —— 点击几何回归防线
+ * 背景: `cell = boardPx / n`（位图像素）与 hitTest 的
+ *   `(boardPx / dpr) / rect.width` 相差 dpr 倍 → 只有左上 1/4 可命中。
+ * 本场景直接调用 renderer.hitTest（main.js onBoardDown 的同一入口），
+ * 逐格点击可视中心断言命中该格卡牌。
+ * ========================================================= */
+function scenarioHitGeometry() {
+  console.log('场景 J: 点击几何（绘制 / 命中同源）');
+  var G = STM.rendererTest;
+  check('几何: getTileCssRect 已导出（纯函数）', typeof G.getTileCssRect === 'function');
+
+  /* 纯函数: 偶数层 c*step / 奇数层 (c+0.5)*step，边长 = step - 1 */
+  var L = { originX: 0, originY: 0, cellStep: 60, tileSize: 59, n: 8 };
+  var even = G.getTileCssRect({ r: 2, c: 3, z: 0 }, L);
+  var odd = G.getTileCssRect({ r: 2, c: 3, z: 1 }, L);
+  check('几何: 偶数层左上角 = (c*step, r*step) 且边框 = tileSize',
+    even.x === 180 && even.y === 120 && even.w === 59 && even.h === 59,
+    JSON.stringify(even));
+  check('几何: 奇数层半格错位 (+0.5 step)',
+    odd.x === 210 && odd.y === 150, JSON.stringify(odd));
+
+  var CANVAS_RECT = { left: 0, top: 0, width: 320, height: 320 };
+  function hitAt(renderer, tile, rect) {
+    var lay = renderer.layoutOf();
+    var r = G.getTileCssRect(tile, lay);
+    var k = rect.width / (lay.cellStep * lay.n); /* CSS 盒宽 / 画布逻辑边长 */
+    return renderer.hitTest(rect.left + (r.x + r.w / 2) * k,
+                            rect.top + (r.y + r.h / 2) * k);
+  }
+
+  /* ① 满盘单层: 每格中心必须命中自己（n=8 覆盖原缺陷的右/下半区） */
+  [5, 8].forEach(function (n) {
+    var tiles = [];
+    for (var r = 0; r < n; r++) {
+      for (var c = 0; c < n; c++) tiles.push({ r: r, c: c, d: 0, s: (r + c) % 5, z: 0 });
+    }
+    var g = makeGame({ id: 1, n: n, tiles: tiles, cfg: {} });
+    var pr = RE.renderProbe(g.session.engineState());
+    var bad = [];
+    for (var i = 0; i < pr.tiles.length; i++) {
+      var t = pr.tiles[i];
+      if (t.covered) continue;
+      var got = hitAt(g.renderer, t, CANVAS_RECT);
+      if (got !== t.id) bad.push('id' + t.id + '(' + t.r + ',' + t.c + ')→' + got);
+    }
+    check('几何: ' + n + '×' + n + ' 单层逐格中心 100% 命中（' + pr.tiles.length + ' 格）',
+      bad.length === 0, bad.slice(0, 6).join(' '));
+  });
+
+  /* ② 奇数层半格错位命中 + 棋盘外返回 -1 */
+  var go = makeGame({
+    id: 1, n: 4, cfg: {},
+    tiles: [
+      { r: 0, c: 0, d: 0, s: 0, z: 1 },
+      { r: 2, c: 2, d: 0, s: 1, z: 0 }
+    ]
+  });
+  var po = RE.renderProbe(go.session.engineState());
+  var oddTile = po.tiles.filter(function (t) { return t.z === 1; })[0];
+  check('几何: 奇数层卡牌中心可命中（半格错位）',
+    hitAt(go.renderer, oddTile, CANVAS_RECT) === oddTile.id);
+  check('几何: 棋盘外点击返回 -1',
+    go.renderer.hitTest(-40, -40) === -1 && go.renderer.hitTest(9999, 9999) === -1);
+
+  /* ③ 被压卡牌不可命中（引擎 covered=true → hitTest 跳过） */
+  var gs = makeGame({
+    id: 1, n: 4, cfg: {},
+    tiles: [
+      { r: 1, c: 1, d: 0, s: 0, z: 0 },
+      { r: 1, c: 1, d: 0, s: 1, z: 1 }
+    ]
+  });
+  var ps = RE.renderProbe(gs.session.engineState());
+  var low = ps.tiles.filter(function (t) { return t.z === 0; })[0];
+  var lr = G.getTileCssRect(low, gs.renderer.layoutOf());
+  var layS = gs.renderer.layoutOf();
+  var kS = CANVAS_RECT.width / (layS.cellStep * layS.n);
+  /* 取下层牌左上内角（不在上层牌矩形内）验证「被压不可点」 */
+  var lx = (lr.x + 5) * kS, ly = (lr.y + 5) * kS;
+  check('几何: 被压卡牌 covered 且不可命中',
+    low.covered === true && gs.renderer.hitTest(lx, ly) === -1);
+
+  /* ④ 教学小手锚点（tileRect）与 hitTest 闭环一致 */
+  var gt = makeGame({
+    id: 1, n: 3, cfg: {},
+    tiles: [
+      { r: 1, c: 0, d: 0, s: 0, z: 0 },
+      { r: 0, c: 2, d: 1, s: 1, z: 0 }
+    ]
+  });
+  var pt = RE.renderProbe(gt.session.engineState());
+  var tr = gt.renderer.tileRect(pt.tiles[0].id);
+  check('几何: tileRect 锚点回投 → hitTest 命中同一张牌',
+    !!tr && gt.renderer.hitTest(tr.x, tr.y) === pt.tiles[0].id,
+    JSON.stringify(tr));
+}
+
 scenarioBlocked();
 scenarioMechAnims();
 scenarioPrismBlocked();
@@ -1209,6 +1356,7 @@ scenarioBackdropStage();
 scenarioDelta16();
 scenarioPurifyAndOriginality();
 scenarioDelta19();
+scenarioHitGeometry();
 
 console.log('');
 if (failures.length) {
