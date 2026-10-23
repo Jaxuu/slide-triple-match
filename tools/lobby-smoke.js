@@ -522,7 +522,7 @@ async function main() {
   check('L1 无竞品视觉元素标记', banned.length === 0, banned.join(','));
 
   console.log('\n[lobby-smoke] 局内棱晶购买道具闭环（Δ18 T071 / FR-041 §2）');
-  /* 进关 → 耗尽免费次数 → 角标切换 `💎 50` → 点击扣费生效 → 余额不足拒绝 */
+  /* 进关 → 耗尽免费次数 → 角标切换「棱晶 SVG + 50」→ 点击扣费生效 → 余额不足拒绝 */
   /* 先关掉失败页并回到大厅（失败层为全屏模态，会拦截底层点击） */
   await evalJs(`(function(){
     if (window.STM.Fail && STM.Fail.hide) STM.Fail.hide();
@@ -550,7 +550,7 @@ async function main() {
   })()`);
   check('N1 已进局内（会话存在）', buySetup && !buySetup.noSession, JSON.stringify(buySetup));
 
-  /* 耗尽撤回免费次数 → 角标 MUST 自动切换为 `💎 50`
+  /* 耗尽撤回免费次数 → 角标 MUST 自动切换为「棱晶 SVG + 50」
    * 注意：撤回依赖快照栈（需至少一步有效棋盘操作）——先做一次真实移动 */
   await evalJs(`(function(){
     var s = STM.main.session();
@@ -578,9 +578,12 @@ async function main() {
     var b = document.getElementById('item-undo');
     var c = b ? b.querySelector('.item-count') : null;
     return { text: c ? c.textContent : '', buyable: b ? b.classList.contains('is-buyable') : false,
-             disabled: b ? b.disabled : false };
+             disabled: b ? b.disabled : false,
+             svg: !!(c && c.querySelector('svg polygon')) };
   })()`);
-  check('N2 免费次数用尽后角标 = `💎 50`', /50/.test(badge.text || ''), badge.text);
+  check('N2 免费次数用尽后角标 = 棱晶 SVG + 50（无 Emoji）',
+    /50/.test(badge.text || '') && badge.svg === true && !/💎/.test(badge.text || ''),
+    badge.text + ' svg=' + badge.svg);
   check('N3 角标进入购买态（is-buyable）', badge.buyable === true);
   check('N4 购买态按钮仍可点击（不得禁用）', badge.disabled === false);
 
@@ -606,7 +609,8 @@ async function main() {
   })()`);
   check('N5 购买后扣除 50 棱晶', afterBuy.shards === beforeBuy - 50,
     beforeBuy + ' -> ' + afterBuy.shards);
-  check('N6 扣费飘字 `-50 💎` 出现', /-50/.test(afterBuy.float), afterBuy.float);
+  check('N6 扣费飘字 `-50 棱晶` 出现（无 Emoji）',
+    /-50/.test(afterBuy.float) && !/💎/.test(afterBuy.float), afterBuy.float);
   check('N7 购买即生效（提示已消耗）', /消耗/.test(afterBuy.toast), afterBuy.toast);
 
   /* 余额不足 → 零扣费零消耗 + 轻晃提示 */
