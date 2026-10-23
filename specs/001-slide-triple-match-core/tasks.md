@@ -539,5 +539,5 @@ T014/T015 GameState（依赖引擎 API）→ T020/T021 main.js 集成 → T022 M
 
 ### Batch 4 — IQ 50→200 动态曲线、结算直通下一关与终验（T094~T095）
 
-- [ ] T094 [Δ20] 在 `src/main.js` 与 `css/style.css` 中实现 `IQ: 50 -> 200` 三维乘区动态衰减公式（`delta = Base * M_combo * M_error * M_time`，含连击乘区 0.80~1.12、失误惩罚 `Math.pow(0.90, errorCount)`、时间衰减 1.0→0.55、IQ≥175 渐近阻尼定格 198~200），去掉通关评语的生硬橙色方框（改为无边框 3D 流光金色渐变浮雕大字 + 柔和星芒光晕托底），将结算主按钮改为 `关卡 X+1` 直接进入下一关（附 `🏠 大厅` 圆形图标按钮）。
-- [ ] T095 [Δ20] 完成全量测试与文档同步：72 关 solver 72/72 可解、Spatial Anti-Clustering 与 Directional Interlocking 指标全部达标、白瓷碎片采样帧计数 120~150、IQ 初值静态断言 `IQ: 50`、结算按钮文案严格 `关卡 X` 且点击直达下一关；更新 `quickstart.md`、`contracts/` 与 `spec.md` 追溯表。
+- [x] T094 [Δ20] 在 `src/main.js` 与 `css/style.css` 中实现 `IQ: 50 -> 200` 三维乘区动态衰减公式（`delta = Base * M_combo * M_error * M_time`，含连击乘区 0.80~1.12、失误惩罚 `Math.pow(0.90, errorCount)`、时间衰减 1.0→0.55、IQ≥175 渐近阻尼定格 198~200），去掉通关评语的生硬橙色方框（改为无边框 3D 流光金色渐变浮雕大字 + 柔和星芒光晕托底），将结算主按钮改为 `关卡 X+1` 直接进入下一关（附 `🏠 大厅` 圆形图标按钮）。
+- [x] T095 [Δ20] 完成全量测试与文档同步：72 关 solver 72/72 可解、Spatial Anti-Clustering 与 Directional Interlocking 指标全部达标、白瓷碎片采样帧计数 120~150、IQ 初值静态断言 `IQ: 50`、结算按钮文案严格 `关卡 X` 且点击直达下一关；更新 `quickstart.md`、`contracts/` 与 `spec.md` 追溯表。

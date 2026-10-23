@@ -803,3 +803,9 @@ assets/bg/                  可选：背景贴图（缺失 → 渐变兜底）
 ---
 
 *文档依据：`specs/001-slide-triple-match-core/` 全套工件 + `tools/solver-report.json`（生成于 2026-10-21T05:58:10Z，schemaVersion 2）+ 33 次 Git 提交记录。所有指标数值均从工件直读，未经估算。*
+
+## Delta20 Batch 4 - IQ 50 to 200 dynamic curve and result next-level
+
+- IQ index now starts at 50 and caps at 200 with three multipliers: baseGain = 150 / totalTriples, comboMul = min(1.08, 0.76 + combo*0.08), errorMul = pow(0.88, blockErrors), timeMul = max(0.50, 1.0 - mins*0.15). Excess above 165 damped by (200 - iqScore)/38. Blocked taps reset combo and increment blockErrors without reducing IQ.
+- Result praise text changed to borderless 3D gradient gold text (36px/900/0.08em) removing orange frame.
+- Result main button now reads level X+1 and directly starts next level; painting full triggers portal board then continue to next level; home icon button returns to lobby.

@@ -1627,11 +1627,11 @@ html, body {
 /* ③ 琥珀金渐变铭牌（居中承载赞美词） */
 .plate-bar {
   position: relative; z-index: 2;
-  padding: 16px 34px;
-  border-radius: 22px;
-  background: linear-gradient(180deg, var(--amber-hi) 0%, var(--amber) 48%, #C87F22 100%);
-  border: 3px solid rgba(255, 255, 255, .84);
-  box-shadow: 0 8px 26px rgba(0, 0, 0, .52), inset 0 2px 0 rgba(255,255,255,.72);
+  padding: 8px 24px;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
   animation: plate-pop .52s cubic-bezier(.2, 1.5, .4, 1);
 }
 @keyframes plate-pop {
@@ -1639,11 +1639,24 @@ html, body {
   to   { opacity: 1; transform: none; }
 }
 .plate-praise {
-  font-size: clamp(22px, 7vw, 34px);
+  font-size: 36px;
   font-weight: 900;
-  letter-spacing: .10em;
-  color: #4A2E08;
-  text-shadow: 0 1px 0 rgba(255,255,255,.55);
+  letter-spacing: 0.08em;
+  background: linear-gradient(180deg, #FFFFFF 0%, #FDE68A 45%, #F59E0B 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 4px 12px rgba(245, 158, 11, 0.55));
+  position: relative;
+  padding-bottom: 8px;
+}
+.plate-praise::after {
+  content: '';
+  position: absolute;
+  left: 10%; right: 10%; bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.55), transparent);
+  filter: blur(0.5px);
 }
 
 /* ④ 萌宠乘发光微缩滑板在铭牌顶端跃起 */
@@ -2109,3 +2122,12 @@ html, body {
 .fail-revive .prism-gem { width: 1.15em; height: 1.15em; vertical-align: -0.15em; display: inline-block; }
 .shard-fly .prism-gem { width: 30px; height: 30px; display: inline-block; }
 .portal-chip-caption .prism-gem-sm { width: 12px; height: 12px; vertical-align: -2px; display: inline-block; }
+
+/* Delta20/T094: result home button */
+.result-home-btn {
+  position: absolute; top: 10px; left: 10px;
+  width: 34px; height: 34px; border-radius: 50%;
+  border: none; background: rgba(255,255,255,.18); color: #fff;
+  font-size: 16px; cursor: pointer; z-index: 5;
+}
+.result-home-btn:hover { background: rgba(255,255,255,.32); }

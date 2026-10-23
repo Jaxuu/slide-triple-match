@@ -694,7 +694,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
    *   · 右上角棱晶胶囊实时反映 profile v2 余额（七彩棱晶 SVG，与大厅同源）
    *   · IQ 为纯局内表现态（不持久化、不影响棱晶与进度）；称号仅驱动升段音效
    * ========================================================= */
-  var IQ_START = 90;
+  var IQ_START = 50;
   var IQ_TITLES = [
     { min: 180, name: '旷世奇才' },
     { min: 150, name: '最强大脑' },
@@ -702,7 +702,10 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     { min: 100, name: '逻辑达人' },
     { min: 0, name: '敏锐直觉' }
   ];
-  var iqValue = IQ_START;
+  var iqScore = IQ_START;
+  var levelStartTime = 0;
+  var blockErrors = 0;
+  var totalTriples = 1;
   var iqTitle = '敏锐直觉';
   var iqDeltaTimer = null;
 
@@ -714,9 +717,12 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
   }
 
   function resetIq() {
-    iqValue = IQ_START;
-    iqTitle = iqTitleOf(iqValue);
-    if (els.iqValue) els.iqValue.textContent = String(iqValue);
+    iqScore = IQ_START;
+    levelStartTime = performance.now();
+    blockErrors = 0;
+    totalTriples = Math.max(1, Math.round((((currentLevel && currentLevel.tiles) ? currentLevel.tiles.length : 3)) / 3));
+    iqTitle = iqTitleOf(iqScore);
+    if (els.iqValue) els.iqValue.textContent = String(iqScore);
     if (els.iqPill) {
       els.iqPill.classList.remove('level-up');
       els.iqPill.classList.remove('iq-broken');
@@ -727,14 +733,28 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
   /* 每次成功三消: IQ += 3 + combo × 2（绿色跳字 + 放大动效）；
    * 头衔在 100 / 120 / 150 / 180 处依次晋升。 */
   function addIq(gain, combo) {
-    iqValue += gain;
-    var next = iqTitleOf(iqValue);
+    combo = combo || 0;
+    var baseGain = 150 / totalTriples;
+    var comboMul = Math.min(1.08, 0.76 + combo * 0.08);
+    var errorMul = Math.pow(0.88, blockErrors);
+    var mins = Math.floor((performance.now() - levelStartTime) / 60000);
+    var timeMul = Math.max(0.50, 1.0 - mins * 0.15);
+    var rawDelta = baseGain * comboMul * errorMul * timeMul;
+    var newScore = iqScore + rawDelta;
+    if (newScore > 165) {
+      var excess = newScore - 165;
+      var damp = (200 - iqScore) / 38;
+      newScore = 165 + excess * damp;
+    }
+    if (newScore > 200) newScore = 200;
+    var delta = newScore - iqScore;
+    iqScore = newScore;
+    var next = iqTitleOf(iqScore);
     var leveled = next !== iqTitle;
     iqTitle = next;
-    if (els.iqValue) els.iqValue.textContent = String(iqValue);
+    if (els.iqValue) els.iqValue.textContent = String(iqScore);
     if (els.iqDelta) {
-      /* 绿色跳字固定展示本次增量（如 +5 / +9） */
-      els.iqDelta.textContent = '+' + gain;
+      els.iqDelta.textContent = '+' + (Math.round(delta * 10) / 10);
       els.iqDelta.classList.remove('show');
       void els.iqDelta.offsetWidth;
       els.iqDelta.classList.add('show');
@@ -753,9 +773,8 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     }
   }
 
-  /* 受阻反弹: IQ 不减少，但连击立即归零（重置由 GameState.breakCombo 权威执行，
-   * 此函数仅负责表现层的红闪与 HUD 刷新） */
   function breakComboOnBlocked() {
+    blockErrors += 1;
     if (els.iqPill) {
       els.iqPill.classList.remove('iq-broken');
       void els.iqPill.offsetWidth;
@@ -780,7 +799,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
       try { bal = STM.Profile ? STM.Profile.get().shards : 0; } catch (e) { bal = 0; }
       els.hudShards.innerHTML = prismHtml('prism-gem') + '<b>' + bal + '</b>';
     }
-    if (els.iqValue) els.iqValue.textContent = String(iqValue);
+    if (els.iqValue) els.iqValue.textContent = String(iqScore);
   }
 
   function renderDock() {
@@ -1141,13 +1160,15 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     if (app) app.classList.remove('scene-lobby');
     if (STM.Lobby) STM.Lobby.hide();
     if (!STM.Result) { enterLobby({ unlocked: progress.unlocked, level: progress.last }); return; }
+    var nextLevelId = Math.min(STM.LEVELS.length, (settlement.level || currentId || 1) + 1);
     STM.Result.show({
       level: settlement.level,
       shards: settlement.shards,
       litChip: settlement.litChip,
       paintingFull: settlement.paintingFull,
       firstClear: settlement.firstClear,
-      onContinue: function () { enterLobby({ unlocked: progress.unlocked, level: progress.last }); }
+      onContinue: function () { enterGame(nextLevelId); },
+      onHome: function () { enterLobby({ unlocked: progress.unlocked, level: progress.last }); }
     });
   }
 
