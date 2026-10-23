@@ -54,7 +54,7 @@ var CHAPTERS = [
     mechanisms: { gear: true, ice: true, chain: true, prism: true },
     mechFrom: { gear: 7, ice: 12, chain: 22, prism: 32 },
     mechDensity: { gear: [0.06, 0.10], ice: [0.06, 0.12], chain: [0.08, 0.16], prism: [1, 3] },
-    damageOnBlock: true,      /* 中期起受阻扣命（FR-003） */
+    damageOnBlock: false,      /* 受阻仅反弹（2026-10-23 起全章不扣命） */
     lives: 3,
     items: { undo: 1, wrench: 1 },
     iceMode: 'triple',
@@ -71,7 +71,7 @@ var CHAPTERS = [
     mechanisms: { gear: true, ice: true, chain: true, prism: true },
     mechFrom: { gear: 7, ice: 12, chain: 22, prism: 32 },
     mechDensity: { gear: [0.06, 0.10], ice: [0.06, 0.10], chain: [0.06, 0.12], prism: [2, 4] },
-    damageOnBlock: true,
+    damageOnBlock: false,      /* 2026-10-23 起全章不扣命 */
     lives: 3,
     items: { undo: 1, wrench: 1 },
     iceMode: 'triple',

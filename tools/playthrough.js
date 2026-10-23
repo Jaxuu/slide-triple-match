@@ -230,8 +230,13 @@ async function main() {
     P.addShards(300);
     var st = RE.init(STM.LEVELS[${LEVEL} - 1]);
     var base = st.tiles.length;
-    st.dock = [{id:9001,s:st.tiles[0].s},{id:9002,s:st.tiles[1].s},{id:9003,s:st.tiles[2].s}];
-    st.lives = 0;
+    /* 填满 7 格且无任何花色恰好 3 个 → lost_burst 终局态（2026-10-23 起受阻不再扣命） */
+    var s0 = st.tiles[0].s, s1 = st.tiles[1].s, s2 = st.tiles[2].s;
+    st.dock = [
+      {id:9001,s:s0},{id:9002,s:s0},{id:9003,s:s0},{id:9004,s:s0},
+      {id:9005,s:s1},{id:9006,s:s1},
+      {id:9007,s:s2}
+    ];
     var beforeShards = P.get().shards;
     var spent = P.spendShards(100);
     var afterShards = P.get().shards;

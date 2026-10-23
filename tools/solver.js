@@ -72,14 +72,12 @@ function makeBudget(nodes, ms) {
  *   · remove(match): 3 滑块按原 dock 相对序 append 回 dock 尾（removed 已 true——维持入槽态）
  *   · match: combo--、score 回扣
  *   · gear/unlock/ice: 字段回退（from 值）
- *   · blocked: damage 回补 lives
+ *   · blocked: 弹回原位（无棋盘副作用；damage 恒 0，不再扣命）
  * 前置条件: dock 滑块为 state.tiles 同一对象（init/dockInsert/restore 均满足）
  * ========================================================= */
 function undoTap(state, r) {
-  if (!r || !r.events) {
-    if (r && r.damage) state.lives += r.damage;
-    return;
-  }
+  if (!r || !r.events) return;
+  /* 2026-10-23: damage 恒 0，不再回补 lives */
   var events = r.events;
   var i, ev, j;  /* 逆序回退字段类事件（ice/gear/unlock） */
   for (i = events.length - 1; i >= 0; i--) {
@@ -142,7 +140,6 @@ function undoTap(state, r) {
   }
   /* applyTap 对 blocked 也 push 动作（Step 0 后立即入栈）→ 统一弹 1 */
   state.actions.length = Math.max(0, state.actions.length - 1);
-  if (r.damage) state.lives += r.damage;
 }
 
 /* =========================================================
@@ -273,7 +270,7 @@ function solveLevel(levelDef, opts) {
       var a = acts[ai];
       var r = RE.applyTap(st, a.t);
       if (r.type === 'invalid') continue;
-      if (r.type === 'blocked') { if (r.damage) st.lives += r.damage; continue; } /* 无棋盘副作用 */
+      if (r.type === 'blocked') { continue; } /* 无棋盘副作用（damage 恒 0） */
       if (st.dock.length > dockPeakMax) dockPeakMax = st.dock.length;
       var key = stateKey(st);
       if (seen[key]) { undoTap(st, r); continue; }

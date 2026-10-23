@@ -1063,8 +1063,7 @@
       sound.play('defeat');
       progress.last = currentId; /* 失败也记录 last（刷新回本关） */
       saveProgress();
-      var reason = o.kind === 'lost_burst' ? '收集槽爆满' :
-        o.kind === 'lost_lives' ? '生命耗尽' : '陷入死局';
+      var reason = o.kind === 'lost_burst' ? '收集槽爆满' : '陷入死局';
       /* Δ16g/T074: 无倒计时失败页接管（FR-043） */
       enterFail(o.kind, reason, o.score);
     }
@@ -1332,7 +1331,7 @@
     stopAutoBot('Hint');
     /* 必须在 READY 态 */
     var st = session.state();
-    if (st.phase === 'WON' || st.phase === 'LOST_BURST' || st.phase === 'LOST_LIVES' || st.phase === 'LOST_DEADLOCK') {
+    if (st.phase === 'WON' || st.phase === 'LOST_BURST' || st.phase === 'LOST_DEADLOCK') {
       toast('终局态不可 Hint');
       return;
     }

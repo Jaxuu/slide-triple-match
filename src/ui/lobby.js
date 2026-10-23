@@ -5,7 +5,7 @@
  *
  * 上中下六区分区布局 100% 保留（Δ17 仅换视觉皮肤，位置与功能语义不变）:
  *   顶部左  设置⚙️ / 调试面板🛠（与局内共用同一开关状态）
- *   顶部右  棱晶💎 货币栏（余额实时反映 profile v2）
+ *   顶部右  棱晶 货币栏（余额实时反映 profile v2）
  *   中上    `Glide Critters` 原创 3D 浮雕徽标（风翼 + 星芒 + 萌宠探头）
  *   中心    【棱晶星盘 / 时空传送门】← Δ17 替代原「2×2 拼图相框」
  *   中下    翠绿胶囊大按钮，文案严格 `关卡 X`（MUST NOT 带「开始」二字）
@@ -568,7 +568,7 @@
       var cap = chip.querySelector('.portal-chip-caption');
       if (cap) {
         /* 未点亮标注充能关卡；已点亮留空（不遮挡图景） */
-        cap.textContent = lit ? '' : chipCaption(q, st);
+        cap.innerHTML = lit ? '' : chipCaption(q, st);
       }
     }
     /* 顶部悬浮胶囊铭牌：大陆名称 + 充能进度 */
@@ -586,10 +586,10 @@
 
   /* 未点亮晶片的标注文案（逐块独立——各晶片标注自己的充能关卡）：
    *   · 第 q 块 → `第 X 关充能`（X = 点亮该块的困难位关卡号）
-   *   · 第 4 块（q=3）→ 额外追加满充能大奖预览 `💎 ×150` */
+   *   · 第 4 块（q=3）→ 额外追加满充能大奖预览 `棱晶 ×150` */
   function chipCaption(quad, st) {
     var lv = chargeLevelOf(st, quad);
-    if (quad === 3) return '第 ' + lv + ' 关充能 · 💎 ×150';
+    if (quad === 3) return '第 ' + lv + ' 关充能 · ' + (STM.PrismIcon ? STM.PrismIcon.html('prism-gem-sm') : '') + ' ×150';
     return '第 ' + lv + ' 关充能';
   }
 

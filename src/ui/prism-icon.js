@@ -3,7 +3,7 @@
  *
  * ingame-hud-render-defects（Bug 9）: 大厅右上角货币栏与局内顶栏 /
  * 道具购买角标必须消费**同一颗**棱晶 SVG。此常量原先私有于 lobby.js
- * 的 IIFE 内（无法被 main.js 引用），导致局内只能退化为 💎 Emoji。
+ * 的 IIFE 内（无法被 main.js 引用），导致局内只能退化为 Emoji。
  *
  * 装载序: modals.js → prism-icon.js → lobby.js（lobby 依赖本模块）。
  * 纯字符串拼接，零外部资源（宪章 III）。

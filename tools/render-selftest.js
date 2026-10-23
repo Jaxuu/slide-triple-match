@@ -856,13 +856,13 @@ function scenarioPurifyAndOriginality() {
   for (var pi = 0; pi < st.tiles.length && pickSuits.length < 3; pi++) {
     if (pickSuits.indexOf(st.tiles[pi].s) < 0) pickSuits.push(st.tiles[pi].s);
   }
+  var s0 = pickSuits[0], s1 = pickSuits[1], s2 = pickSuits[2];
   st.dock = [
-    { id: 9001, s: pickSuits[0] },
-    { id: 9002, s: pickSuits[1] },
-    { id: 9003, s: pickSuits[2] }
+    { id: 9001, s: s0 }, { id: 9002, s: s0 }, { id: 9003, s: s0 }, { id: 9004, s: s0 },
+    { id: 9005, s: s1 }, { id: 9006, s: s1 },
+    { id: 9007, s: s2 }
   ];
-  st.lives = 0;
-  check('Δ16g: 净化前处于 lost_lives 终局态', RE.terminal(st) === 'lost_lives', RE.terminal(st));
+  check('Δ16g: 净化前处于 lost_burst 终局态', RE.terminal(st) === 'lost_burst', RE.terminal(st));
 
   /* 净化前存活滑块数（MUST 在净化前取——净化只置 removed 标记，
    * `state.tiles` 数组长度恒定，下标 == 滑块 id 是引擎寻址铁律） */
@@ -1137,8 +1137,12 @@ function scenarioDelta19() {
     mainSrc.indexOf('STM.PrismIcon.html(cls)') !== -1 &&
     html.indexOf('src/ui/prism-icon.js') !== -1 &&
     html.indexOf('prism-icon.js') < html.indexOf('lobby.js'));
-  check('T085: 局内零 💎 Emoji（顶栏 / 道具角标 / 提示文案）',
-    mainSrc.indexOf('💎') === -1 && html.indexOf('💎') === -1);
+  check('T085: 局内零 💎 Emoji（顶栏 / 道具角标 / 提示文案 / 失败页 / 结算页 / 画卷预览）',
+    mainSrc.indexOf('💎') === -1 && html.indexOf('💎') === -1 &&
+    fs.readFileSync(path.join(RT, 'src', 'ui', 'fail.js'), 'utf8').indexOf('💎') === -1 &&
+    fs.readFileSync(path.join(RT, 'src', 'ui', 'result.js'), 'utf8').indexOf('💎') === -1 &&
+    fs.readFileSync(path.join(RT, 'src', 'ui', 'lobby.js'), 'utf8').indexOf('💎') === -1 &&
+    fs.readFileSync(path.join(RT, 'src', 'ui', 'prism-icon.js'), 'utf8').indexOf('💎') === -1);
   check('T085: 棋盘无外框线（#board border:none）',
     /#board\s*\{[\s\S]*?border:\s*none/.test(css));
   check('T085: 待消槽为简约托盘（无木纹 / 无槽内横线）',
