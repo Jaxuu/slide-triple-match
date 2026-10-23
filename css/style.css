@@ -1,3 +1,32 @@
+#dock .slot {
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+/* Δ20/T092: 顶部待消槽匹配卡牌 180ms 碎裂驻留演出 */
+.slot-shattering {
+  animation: slot-shatter 180ms steps(6, end) forwards;
+  position: relative;
+  overflow: visible;
+}
+.slot-shattering::before,
+.slot-shattering::after {
+  content: '';
+  position: absolute;
+  inset: 6% 8%;
+  border-top: 1px solid rgba(255, 255, 255, 0.95);
+  pointer-events: none;
+}
+.slot-shattering::before { transform: rotate(18deg); top: 30%; }
+.slot-shattering::after { transform: rotate(-24deg); top: 62%; }
+@keyframes slot-shatter {
+  0%   { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  25%  { transform: translate(2px, -1px) rotate(2deg); opacity: 1; }
+  50%  { transform: translate(-2px, 1px) rotate(-2deg); opacity: 1; }
+  75%  { transform: translate(1px, 2px) rotate(1deg); opacity: 0.85; }
+  100% { transform: scale(0.55) rotate(6deg); opacity: 0; }
+}
 /* =========================================================
  * Slide & Triple（滑块三消）— 9:16 响应式外壳（D-13）
  * 零外部资源：全部 CSS 渐变/动效程序化（宪章 III）
@@ -40,6 +69,16 @@ html, body {
   z-index: 0;
 }
 #fx-canvas { z-index: 1; } /* 前景粒子层高于底图、低于棋盘 */
+
+/* Δ20/T092: 全屏顶层特效画布（白瓷碎片瀑布 / 卡牌碎裂） */
+#vfx-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 950;
+}
 
 /* HUD / 棋盘 / Dock / 道具栏 / 教学层 抬升至背景层之上 */
 #hud, #board-wrap, #dock, #items, #toast, #challenge-banner {
@@ -323,12 +362,13 @@ html, body {
 }
 /* 7 个干净的深色半透明圆角空槽（无内部横线） */
 .slot {
+  padding: 0 !important;
   position: relative;
   z-index: 1;
   width: clamp(32px, 10.4cqw, 44px);
   height: clamp(32px, 10.4cqw, 44px);
   flex: none;
-  border-radius: 9px;
+  border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, .10);
   background: rgba(15, 23, 42, .42);
   display: flex;
@@ -371,13 +411,29 @@ html, body {
    · 出口① http:// 等可导出环境 → <img class="dock-icon">（DataURL 切片）
    · 出口② file:// 跨源污染 → <canvas class="dock-icon" data-bid>（同源切片直绘）
    二者消费同一张离屏切片，故与棋盘图标 100% 同源同图。 */
+.slot .dock-chip,
+.slot.has-tile > .dock-icon {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F1F5F9 100%);
+  box-shadow: inset 0 -3px 0 #CBD5E1;
+  border: 1px solid #94A3B8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+}
 .slot .dock-icon {
-  width: 82%;
-  height: 82%;
+  width: 86%;
+  height: 86%;
+  margin: 0;
+  border-radius: 10px;
   display: block;
   object-fit: contain;
   filter: drop-shadow(0 2px 3px rgba(15, 23, 42, .38));
-  border-radius: 18%;
   pointer-events: none;
   user-select: none;
 }
@@ -1571,11 +1627,11 @@ html, body {
 /* ③ 琥珀金渐变铭牌（居中承载赞美词） */
 .plate-bar {
   position: relative; z-index: 2;
-  padding: 16px 34px;
-  border-radius: 22px;
-  background: linear-gradient(180deg, var(--amber-hi) 0%, var(--amber) 48%, #C87F22 100%);
-  border: 3px solid rgba(255, 255, 255, .84);
-  box-shadow: 0 8px 26px rgba(0, 0, 0, .52), inset 0 2px 0 rgba(255,255,255,.72);
+  padding: 8px 24px;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
   animation: plate-pop .52s cubic-bezier(.2, 1.5, .4, 1);
 }
 @keyframes plate-pop {
@@ -1583,11 +1639,24 @@ html, body {
   to   { opacity: 1; transform: none; }
 }
 .plate-praise {
-  font-size: clamp(22px, 7vw, 34px);
+  font-size: 36px;
   font-weight: 900;
-  letter-spacing: .10em;
-  color: #4A2E08;
-  text-shadow: 0 1px 0 rgba(255,255,255,.55);
+  letter-spacing: 0.08em;
+  background: linear-gradient(180deg, #FFFFFF 0%, #FDE68A 45%, #F59E0B 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 4px 12px rgba(245, 158, 11, 0.55));
+  position: relative;
+  padding-bottom: 8px;
+}
+.plate-praise::after {
+  content: '';
+  position: absolute;
+  left: 10%; right: 10%; bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.55), transparent);
+  filter: blur(0.5px);
 }
 
 /* ④ 萌宠乘发光微缩滑板在铭牌顶端跃起 */
@@ -2053,3 +2122,12 @@ html, body {
 .fail-revive .prism-gem { width: 1.15em; height: 1.15em; vertical-align: -0.15em; display: inline-block; }
 .shard-fly .prism-gem { width: 30px; height: 30px; display: inline-block; }
 .portal-chip-caption .prism-gem-sm { width: 12px; height: 12px; vertical-align: -2px; display: inline-block; }
+
+/* Delta20/T094: result home button */
+.result-home-btn {
+  position: absolute; top: 10px; left: 10px;
+  width: 34px; height: 34px; border-radius: 50%;
+  border: none; background: rgba(255,255,255,.18); color: #fff;
+  font-size: 16px; cursor: pointer; z-index: 5;
+}
+.result-home-btn:hover { background: rgba(255,255,255,.32); }

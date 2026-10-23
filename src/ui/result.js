@@ -109,6 +109,14 @@
     visible = true;
 
     var card = h('div', 'result-card-celebrate', r);
+    var homeBtn = h('button', 'result-home-btn', card, '\uD83C\uDFE0');
+    homeBtn.type = 'button';
+    homeBtn.setAttribute('aria-label', 'return lobby');
+    homeBtn.addEventListener('click', function () {
+      hide();
+      if (opts.onHome) opts.onHome();
+      else if (opts.onContinue) opts.onContinue();
+    });
 
     /* ⑤ 棱晶星芒与光点粒子（原创程序化粒子层） */
     var spark = h('div', 'plate-sparks', card);
@@ -185,7 +193,8 @@
     var foot = h('div', 'result-foot', card);
     var btn = h('button', 'result-btn', foot);
     btn.type = 'button';
-    btn.textContent = opts.paintingFull ? '开启新大陆' : '返回主大厅';
+    var nextLevelId = Math.min((STM.LEVELS && STM.LEVELS.length) ? STM.LEVELS.length : 1, (opts.level || 1) + 1);
+    btn.textContent = '\u5173\u5361 ' + nextLevelId;
     btn.addEventListener('click', function () {
       if (opts.paintingFull) { buildBoard(opts); }
       else { hide(); if (opts.onContinue) opts.onContinue(); }

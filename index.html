@@ -50,7 +50,7 @@
       <!-- 关号保留为不可见节点（a11y / 自动化断言 / 调试），玩家看到的是中央 IQ -->
       <span id="hud-level-no" hidden>1</span>
       <div class="iq-pill" id="iq-pill">
-        <span class="iq-word">IQ:</span><b id="iq-value">90</b>
+        <span class="iq-word">IQ:</span><b id="iq-value">50</b>
         <span id="iq-delta" class="iq-delta" aria-hidden="true"></span>
       </div>
     </div>
@@ -65,6 +65,9 @@
   <div id="board-wrap">
     <canvas id="board"></canvas>
   </div>
+
+  <!-- Δ20/T092: 全屏顶层特效画布（白瓷碎片瀑布 / 卡牌碎裂） -->
+  <canvas id="vfx-canvas" aria-hidden="true"></canvas>
 
   <!-- Δ19d/T086: 底部三大道具（撤销 / 灵犀三消 / 乾坤洗牌——原创 SVG 图标） -->
   <div id="items">

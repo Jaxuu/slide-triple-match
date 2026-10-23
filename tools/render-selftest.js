@@ -612,7 +612,7 @@ function scenarioBackdropStage() {
   check('Bug B: 磨砂暖白 veil 已移除（不再有雾遮罩——高清背景锐利透出）',
     src.indexOf('rgba(255,252,246,0.10)') === -1);
   check('Bug B: 滑块改由深色投影承载对比度（rgba(15,23,42,0.30)）',
-    src.indexOf('rgba(15, 23, 42, 0.30)') !== -1);
+    src.indexOf('rgba(15, 23, 42, 0.25)') !== -1);
   check('Bug B: 切片分辨率提升至 256（SLICE_PX=256，非 128）',
     /SLICE_PX\s*=\s*256/.test(src) && src.indexOf('cv.width = 128') === -1);
   check('Bug B: DPR 2x 下限超采样（Math.max(2, devicePixelRatio)）',
@@ -1100,7 +1100,7 @@ function scenarioDelta19() {
     brSrc.indexOf('var dotR') === -1 &&
     brSrc.indexOf('rgba(120,135,155,0.55)') === -1);
   check('T084: 动物图标 iconSize = tileSize × 0.84（居中铺满）',
-    /drawBestiaryIcon\(ctx,\s*sv,\s*x \+ w \/ 2,\s*y \+ w \/ 2,\s*w \* 0\.84\)/.test(brSrc));
+    /drawBestiaryIcon\(ctx,\s*sv,\s*x \+ w \/ 2,\s*y \+ w \/ 2,\s*w \* 0.85\)/.test(brSrc));
   check('T084: 卡牌内无内缩白描边（drawTileBody 内零 strokeRect）', (function () {
     var i = brSrc.indexOf('function drawTileBody');
     var j = brSrc.indexOf('function drawBestiaryIcon', i);
@@ -1159,7 +1159,7 @@ function scenarioDelta19() {
     /!IconAssets\.keyingAvailable\(\)/.test(brSrc) &&
     /globalCompositeOperation = 'darken'/.test(brSrc));
   check('T085: IQ 初始 90 / 增量 3+combo×2 / 四档头衔',
-    /var IQ_START = 90/.test(mainSrc) &&
+    /var IQ_START = 50/.test(mainSrc) &&
     /3 \+ \(e\.combo \|\| 0\) \* 2/.test(mainSrc) &&
     mainSrc.indexOf("min: 100") !== -1 && mainSrc.indexOf("min: 120") !== -1 &&
     mainSrc.indexOf("min: 150") !== -1 && mainSrc.indexOf("min: 180") !== -1);

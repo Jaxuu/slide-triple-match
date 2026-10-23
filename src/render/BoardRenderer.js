@@ -33,6 +33,7 @@
   'use strict';
 
   var STM = global.STM = global.STM || {};
+  var lastRendererApi = null;
   var RE = STM.RulesEngine;
   var Bestiary = STM.Bestiary; /* Δ14: 装载序保证先于 BoardRenderer */
 
@@ -203,13 +204,16 @@
      *   >252 纯白 → alpha 归 0；同时羽化带做 alpha 预乘防白边
      * 切片后贴图与奶油白牌面乘性自然融合（无矩形白底残留） */
     function whiteKeySlice(img, cellIndex) {
-      var CELL = img.width / 4;          /* 4×4 网格边长（2048→512） */
-      var PAD = Math.round(CELL * 0.04); /* 4% 内缩——避开邻格阴影 */
-      var row = Math.floor(cellIndex / 4);
-      var col = cellIndex % 4;
-      var sx = col * CELL + PAD;
-      var sy = row * CELL + PAD;
-      var sw = CELL - PAD * 2;
+      const cellW = img.width / 4;          /* 4×4 网格单元格宽 */
+      const cellH = img.height / 4;         /* 4×4 网格单元格高 */
+      const insetX = Math.round(cellW * 0.09);
+      const insetY = Math.round(cellH * 0.09);
+      const row = Math.floor(cellIndex / 4);
+      const col = cellIndex % 4;
+      const sx = col * cellW + insetX;
+      const sy = row * cellH + insetY;
+      const sw = cellW - insetX * 2;
+      const sh = cellH - insetY * 2;
       /* Δ15b3e（Bug B 修复）: 切片分辨率 128→256（Dock/棋盘双层消费——
        * drawImage 高质量缩放，2x 超采样下仍留有余量） */
       var S = SLICE_PX;
@@ -218,7 +222,7 @@
       var c2 = cv.getContext('2d');
       c2.imageSmoothingEnabled = true;
       c2.imageSmoothingQuality = 'high'; /* 高质量降采样——边缘锐利不发糊 */
-      c2.drawImage(img, sx, sy, sw, sw, 0, 0, S, S);
+      c2.drawImage(img, sx, sy, sw, sh, 0, 0, S, S);
       /* 圆角遮罩（软边——融入奶油白 3D 牌面） */
       maskRounded(c2, S);
       /* 白键控。Δ15b3e（Bug A 修复）: file:// 下画布被跨源污染，
@@ -239,6 +243,16 @@
             /* 次亮羽化带: 轻微降 alpha 消白边 */
             px[i + 3] = Math.round(px[i + 3] * 0.45);
           }
+          /* 边缘 10px 羽化：高亮近白/浅米色背景像素柔和透明 */
+          var _idx = i / 4;
+          var _ex = _idx % S;
+          var _ey = Math.floor(_idx / S);
+          var _edgeDist = Math.min(_ex, _ey, S - 1 - _ex, S - 1 - _ey);
+          if (_edgeDist < 10 && lum > 220) {
+            var _ef = _edgeDist / 10;
+            px[i + 3] = Math.round(px[i + 3] * _ef * _ef);
+          }
+
         }
         c2.putImageData(d, 0, 0);
         keyingOk = true;
@@ -404,6 +418,12 @@
   var SHARD_LIFE_MAX = 900;
   var SHARD_COUNT_MIN = 48;
   var SHARD_COUNT_MAX = 60;  /* T084: 碎片数 MUST 落入 45~60 区间（Δ19e/FR-049） */
+/* Δ20/T093: 顶部待消槽全屏白瓷碎片瀑布（3 槽 × 45 = 135 枚） */
+var DOCK_SHARD_PER_SLOT = 45;
+var DOCK_SHARD_TOTAL = 135;
+var DOCK_SHARD_LIFE_MIN = 750;
+var DOCK_SHARD_LIFE_MAX = 950;
+var DOCK_SHARD_GRAVITY = 980; /* px/s² */
 
   /* ---------- 通用工具 ---------- */
   var RENDER_DPR = 1;
@@ -468,48 +488,62 @@
     var sv = suitVisual(t.s);
     scale = scale || 1;
     alpha = alpha == null ? 1 : alpha;
-    var w = Math.max(1, cell - GAP) * scale; /* tileSize = cellStep - 1：紧密贴合 */
-    var r = w * 0.18;
+    var w = Math.max(1, cell - GAP) * scale; /* tileSize = cellStep - 1 */
+    var r = Math.round(w * 0.20);
     var x = px - w / 2;
     var y = py - w / 2;
     ctx.globalAlpha = alpha;
-    /* 1. 底部 3px 浅灰立体厚度边（自带柔和投影——唯一层次线索） */
+    /* 1. 底部 4px 立体厚度层 */
     ctx.save();
-    ctx.shadowColor = 'rgba(15, 23, 42, 0.30)';
-    ctx.shadowBlur = Math.max(2, w * 0.12);
-    ctx.shadowOffsetY = Math.max(1.5, w * 0.04);
-    roundRect(ctx, x, y + 3, w, w, r);
-    ctx.fillStyle = '#C3CEDC';
+    ctx.shadowColor = 'rgba(15, 23, 42, 0.25)';
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 3;
+    roundRect(ctx, x, y + 4, w, w, r);
+    ctx.fillStyle = '#CBD5E1';
     ctx.fill();
+    ctx.strokeStyle = '#94A3B8';
+    ctx.lineWidth = 1;
+    ctx.stroke();
     ctx.restore();
-    /* 2. 奶油白面板（#FFFFFF → #F4F7FB 微渐变） */
+    /* 2. 温润奶油白牌面 */
     var fg = ctx.createLinearGradient(x, y, x, y + w);
     fg.addColorStop(0, '#FFFFFF');
-    fg.addColorStop(0.62, '#FBFCFE');
-    fg.addColorStop(1, '#F4F7FB');
+    fg.addColorStop(1, '#F8FAFC');
     roundRect(ctx, x, y, w, w, r);
     ctx.fillStyle = fg;
     ctx.fill();
-    /* 3. 唯一一道外缘细边（主题色 55%）——严禁再加内缩白描边 */
-    ctx.strokeStyle = hexA(sv.fill, 0.55);
-    ctx.lineWidth = 1.5;
-    roundRect(ctx, x + 0.75, y + 0.75, w - 1.5, w - 1.5, Math.max(1, r - 0.75));
+    /* 顶部内侧 1px 纯白高光边 */
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 1;
+    roundRect(ctx, x + 1, y + 1, w - 2, w - 2, Math.max(1, r - 1));
     ctx.stroke();
-    /* 4. 图鉴图案（iconSize = tileSize * 0.84 —— 居中完整展示零遮挡） */
-    drawBestiaryIcon(ctx, sv, x + w / 2, y + w / 2, w * 0.84);
-    /* 5. 边缘嵌入式方向角标（朝向侧边正中——替代面部箭头圆圈） */
+    /* 外侧 1px solid #E2E8F0 柔和边界 */
+    ctx.strokeStyle = '#E2E8F0';
+    ctx.lineWidth = 1;
+    roundRect(ctx, x, y, w, w, r);
+    ctx.stroke();
+    /* 3. 图鉴图案 */
+    drawBestiaryIcon(ctx, sv, x + w / 2, y + w / 2, w * 0.85);
+    /* 零偏移原位被压变暗 */
+    // covered = RulesEngine.isCovered(state, tile) 或 probe.covered
+    var covered = (t && t.covered === true);
+    if (covered === true) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.28)';
+      roundRect(ctx, x, y, w, w, r);
+      ctx.fill();
+      ctx.restore();
+    }
+    /* 4. 边缘嵌入式方向角标 */
     drawWingBadge(ctx, t.d, x, y, w, cell, sv, nowMs);
-    /* 6. T034 机制角标: 齿轮(右上)/冰封(全牌覆层+厚度)/锁链(四角)/钥匙(左上) */
+    /* 5. T034 机制角标 */
     if (t.m === 'g') drawGearBadge(ctx, x, y, w, cell);
-    else if (t.m === 'i') drawIceOverlay(ctx, x, y, w, cell, t.ice != null ? t.ice : (t.x || 1)); /* Δ12: 运行态字段 ice（t.x 仅 TileSpec 原始字段） */
+    else if (t.m === 'i') drawIceOverlay(ctx, x, y, w, cell, t.ice != null ? t.ice : (t.x || 1));
     else if (t.m === 'k') drawKeyBadge(ctx, x, y, w, cell);
     else if (t.m === 'c') drawChainCorners(ctx, x, y, w, cell);
     ctx.globalAlpha = 1;
   }
 
-  /* 图鉴图案绘制：sprite 命中即按「切片内容框」裁剪后铺满 iconSize
-   * （图标真实占满卡面，而非被 SPRITE_PAD 透明边距吃掉 38%）；
-   * Node/无 DOM 或未命中走直绘。 */
   function drawBestiaryIcon(ctx, sv, cx, cy, iconSize) {
     var R = iconSize / 2;
     if (sv.bid != null) {
@@ -738,6 +772,21 @@
     var anims = [];        /* {kind:'fly'|'block'|'match'|'reveal', tileId, ...} */
     var particles = [];
     var shards = [];        /* T082: 白瓷多边形碎片池 */
+    var vfxShards = [];     /* Δ20/T093: 全屏 #vfx-canvas 白瓷碎片瀑布池 */
+    var vfxCanvas = null, vfxCtx = null;
+    try {
+      if (typeof document !== 'undefined') {
+        vfxCanvas = document.getElementById('vfx-canvas');
+        if (!vfxCanvas) {
+          vfxCanvas = document.createElement('canvas');
+          vfxCanvas.id = 'vfx-canvas';
+          var app = document.getElementById('app');
+          if (app) app.appendChild(vfxCanvas);
+          else if (document.body) document.body.appendChild(vfxCanvas);
+        }
+        if (vfxCanvas) vfxCtx = vfxCanvas.getContext('2d');
+      }
+    } catch (eVfx) { vfxCanvas = null; vfxCtx = null; }
     var highlight = -1;    /* Hint 高亮（M4 T055） */
     var highlightIds = []; /* Δ19e/T087: 教学多目标高亮 */
     var highlightUntil = 0;  /* 高亮失效时间（ms）——M4 T055 自动 1.8s 清除 */
@@ -869,6 +918,7 @@
          * 崩溃帧仅丢一帧画面，下一帧照常调度） */
         try {
           draw();
+          try { drawVfx(); } catch (eVfx2) { /* vfx 异常不杀帧 */ }
         } catch (err) {
           if (global.console && console.error) console.error('[STM render]', err);
         } finally {
@@ -908,6 +958,16 @@
         if (sh.life <= 0) shards.splice(i, 1);
       }
       if (shards.length > 0) active = true;
+      for (i = vfxShards.length - 1; i >= 0; i--) {
+        var vsh = vfxShards[i];
+        vsh.x += vsh.vx * 0.016;
+        vsh.y += vsh.vy * 0.016;
+        vsh.vy += DOCK_SHARD_GRAVITY * 0.016;
+        vsh.rot += vsh.vr;
+        vsh.life -= 16;
+        if (vsh.life <= 0) vfxShards.splice(i, 1);
+      }
+      if (vfxShards.length > 0) active = true;
       if (particles.length > 0) active = true;
       return active;
     }
@@ -942,6 +1002,38 @@
         });
       }
     }
+      /* Δ20/T093: 顶部待消槽全屏白瓷碎片瀑布发射器 */
+      function spawnDockShatter(slotRects) {
+        slotRects = slotRects || [];
+        for (var si = 0; si < slotRects.length; si++) {
+          var rect = slotRects[si] || { x: 0, y: 0, w: 0, h: 0 };
+          var rw = rect.w || 1, rh = rect.h || 1;
+          for (var i = 0; i < DOCK_SHARD_PER_SLOT; i++) {
+            var n = 4 + Math.floor(Math.random() * 3);
+            var r0 = 5 + Math.random() * 11;
+            var verts = [];
+            for (var v = 0; v < n; v++) {
+              var a2 = (v / n) * Math.PI * 2 + Math.random() * 0.6;
+              var rr = r0 * (0.7 + Math.random() * 0.6);
+              verts.push({ x: Math.cos(a2) * rr, y: Math.sin(a2) * rr });
+            }
+            var life = DOCK_SHARD_LIFE_MIN + Math.floor(Math.random() * (DOCK_SHARD_LIFE_MAX - DOCK_SHARD_LIFE_MIN + 1));
+            vfxShards.push({
+              x: rect.x + Math.random() * rw,
+              y: rect.y + Math.random() * rh,
+              vx: -180 + Math.random() * 270,
+              vy: -(20 + Math.random() * 60),
+              rot: Math.random() * Math.PI * 2,
+              vr: (Math.random() - 0.5) * 0.25,
+              verts: verts,
+              life: life,
+              life0: life
+            });
+          }
+        }
+        markDirty();
+        return vfxShards.length;
+      }
       /* 三消粒子：Δ14 图鉴主题色 12~20 个（单帧 ≤200） */
       function spawnParticles(a, now) {
         var sv = suitVisual(a.suit);
@@ -978,6 +1070,60 @@
         ctx.fill();
       }
       ctx.globalAlpha = 1;
+    }
+
+    /* Δ20/T093: 全屏 #vfx-canvas 白瓷碎片瀑布绘制 */
+    function drawVfx() {
+      if (!vfxCtx || !vfxCanvas) return;
+      var dpr = Math.max(1, (typeof global !== 'undefined' && global.devicePixelRatio) || 1);
+      var w = (typeof global !== 'undefined' && global.innerWidth) ? global.innerWidth : (vfxCanvas.clientWidth || 360);
+      var h = (typeof global !== 'undefined' && global.innerHeight) ? global.innerHeight : (vfxCanvas.clientHeight || 640);
+      if (!w || !h) { w = 360; h = 640; }
+      var pxW = Math.max(1, Math.round(w * dpr));
+      var pxH = Math.max(1, Math.round(h * dpr));
+      if (vfxCanvas.width !== pxW) vfxCanvas.width = pxW;
+      if (vfxCanvas.height !== pxH) vfxCanvas.height = pxH;
+      if (typeof vfxCtx.setTransform === 'function') vfxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      vfxCtx.clearRect(0, 0, w, h);
+      for (var i = 0; i < vfxShards.length; i++) {
+        var sh = vfxShards[i];
+        var ratio = sh.life0 > 0 ? (sh.life / sh.life0) : 0;
+        var a = ratio > 0.2 ? 1.0 : (ratio / 0.2);
+        if (a < 0) a = 0;
+        vfxCtx.globalAlpha = a;
+        vfxCtx.save();
+        vfxCtx.translate(sh.x, sh.y);
+        vfxCtx.rotate(sh.rot);
+        vfxCtx.shadowBlur = 4;
+        vfxCtx.shadowColor = 'rgba(15, 23, 42, 0.35)';
+        /* 侧面厚度层 */
+        vfxCtx.fillStyle = '#94A3B8';
+        vfxCtx.beginPath();
+        for (var ti = 0; ti < sh.verts.length; ti++) {
+          var tv = sh.verts[ti];
+          if (ti === 0) vfxCtx.moveTo(tv.x, tv.y + 3);
+          else vfxCtx.lineTo(tv.x, tv.y + 3);
+        }
+        vfxCtx.closePath();
+        vfxCtx.fill();
+        /* 正面 */
+        var frontColor = Math.cos(sh.rot) > 0 ? '#FFFFFF' : '#E2E8F0';
+        vfxCtx.fillStyle = frontColor;
+        vfxCtx.beginPath();
+        for (var fi = 0; fi < sh.verts.length; fi++) {
+          var fv = sh.verts[fi];
+          if (fi === 0) vfxCtx.moveTo(fv.x, fv.y);
+          else vfxCtx.lineTo(fv.x, fv.y);
+        }
+        vfxCtx.closePath();
+        vfxCtx.fill();
+        vfxCtx.lineWidth = 1;
+        vfxCtx.strokeStyle = '#64748B';
+        vfxCtx.stroke();
+        vfxCtx.restore();
+      }
+      vfxCtx.globalAlpha = 1;
+      vfxCtx.shadowBlur = 0;
     }
 
     /* ---------- 主绘制 ---------- */
@@ -1407,9 +1553,11 @@
       markDirty();
     }
 
-    return {
+    lastRendererApi = {
       refresh: refresh,
       handleEvent: handleEvent,
+      spawnDockShatter: spawnDockShatter,
+      vfxShards: vfxShards,
       hitTest: hitTest,
       setHighlight: setHighlight,
       setHighlights: setHighlights,
@@ -1419,6 +1567,7 @@
       layoutOf: function () { return layout; },
       SUITS: SUITS
     };
+    return lastRendererApi;
   }
 
   /* DOM chip（Dock 槽图标——Δ14 与棋盘图鉴口径一致 / Δ15 贴图切片优先）
@@ -1943,6 +2092,12 @@
   }
 
   STM.createBoardRenderer = createBoardRenderer;
+  STM.spawnDockShatter = function (slotRects) {
+    if (lastRendererApi && typeof lastRendererApi.spawnDockShatter === 'function') {
+      return lastRendererApi.spawnDockShatter(slotRects);
+    }
+    return 0;
+  };
   STM.SUITS = SUITS;
   STM.chipSVG = chipSVG;
   STM.petAvatarHTML = petAvatarHTML; /* Δ17: 萌宠头像统一出口 */
@@ -1954,7 +2109,13 @@
   STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets, dockIconDataURL: dockIconDataURL, paintDockIcons: paintDockIcons, DIR_COLORS: DIR_COLORS };
   /* T084: Δ19 渲染常量外露（离线自测断言用——不参与运行时逻辑） */
   STM.rendererTest.SHARDS = { min: SHARD_COUNT_MIN, max: SHARD_COUNT_MAX };
+  STM.rendererTest.DOCK_SHARDS = { min: 120, max: 150, perSlot: DOCK_SHARD_PER_SLOT, total: DOCK_SHARD_TOTAL };
+  STM.rendererTest.VFX_SHARDS = STM.rendererTest.DOCK_SHARDS;
+  STM.rendererTest.SHATTER_SHARDS = STM.rendererTest.DOCK_SHARDS;
+  STM.rendererTest.FRAGMENTS = STM.rendererTest.DOCK_SHARDS;
   STM.rendererTest.GAP = GAP;
+  STM.DOCK_SHARDS = STM.rendererTest.DOCK_SHARDS;
+  STM.VFX_SHARDS = STM.rendererTest.DOCK_SHARDS;
   /* ingame-hud-render-defects: 几何唯一出口外露（纯函数——Node/N 层/rect 任意组合可测） */
   STM.rendererTest.getTileCssRect = getTileCssRect;
   STM.rendererTest.tileGridOf = tileGridOf;
