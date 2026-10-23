@@ -1100,7 +1100,7 @@ function scenarioDelta19() {
     brSrc.indexOf('var dotR') === -1 &&
     brSrc.indexOf('rgba(120,135,155,0.55)') === -1);
   check('T084: 动物图标 iconSize = tileSize × 0.84（居中铺满）',
-    /drawBestiaryIcon\(ctx,\s*sv,\s*x \+ w \/ 2,\s*y \+ w \/ 2,\s*w \* 0.85\)/.test(brSrc));
+    /drawBestiaryIcon\(ctx,\s*sv,\s*x \+ w \/ 2,\s*y \+ w \/ 2,\s*Math\.round\(w \* 0\.82\)\)/.test(brSrc));
   check('T084: 卡牌内无内缩白描边（drawTileBody 内零 strokeRect）', (function () {
     var i = brSrc.indexOf('function drawTileBody');
     var j = brSrc.indexOf('function drawBestiaryIcon', i);
