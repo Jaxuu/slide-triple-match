@@ -494,6 +494,81 @@ function peelOrder(slots, prisms, n, params, rng) {
     }
   }
 
+  /* Δ20: Directional Interlocking — 同层同行/同列连续同向 <=2 */
+  (function interlock() {
+  function buildState() {
+    var probeTiles = slots.map(function (s, idx) {
+      return { r: s.r, c: s.c, s: 0, d: (dirs[idx] != null ? dirs[idx] : 0), z: s.z };
+    });
+    var probe = { id: 1, n: n, tiles: probeTiles, prisms: prisms || [], cfg: { lives: 3, damageOnBlock: false, items: { undo: 1, magnet: 1, shuffle: 1 }, iceMode: 'triple', chains: [], scoring: { comboBase: 10, comboStep: 5 } }, metrics: null, solutionMoves: [] };
+    return RE.init(probe);
+  }
+  function isFree(state, slotIdx, d) {
+    var s = slots[slotIdx];
+    var ray = RE.castRay(state, s.r, s.c, d, s.z || 0);
+    return ray.free;
+  }
+  function rowNeighbors(id, idxs) {
+    var s = slots[id];
+    var arr = idxs.filter(function(x){ return slots[x].r === s.r; }).sort(function(a,b){ return slots[a].c - slots[b].c; });
+    var pos = arr.indexOf(id);
+    return { prev1: pos>=1 ? arr[pos-1] : -1, prev2: pos>=2 ? arr[pos-2] : -1, next1: pos<arr.length-1 ? arr[pos+1] : -1 };
+  }
+  function colNeighbors(id, idxs) {
+    var s = slots[id];
+    var arr = idxs.filter(function(x){ return slots[x].c === s.c; }).sort(function(a,b){ return slots[a].r - slots[b].r; });
+    var pos = arr.indexOf(id);
+    return { prev1: pos>=1 ? arr[pos-1] : -1, prev2: pos>=2 ? arr[pos-2] : -1, next1: pos<arr.length-1 ? arr[pos+1] : -1 };
+  }
+  var guard = 0;
+  while (guard < 1000) {
+    guard++;
+    var state = buildState();
+    var changed = false;
+    var layers = {};
+    slots.forEach(function (s, idx) { (layers[s.z || 0] = layers[s.z || 0] || []).push(idx); });
+    for (var z in layers) {
+      var idxs = layers[z];
+      // process tiles in row-major order
+      var orderIds = idxs.slice().sort(function(a,b){ var sa=slots[a],sb=slots[b]; if(sa.r!==sb.r)return sa.r-sb.r; return sa.c-sb.c; });
+      for (var ii = 0; ii < orderIds.length; ii++) {
+        var id = orderIds[ii];
+        var rn = rowNeighbors(id, idxs);
+        var cn = colNeighbors(id, idxs);
+        var cur = dirs[id];
+        // determine if part of a run (3 consecutive same) in row or col
+        var runRow = (rn.prev1>=0 && rn.prev2>=0 && dirs[rn.prev1]===cur && dirs[rn.prev2]===cur);
+        var runCol = (cn.prev1>=0 && cn.prev2>=0 && dirs[cn.prev1]===cur && dirs[cn.prev2]===cur);
+        if (!runRow && !runCol) continue;
+        /* debug removed */
+        // try all directions, prefer those different from immediate neighbors
+        var cands = [0,1,2,3].sort(function(a,b){
+          var sa = (rn.prev1>=0&&dirs[rn.prev1]===a?1:0)+(cn.prev1>=0&&dirs[cn.prev1]===a?1:0);
+          var sb = (rn.prev1>=0&&dirs[rn.prev1]===b?1:0)+(cn.prev1>=0&&dirs[cn.prev1]===b?1:0);
+          return sa - sb;
+        });
+        var chosen = cur;
+        for (var pi = 0; pi < cands.length; pi++) {
+          var d = cands[pi];
+          if (d === cur) continue;
+          if (!isFree(state, id, d)) continue;
+          dirs[id] = d;
+          // check runs after change
+          var bad = false;
+          if (rn.prev1>=0 && rn.prev2>=0 && dirs[rn.prev1]===d && dirs[rn.prev2]===d) bad = true;
+          if (cn.prev1>=0 && cn.prev2>=0 && dirs[cn.prev1]===d && dirs[cn.prev2]===d) bad = true;
+          if (!bad) { chosen = d; changed = true; break; }
+          dirs[id] = cur;
+        }
+        dirs[id] = chosen;
+      }
+    }
+    if (!changed) break;
+  }
+})();
+/* DEBUG after interlock */
+  (function(){var maxR=0;var layers={};slots.forEach(function(s,idx){(layers[s.z||0]=layers[s.z||0]||[]).push(idx);});for(var z in layers){var idxs=layers[z];var rows={};idxs.forEach(function(id){(rows[slots[id].r]=rows[slots[id].r]||[]).push(id);});for(var r in rows){var row=rows[r].sort(function(a,b){return slots[a].c-slots[b].c;});var run=1;for(var i=1;i<row.length;i++){if(dirs[row[i]]===dirs[row[i-1]])run++;else run=1;if(run>maxR)maxR=run;}}}if(params.id===12)console.log('L12 maxdir after interlock:',maxR);})();
+
   if (minChoke === Infinity) minChoke = 0;
   return {
     order: order,
@@ -541,29 +616,14 @@ function assignSuitsV2(order, slots, suitsN, params, rng) {
      余下组数并入**首花色**（首花色组数 = G - (K-1)*per3，仍为 3 的倍数）。
      当 G < 3*K 时，退化为「每色 3 组」→ K 需 ≤ floor(G/3)（否则花色数下调）。 */
   var groupSuit = [];
-  var per3 = Math.floor(groups / suitsN / 3) * 3;
-  if (per3 < 3) per3 = 3;
-  if (per3 * suitsN > groups) {
-    /* G 不足以让每色各 3 组 → 削减花色数（保持每色 ≥3 组 = ≥9 块） */
-    suitsN = Math.max(1, Math.floor(groups / 3));
-    per3 = Math.floor(groups / suitsN / 3) * 3;
-    if (per3 < 3) per3 = 3;
-  }
-  /* 余数组**均匀分摊**到各色（而非全部压给首色）——
-   * 避免首色组数畸高（同色 48 块挤在少数区域 → 空间打散不可达）。
-   * 每色组数 = per3 + (前 rem 色各 +1)；per3 为 3 的倍数，+1 后总数
-   * 仍须 %3==0 → 故 rem 组也按 3 块一组合并：把余数按 3 打包分给各色。 */
-  var remGroups = groups - per3 * suitsN;
-  var extraPer = Math.floor(remGroups / 3);
+  /* Δ20: 每花色最少 1 组（3 块） */
+  if (suitsN > groups) suitsN = Math.max(1, groups);
+  var qg = Math.floor(groups / suitsN);
+  var rg = groups % suitsN;
+  if (qg < 1) { qg = 1; suitsN = Math.min(suitsN, groups); rg = groups - suitsN * qg; }
   for (var s2 = 0; s2 < suitsN; s2++) {
-    var c2 = per3 + (s2 < extraPer ? 3 : 0);
+    var c2 = qg + (s2 < rg ? 1 : 0);
     for (var k2 = 0; k2 < c2; k2++) groupSuit.push(s2);
-  }
-  /* 剩余不足 3 组的零头 → 并入首色（首色总数仍 %3==0：3 的倍数 + 3 的倍数） */
-  var leftover = groups - groupSuit.length;
-  if (leftover > 0) {
-    /* leftover 必为 3 的倍数（groups 与各色 3 倍数之差）→ 全部并入首色 */
-    for (var lo = 0; lo < leftover; lo++) groupSuit.unshift(0);
   }
   if (groupSuit.length !== groups) return null;
   /* ② 槽位 → 花色初值（按移除序三元组）
@@ -793,7 +853,7 @@ function assignSuitsV2(order, slots, suitsN, params, rng) {
   var best = suitOfSlot.slice();
   var bestCost = curCost;
   var pass = 0;
-  while (pass < 40) {
+  while (pass < 200) {
     var improved = false;
     for (var ca = 0; ca < allSlots.length; ca++) {
       for (var cb = ca + 1; cb < allSlots.length; cb++) {
@@ -837,6 +897,52 @@ function assignSuitsV2(order, slots, suitsN, params, rng) {
     if (bestCost === 0) break;
   }
   suitOfSlot = best;
+  /* DEBUG skip */
+  /* decluster */
+  (function () {
+    var nGroups = Math.floor(slots.length / 3);
+    function groupSuitOf(gg) { return suitOfSlot[order[gg * 3]]; }
+    function setGroupSuit(gg, suitVal) { for (var t = 0; t < 3; t++) suitOfSlot[order[gg * 3 + t]] = suitVal; }
+    function adjCount() {
+      var cnt = 0;
+      for (var a = 0; a < slots.length; a++) {
+        for (var b = a + 1; b < slots.length; b++) {
+          if ((slots[a].z || 0) !== (slots[b].z || 0)) continue;
+          var ra = slots[a].r, ca = slots[a].c, rb = slots[b].r, cb = slots[b].c;
+          var gridAdj = (Math.abs(ra - rb) + Math.abs(ca - cb) === 1) ||
+                        (Math.max(Math.abs(ra - rb), Math.abs(ca - cb)) === 1);
+          if (!gridAdj) continue;
+          if (suitOfSlot[a] === suitOfSlot[b]) cnt++;
+        }
+      }
+      return cnt;
+    }
+    var curAdj = adjCount();
+    var improved = true;
+    var guard = 0;
+    while (improved && curAdj > 0 && guard < 500) {
+      improved = false; guard++;
+      var bestDelta = 0, bestG = -1, bestH = -1;
+      for (var g = 0; g < nGroups; g++) {
+        for (var h = g + 1; h < nGroups; h++) {
+          if (groupSuitOf(g) === groupSuitOf(h)) continue;
+          var sg = groupSuitOf(g), sh = groupSuitOf(h);
+          setGroupSuit(g, sh); setGroupSuit(h, sg);
+          var newAdj = adjCount();
+          var delta = curAdj - newAdj;
+          if (delta > bestDelta) { bestDelta = delta; bestG = g; bestH = h; }
+          setGroupSuit(g, sg); setGroupSuit(h, sh);
+        }
+      }
+      if (bestG >= 0 && bestDelta > 0) {
+        var sg2 = groupSuitOf(bestG), sh2 = groupSuitOf(bestH);
+        setGroupSuit(bestG, sh2); setGroupSuit(bestH, sg2);
+        curAdj -= bestDelta;
+        improved = true;
+      }
+    }
+    if (params.id === 12) console.log("L12 adj after decluster:", curAdj);
+  })();
   return suitOfSlot;
 }
 

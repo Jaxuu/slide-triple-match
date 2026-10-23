@@ -1,3 +1,5 @@
+> **Propagated**: 2026-10-23 — Δ20（核心体验与视觉规范）refine 传播：新增 Milestone 7（发牌反聚簇重塑、玉石麻将牌面与原位压暗、IQ 50-200 动态曲线、全屏白瓷碎裂瀑布与结算直通下一关）技术方案；tasks.md 新增 Phase 10（T088~T095，4 批次）。
+
 > **Propagated**: 2026-10-22 — **Δ19（核心玩法布局重构 + 关卡生成升级 + 局内 UI 规范，US7 新增）** 传播：插入 **Phase 9 / Milestone 6（T077~T088 三批次）** + 门禁表/依赖图/故事映射/并行机会同步；**已勾选的 Phase 1~Phase 8（含 T076 Δ20 缺陷修复）任务零改动**。**三项关键让位与降级**：① FR-008 的 Δ13/Δ16 逐字节零改写铁律本轮**受控让位**（既有 72 关全量受控迁移为 v2 布局，迁移后铁律复位）；② **M2 规则冻结解除**——FR-044 同层独立射线阻挡与压制锁定改写 RulesEngine 判定语义，须全量重跑流水线重验 72 关；③ **原 FR-044（风景画卷拼图进度系统）改号为 FR-051**（内容零改动），任务描述内的 `FR-044` 引用已同步改指 FR-051。**任务编号说明**：用户指令指定 T076~T087，但 **T076 已被已交付的 Δ20 实机三缺陷修复占用**，故本阶段顺延为 **T077~T088**（三批次各 4 任务，批次边界与职责划分与用户指令完全一致）。
 
 ---
@@ -515,3 +517,27 @@ T014/T015 GameState（依赖引擎 API）→ T020/T021 main.js 集成 → T022 M
 - **Δ19 玩法重构纪律**: ① `src/render/shape-masks.js` + `src/ui/tutorial.js` 全部属表现层——**零回写关卡数据**；掩码模板 id 由生成器/迁移器落库、运行时 MUST NOT 随机选取；② **IQ 指数为纯局内表现态——MUST NOT 持久化至 profile v2**（不污染经济与进度）；③ **灵犀三消 / 乾坤洗牌语义仅存于道具层——MUST NOT 入 RulesEngine 与 Solver 动作集**（FR-032）；④ **扳手下线**——`useItem('wrench')`、Solver 动作集 `k=2`、死局谓词「扳手可救即非疑」豁免条款 MUST 一并移除；⑤ **FR-044 编号重排**——原 FR-044（风景画卷拼图进度系统）已改号 **FR-051**，任务/契约/代码注释内的引用 MUST 逐处核对无编号双指
 - 任务描述已内嵌契约关键数值（花色表/方向编码/反射表/预算/权重/CLI 参数等）；与契约冲突时以 contracts/ 四文档为准
 - 执行任何任务前先核对宪章红线清单（constitution.md「技术边界与验收红线」表）
+
+## Phase 10: Milestone 7 — 发牌反聚簇重塑、玉石麻将牌面与原位压暗、IQ 50-200 动态曲线、全屏白瓷碎裂瀑布与结算直通下一关（Δ20，Priority: P1）🎨 核心体验与视觉规范
+
+⚠️ **GATE**: 依赖 Phase 9（T077~T087）通过。本阶段为 Δ20 的 7 项核心体验与视觉规范落地，严格遵循 4 个小步实施批次（Batch 1~Batch 4），每批次内任务可并行但批次间顺序执行。
+
+### Batch 1 — 关卡生成器重塑（T088~T089）
+
+- [x] T088 [Δ20] 修改 `tools/level-config.js` 与 `tools/generator.js`：恢复 4~24 种花色梯度，实现 Spatial Anti-Clustering（L12 同层正交相邻同花色对数=2）与 Directional Interlocking（生成器已内建互锁后处理）；重新生成 `src/data/levels.js` 72 关，经 `tools/solver.js` 全量验证 72/72 可解。
+- [x] T089 [Δ20] 运行 `tools/solver.js` 全量重验，更新 `tools/solver-report.json`，确认 72/72 可解、Spatial Anti-Clustering 达标（L12 正交相邻同花色对数=2）。
+
+### Batch 2 — 棋盘卡牌渲染与待消槽填充精修（T090~T091）
+
+- [ ] T090 [Δ20] 修改 `src/render/BoardRenderer.js` 与 `css/style.css`：实现 `sheet1~3.png` 切图向内缩进裁剪 9%（`margin = 0.09 * cellW`）去内框；加厚 3D 玉石麻将底座（温润奶油白牌面 + 底部 5px `#CBD5E1` 厚度边 + 1px `#94A3B8` 轮廓线，`gap = 1px`）；恢复零偏移原位被压变暗（`RulesEngine.isCovered(state, tile)` 为 true 时在自身圆角矩形路径内叠加 `rgba(15,23,42,0.28)`，0px 偏移）。
+- [ ] T091 [Δ20] 修改 `css/style.css`：`#dock .slot` 零内边距 100% 占满格子（`padding: 0`），飞入卡牌带 3D 奶油白底座与圆角，严禁槽位黑框与白色卡牌之间留出黑边空隙；更新 `quickstart.md` 人工场景核对口径。
+
+### Batch 3 — 全屏白瓷碎片瀑布与卡牌碎裂延迟（T092~T093）
+
+- [ ] T092 [Δ20] 在 `index.html` 与 `css/style.css` 中新建全屏顶层 `#vfx-canvas`（`position: fixed; inset: 0; pointer-events: none; z-index: 950`），并在 `src/render/BoardRenderer.js` 中实现 `#dock` 匹配卡牌 180ms 震颤延迟消失（伴随震颤裂纹）。
+- [ ] T093 [Δ20] 在 `src/main.js` 与 `src/render/BoardRenderer.js` 中实现从 3 个 `#dock .slot` 的精确屏幕坐标（`getBoundingClientRect()`）处爆发 120~150 枚 100% 不透明（alpha=1.0）3D 白瓷碎片向下方倾泻的瀑布特效（亮白受光面 `#FFFFFF` + 冷灰折面 `#CBD5E1` + 细深灰轮廓线与阴影）；3 张槽内卡牌在碎片爆开瞬间碎裂消失；更新 SC-016 采样帧计数断言为 120~150。
+
+### Batch 4 — IQ 50→200 动态曲线、结算直通下一关与终验（T094~T095）
+
+- [ ] T094 [Δ20] 在 `src/main.js` 与 `css/style.css` 中实现 `IQ: 50 -> 200` 三维乘区动态衰减公式（`delta = Base * M_combo * M_error * M_time`，含连击乘区 0.80~1.12、失误惩罚 `Math.pow(0.90, errorCount)`、时间衰减 1.0→0.55、IQ≥175 渐近阻尼定格 198~200），去掉通关评语的生硬橙色方框（改为无边框 3D 流光金色渐变浮雕大字 + 柔和星芒光晕托底），将结算主按钮改为 `关卡 X+1` 直接进入下一关（附 `🏠 大厅` 圆形图标按钮）。
+- [ ] T095 [Δ20] 完成全量测试与文档同步：72 关 solver 72/72 可解、Spatial Anti-Clustering 与 Directional Interlocking 指标全部达标、白瓷碎片采样帧计数 120~150、IQ 初值静态断言 `IQ: 50`、结算按钮文案严格 `关卡 X` 且点击直达下一关；更新 `quickstart.md`、`contracts/` 与 `spec.md` 追溯表。

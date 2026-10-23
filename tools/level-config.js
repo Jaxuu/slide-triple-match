@@ -31,7 +31,7 @@ var CHAPTERS = [
     /* 网格由 waveGrid() 铁律决定（L1=5×5, L2=6×6, L3=新手难关 7×7, L4+ 7/7/8 波浪）——grid 字段为
      * 兼容旧字段保留（L2 之前插值用），实际 n 以 waveGrid 输出为准 */
     grid: [5, 6],
-    suits: [3, 5],            /* 前期花色 3~5（简单关低花色） */
+    suits: [4, 14],           /* Δ20: 前期花色 4~14 */
     tiles: [27, 63],          /* 区间上限仅校验用; 实际由 waveTiles() 按棋盘+阶段算 */
     zMax: [2, 3],             /* 前期堆叠 2~3 层 */
     mechanisms: { gear: true, ice: true, chain: false, prism: false },
@@ -48,7 +48,7 @@ var CHAPTERS = [
     id: 2,
     levels: [25, 48],  /* Δ16a: 3×24 大阶段（Δ13 原 [21,40]） */
     grid: [7, 8],
-    suits: [5, 7],
+    suits: [12, 15],
     tiles: [63, 90],
     zMax: [3, 4],             /* 中期堆叠 3~4 层 */
     mechanisms: { gear: true, ice: true, chain: true, prism: true },
@@ -65,7 +65,7 @@ var CHAPTERS = [
     id: 3,
     levels: [49, 72],  /* Δ16a: 3×24 大阶段（Δ13 原 [41,60]） */
     grid: [7, 8],
-    suits: [6, 8],
+    suits: [18, 24],
     tiles: [72, 105],
     zMax: [4, 5],             /* 后期最高 5 层（z=0..4） */
     mechanisms: { gear: true, ice: true, chain: true, prism: true },
@@ -87,12 +87,12 @@ var CHAPTERS = [
 
 /* 难度评分权重（FR-011/SC-004；norm = 全 60 关全域 min-max 归一） */
 var SCORE_WEIGHTS = {
-  minMoves: 1.1,
-  solutionCount: 0.8,
-  dockPeak: 1.2,
-  mechCount: 1.0,
-  tiles: 0.5,
-  suits: 0.7
+  minMoves: 2.0,
+  solutionCount: 0.5,
+  dockPeak: 0.0,
+  mechCount: 1.5,
+  tiles: 1.5,
+  suits: 1.2
 };
 
 /* =========================================================
@@ -307,6 +307,29 @@ function waveZMax(levelId) {
   return base;
 }
 
+/* ---------- Δ20: 花色丰富度递进曲线（suitCount）----------
+ * L1=4 / L2=6 / L3~L12=9..14 / L13~24=12..15 / L25~48=15..20 / L49~72=18..24
+ * suit 池口径: L13~24 从 Suit 0..14 / L25~48 从 0..29 / L49~72 从 0..44 抽取
+ * （生成器仅使用 0..suitCount-1，池上限由阶段决定，此处返回种类数） */
+function suitCountForLevel(levelId) {
+  if (levelId <= 1) return 4;
+  if (levelId === 2) return 6;
+  if (levelId <= 12) {
+    /* L3..L12: 9..14 稳步递增 */
+    return 9 + Math.round((levelId - 3) * (14 - 9) / (12 - 3));
+  }
+  if (levelId <= 24) {
+    /* L13..L24: 12..15 */
+    return 12 + Math.round((levelId - 13) * (15 - 12) / (24 - 13));
+  }
+  if (levelId <= 48) {
+    /* L25..L48: 15..20 */
+    return 15 + Math.round((levelId - 25) * (20 - 15) / (48 - 25));
+  }
+  /* L49..L72: 18..24 */
+  return 18 + Math.round((levelId - 49) * (24 - 18) / (72 - 49));
+}
+
 /* ---------- 章内关级参数解析（D-08 确定性——无随机） ---------- */
 function lerp(a, b, f) { return a + (b - a) * f; }
 function lerpRound(a, b, f) { return Math.round(lerp(a, b, f)); }
@@ -331,12 +354,9 @@ function levelParams(levelId) {
   var tiles = waveTiles(levelId);
   var zMax = waveZMax(levelId);
 
-  /* 花色: 章区间插值 + 波浪调制——8×8 挑战关偏高（最高 8）、7×7 简单关偏低 */
-  var suits = lerpRound(ch.suits[0], ch.suits[1], frac);
-  if (levelId >= 3) {
-    if (isChallenge) suits = Math.min(8, suits + 1);
-    else suits = Math.max(3, suits - 1);
-  }
+  /* 花色: Δ20 丰富度递进曲线（L1=4 / L2=6 / L3~L12=9..14 / L13~24=12..15 /
+   *       L25~48=15..20 / L49~72=18..24）——与 suit 池口径对齐 */
+  var suits = suitCountForLevel(levelId);
 
   /* 机制开关: 按 mechFrom 引入关号（跨章统一口径） */
   var gearOn = levelId >= ch.mechFrom.gear;
@@ -360,7 +380,7 @@ function levelParams(levelId) {
   if (rhythmKind === 'challenge') {
     /* 挑战关: zMax 上探 + 机制密度高 + 冰厚上探（tiles 已由 waveTiles 抬升） */
     zMax = waveZMax(levelId);
-    suits = Math.min(8, Math.max(suits, lerpRound(ch.suits[0], ch.suits[1], 1)));
+    suits = Math.max(suits, lerpRound(ch.suits[0], ch.suits[1], 1));
   } else if (rhythmKind === 'relax') {
     /* 解压爽关: tiles 收至阶段下界（对齐 3）、theme 对称模板
      * z0 满铺铁律: tiles ≥ n*n - prisms → 保持波浪铁律棋盘、塔量收 */
@@ -441,5 +461,6 @@ module.exports = {
   v2LayerCount: v2LayerCount,
   v2MaskIds: v2MaskIds,
   v2ShapeLayers: v2ShapeLayers,
-  loadShapeMasks: loadShapeMasks
+  loadShapeMasks: loadShapeMasks,
+  suitCountForLevel: suitCountForLevel
 };
