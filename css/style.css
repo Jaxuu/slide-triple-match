@@ -113,7 +113,7 @@ html, body {
 }
 
 .hud-right { display: flex; align-items: center; }
-/* 圆角深色胶囊：💎 棱晶数量（与大厅 profile v2 实时同步） */
+/* 圆角深色胶囊：棱晶数量（与大厅 profile v2 实时同步） */
 .hud-shard-pill {
   display: inline-flex;
   align-items: center;
@@ -258,7 +258,7 @@ html, body {
   align-items: center;
   justify-content: center;
   padding: 8px;
-  min-height: 0; /* 允许 flex 子项收缩 */
+  box-shadow: none !important;
 }
 #board {
   /* Δ15b3f（回归修复）: 正方形状完全由 CSS 单向声明，JS 不再回写
@@ -282,7 +282,7 @@ html, body {
      细白框线；投影收弱，仅保留轻微悬浮感。 */
   border: none;
   outline: none;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, .18);
+  box-shadow: none !important;
   touch-action: manipulation; /* 允许滚动手势不劫持；点击仍走 pointerdown */
   cursor: pointer;
 }
@@ -484,7 +484,7 @@ html, body {
   display: block;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .55));
 }
-/* 右上角红色小徽章：免费次数 `1`；用尽后 `💎 50` 购买价 */
+/* 右上角红色小徽章：免费次数 `1`；用尽后 `棱晶 50` 购买价 */
 #items .item-count {
   position: absolute;
   top: -5px;
@@ -1166,7 +1166,7 @@ html, body {
   pointer-events: none;
 }
 .portal-chip.is-lit .portal-chip-caption { display: none; }
-/* 第 4 块 = 满充能大奖位（💎 ×150 预览）——白金色高亮 */
+/* 第 4 块 = 满充能大奖位（棱晶 ×150 预览）——白金色高亮 */
 .portal-chip.is-bonus .portal-chip-caption {
   color: #FFF3C4;
   text-shadow: 0 1px 3px rgba(30, 70, 120, .85), 0 0 8px rgba(255, 243, 196, .85);
@@ -1466,7 +1466,7 @@ html, body {
 }
 .jelly-btn:active { transform: translateY(3px); }
 
-/* ---------- Δ16f/T071: 道具购买角标（免费次数用尽 → `💎 50`） ---------- */
+/* ---------- Δ16f/T071: 道具购买角标（免费次数用尽 → `棱晶 50`） ---------- */
 #items button.is-buyable .item-count {
   padding: 2px 8px;
   border-radius: 999px;
@@ -1480,7 +1480,7 @@ html, body {
 #items button.is-buyable { border-color: var(--prism-glow); }
 #items button.is-buyable.selecting { box-shadow: 0 0 0 3px rgba(201, 174, 255, .55); }
 
-/* ---------- Δ18/T071: 扣费飘字 `-50 💎` + 余额不足轻晃 ---------- */
+/* ---------- Δ18/T071: 扣费飘字 `-50 棱晶` + 余额不足轻晃 ---------- */
 .shard-float {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -2048,3 +2048,8 @@ html, body {
   .tut-hand { animation: none; }
   .iq-pill::after { animation: none; }
 }
+
+/* (appended) prism-gem sizing in fail/result/lobby surfaces (2026-10-23) */
+.fail-revive .prism-gem { width: 1.15em; height: 1.15em; vertical-align: -0.15em; display: inline-block; }
+.shard-fly .prism-gem { width: 30px; height: 30px; display: inline-block; }
+.portal-chip-caption .prism-gem-sm { width: 12px; height: 12px; vertical-align: -2px; display: inline-block; }

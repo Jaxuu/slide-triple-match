@@ -434,7 +434,7 @@ async function main() {
   check('K5 无"N秒"倒计时数字', !fail.bigNumbers, JSON.stringify(fail.bigNumbers));
   check('K6 萌宠头像 + 泪滴动效', fail.pet && fail.tears >= 0);
   check('K7 底部仅两个按钮', fail.buttons === 2, 'buttons=' + fail.buttons);
-  check('K8 复活按钮 = 💎100 棱晶复活', (fail.btnTexts[0]||'').indexOf('100') >= 0, fail.btnTexts[0]);
+  check('K8 复活按钮 = 棱晶 SVG + 100 棱晶复活', (fail.btnTexts[0]||'').indexOf('100') >= 0, fail.btnTexts[0]);
   check('K9 无底部多余小字', !/提示|教程|广告/.test(fail.full));
 
   console.log('\n[lobby-smoke] Δ20 Bug 2: 失败页出口按钮必须关闭失败层并切场景');

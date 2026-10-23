@@ -95,7 +95,7 @@
     var foot = h('div', 'fail-foot', card);
     var revive = h('button', 'jelly-btn jelly-btn-primary fail-revive', foot);
     revive.type = 'button';
-    revive.textContent = '💎 100 棱晶复活';
+    revive.innerHTML = (STM.PrismIcon ? STM.PrismIcon.html('prism-gem') : '') + ' 100 棱晶复活';
     revive.addEventListener('click', function () {
       if (opts.onRevive) opts.onRevive();
     });

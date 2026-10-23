@@ -1123,9 +1123,9 @@ $ node tools/playthrough.js
 
 | 改动 | 旧实现 | 新实现 |
 |---|---|---|
-| 顶栏 | 关卡名 + `/72` + 副标题 + 静音 + 生命/得分/连击混排 | 左【↩ 返回大厅】【⚙️ 设置】· 中仅 `关卡 X` · 右 💎 棱晶胶囊 |
+| 顶栏 | 关卡名 + `/72` + 副标题 + 静音 + 生命/得分/连击混排 | 左【↩ 返回大厅】【⚙️ 设置】· 中仅 `IQ: XX`（2026-10-23 收尾）· 右七彩棱晶胶囊 |
 | IQ 条 | 无 | 顶栏下方独立状态条：初始 90 + 头衔 + 绿色 `+N` 跳字 |
-| 待消槽 | 屏幕底部 | IQ 条与棋盘之间；银白金属外框 + 深棕木纹内凹托盘 + 7 个深色凹坑 |
+| 待消槽 | 屏幕底部 | IQ 条与棋盘之间；浅银冰白外框 + `rgba(30,41,59,.45)` 内衬 + 7 个深色圆角方槽（2026-10-23 收尾已去木纹/金属/槽内横线） |
 | 飞出终点 | 屏幕边缘 | 画面上方对应槽位（前 30% 沿射线、后 70% 弯折上升淡出） |
 | 道具栏 | 撤销 / 灵犀三消 / 乾坤洗牌混排 + 扳手 | 底部三大立体大圆按钮 + 原创 SVG 图标 + 红徽章免费次数 |
 
@@ -1199,3 +1199,13 @@ ingame-shots: all green（布局/教学/IQ/道具/溢出）
 ---
 
 *本文依据 `specs/001-slide-triple-match-core/` 全套工件、`.specify/bugs/` 两份缺陷三件套、`tools/` 全部离线工具源码与全部 Git 提交记录撰写。所有命令输出与实测数值均在交付状态下复现（`node tools/solver.js` exit 0 / 72/72 solvable；`--engine-selftest` 15/15；`render-selftest.js` all green；`ingame-shots.js` all green；`lobby-smoke.js` 68 passed / 0 failed）。*
+
+## 2026-10-23 收尾：生命机制下线、棱晶图标全局统一、棋盘阴影清除
+
+响应 `/speckit.bug.test` 遗留风险 #3/#4/#5：
+
+1. **受阻不再扣命**：`RulesEngine` 两处 blocked 分支 `damage` 恒 0；`terminal()` 移除 `lives ≤ 0 → lost_lives`；`GameState.PHASE` 删去 `LOST_LIVES`；`main.js` 仅保留 `lost_burst` / `lost_deadlock` 两条失败路径。`lives` 字段保留为兼容只读值（快照 / 复活恢复），但不再递减、也不再触发失败。失败条件统一收敛为 7 格爆满 / 死锁。`damageOnBlock` 关卡字段全量置 `false`（`src/data/levels.js` 48 处 + `tools/level-config.js` 章节）。
+2. **棱晶图标全局统一**：`src/ui/fail.js`、`src/ui/result.js`、`src/ui/lobby.js` 的 `💎` 全部改为 `STM.PrismIcon.html(...)` 七彩切面 SVG，与大厅 / 局内顶栏同源。
+3. **棋盘容器阴影清除**：`#board` / `#board-wrap` 的 `box-shadow` 设为 `none !important`，仅保留每张卡牌自身的独立阴影。
+
+`tools/solver.js` 的 `damage` 回补行、`tools/playthrough.js` 的 lives=0 setup、`tools/render-selftest.js` 的 Δ16g 终局态断言同步适配为 `lost_burst`。

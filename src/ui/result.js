@@ -176,7 +176,7 @@
     /* 棱晶飞入动效（本次获得金额 = 本关产出表实际值） */
     var gain = h('div', 'result-shards', mid);
     var fly = h('i', 'shard-fly', gain);
-    fly.textContent = '💎';
+    fly.innerHTML = STM.PrismIcon ? STM.PrismIcon.html('prism-gem') : '';
     var amt = h('span', 'result-shard-amt', gain, '+' + (opts.shards || 0));
     amt.classList.add('is-flying');
     setTimeout(function () { amt.classList.remove('is-flying'); }, 900);

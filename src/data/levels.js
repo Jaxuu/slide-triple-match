@@ -4271,7 +4271,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[2,[46]],[31,[47]],[20,[28]],[53,[61]],[4,[44]],[1,[34]],[8,[64]],[49,[50]],[5,[41]]],
@@ -4428,7 +4428,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[14,[40]],[26,[56]],[28,[31]],[8,[62]],[19,[55]],[1,[65]]],
@@ -4645,7 +4645,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[73,[127]],[19,[86]],[37,[56]],[5,[80]],[58,[92]],[11,[119]],[49,[82]],[2,[55]],[74,[125]],[67,[110]],[61,[98]],[94,[100]],[38,[112]],[53,[64]],[4,[52]],[70,[118]],[28,[76]]],
@@ -4862,7 +4862,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[16,[46]],[4,[56]],[7,[50]],[17,[61]],[23,[47]],[28,[34]],[43,[55]],[22,[49]]],
@@ -5016,7 +5016,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[19,[52]],[22,[41]],[7,[26]],[16,[64]],[14,[37]],[43,[59]],[56,[62]],[10,[46]],[23,[28]]],
@@ -5227,7 +5227,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[37,[55]],[10,[103]],[43,[58]],[31,[74]],[76,[88]],[41,[64]],[8,[92]],[83,[94]],[71,[121]],[22,[61]],[97,[113]],[85,[109]],[91,[100]],[25,[95]],[35,[53]],[62,[106]],[29,[98]],[1,[80]],[38,[118]]],
@@ -5456,7 +5456,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[20,[61]],[28,[62]],[7,[82]],[8,[34]],[43,[71]],[11,[44]],[14,[83]],[41,[59]],[32,[38]],[49,[76]],[1,[73]]],
@@ -5634,7 +5634,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[44,[59]],[22,[31]],[14,[61]],[16,[40]],[43,[56]],[2,[71]],[11,[34]],[17,[70]],[4,[41]],[8,[28]],[1,[38]]],
@@ -5869,7 +5869,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[112,[122]],[29,[73]],[85,[133]],[79,[110]],[65,[100]],[11,[104]],[19,[94]],[26,[68]],[34,[124]],[2,[62]],[4,[106]],[47,[70]],[10,[59]],[13,[139]],[55,[128]],[44,[82]],[46,[74]],[20,[91]],[83,[119]],[41,[64]],[25,[109]]],
@@ -6119,7 +6119,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[68,[73]],[17,[40]],[2,[37]],[10,[53]],[16,[41]],[1,[64]],[32,[67]]],
@@ -6312,7 +6312,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[38,[52]],[28,[68]],[65,[71]],[35,[44]],[19,[34]],[8,[50]],[23,[41]],[20,[70]],[32,[74]]],
@@ -6553,7 +6553,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[56,[68]],[38,[62]],[49,[103]],[16,[76]],[61,[82]],[53,[83]],[50,[97]],[34,[104]],[52,[58]],[64,[79]],[74,[92]],[5,[91]],[43,[73]],[10,[119]],[28,[130]],[89,[116]],[65,[125]],[47,[118]],[41,[131]],[59,[113]]],
@@ -6794,7 +6794,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[26,[79]],[40,[56]],[2,[38]],[46,[55]],[50,[82]],[52,[58]],[23,[62]],[35,[61]]],
@@ -6981,7 +6981,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[23,[64]],[1,[49]],[13,[32]],[20,[52]],[14,[56]],[19,[70]],[55,[67]],[50,[77]],[43,[73]],[8,[58]]],
@@ -7222,7 +7222,7 @@
       prisms: [{"r":6,"c":1,"t":"/"}],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[17,[71]],[112,[124]],[56,[67]],[74,[89]],[68,[97]],[2,[109]],[13,[85]],[53,[80]],[23,[98]],[44,[76]],[11,[82]],[47,[92]],[50,[100]],[106,[107]],[52,[73]],[26,[91]],[58,[59]],[29,[104]],[119,[127]],[115,[128]]],
@@ -7466,7 +7466,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[47,[76]],[35,[71]],[7,[40]],[43,[55]],[17,[77]],[31,[37]],[32,[68]],[73,[74]],[10,[34]],[5,[52]],[25,[65]]],
@@ -7656,7 +7656,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[20,[43]],[28,[77]],[41,[73]],[11,[64]],[19,[53]],[14,[40]],[52,[70]],[38,[50]],[1,[82]]],
@@ -7897,7 +7897,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[20,[64]],[10,[113]],[62,[65]],[29,[80]],[26,[115]],[74,[131]],[68,[98]],[85,[130]],[22,[79]],[56,[107]],[34,[76]],[17,[122]],[7,[58]],[2,[59]],[40,[88]],[116,[124]],[8,[95]],[52,[91]],[44,[55]],[16,[70]]],
@@ -8138,7 +8138,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[46,[59]],[20,[79]],[13,[53]],[22,[71]],[40,[62]],[31,[70]],[4,[65]],[2,[61]]],
@@ -8328,7 +8328,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[29,[65]],[23,[61]],[22,[41]],[8,[37]],[26,[76]],[32,[71]],[16,[74]],[31,[64]],[20,[50]]],
@@ -8563,7 +8563,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[64,[70]],[13,[116]],[46,[125]],[44,[103]],[98,[119]],[11,[104]],[35,[74]],[26,[65]],[73,[112]],[28,[61]],[10,[55]],[49,[67]],[22,[77]],[89,[101]],[41,[106]],[50,[88]],[29,[82]],[31,[71]]],
@@ -8792,7 +8792,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[13,[40]],[61,[62]],[8,[43]],[53,[64]],[1,[52]],[2,[34]],[49,[73]],[17,[56]],[47,[68]],[23,[41]]],
@@ -8976,7 +8976,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[10,[43]],[32,[34]],[14,[50]],[29,[56]],[5,[53]],[2,[64]],[22,[35]]],
@@ -9214,7 +9214,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[38,[127]],[55,[56]],[52,[122]],[10,[76]],[29,[130]],[47,[67]],[26,[103]],[28,[98]],[37,[88]],[43,[113]],[70,[73]],[80,[94]],[40,[106]],[5,[101]],[16,[109]],[17,[116]],[14,[58]],[112,[121]],[1,[95]]],
@@ -9452,7 +9452,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[28,[53]],[1,[64]],[17,[59]],[20,[38]],[10,[47]],[11,[77]],[8,[35]],[22,[70]]],
@@ -9642,7 +9642,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[17,[70]],[19,[50]],[64,[68]],[34,[53]],[56,[77]],[32,[35]],[43,[65]]],
@@ -9893,7 +9893,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[23,[70]],[32,[77]],[47,[62]],[8,[76]],[83,[92]],[13,[107]],[49,[140]],[46,[122]],[58,[130]],[38,[103]],[7,[133]],[68,[98]],[55,[67]],[25,[116]],[29,[119]],[53,[71]]],
@@ -10143,7 +10143,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[11,[65]],[17,[43]],[41,[64]],[2,[76]],[23,[35]],[44,[58]],[50,[53]]],
@@ -10330,7 +10330,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[23,[32]],[17,[65]],[8,[71]],[1,[38]],[73,[76]],[35,[49]],[31,[59]],[53,[67]],[7,[70]]],
@@ -10568,7 +10568,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[1,[55]],[31,[131]],[97,[121]],[7,[67]],[26,[56]],[58,[94]],[61,[62]],[14,[70]],[13,[104]],[101,[109]],[5,[86]],[50,[115]]],
@@ -10812,7 +10812,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[22,[85]],[16,[41]],[55,[59]],[25,[35]],[26,[67]],[11,[68]],[38,[77]],[74,[86]],[32,[83]]],
@@ -11012,7 +11012,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[37,[68]],[13,[43]],[65,[70]],[8,[46]],[10,[40]],[32,[85]]],
@@ -11262,7 +11262,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[37,[59]],[23,[137]],[74,[109]],[34,[71]],[32,[95]],[8,[101]],[67,[82]],[86,[91]],[11,[130]],[5,[58]],[115,[119]],[22,[110]],[46,[73]],[47,[127]],[77,[80]],[31,[92]]],
@@ -11509,7 +11509,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[16,[37]],[1,[71]],[13,[41]],[61,[77]],[19,[83]],[46,[50]],[49,[64]],[25,[55]]],
@@ -11702,7 +11702,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[35,[40]],[2,[46]],[53,[62]],[31,[58]],[8,[43]],[34,[65]],[44,[50]],[7,[80]]],
@@ -11928,7 +11928,7 @@
       prisms: [{"r":6,"c":1,"t":"/"}],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[62,[112]],[8,[76]],[35,[88]],[25,[64]],[38,[55]],[106,[110]],[68,[71]],[31,[53]],[49,[82]],[46,[85]],[50,[77]],[34,[73]]],
@@ -12157,7 +12157,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[32,[44]],[29,[41]],[74,[77]],[25,[76]],[56,[67]]],
@@ -12347,7 +12347,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[1,[61]],[32,[44]],[37,[49]],[19,[74]],[58,[64]]],
@@ -12591,7 +12591,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[53,[85]],[47,[65]],[40,[127]],[8,[124]],[67,[101]],[77,[128]],[19,[112]],[22,[115]],[43,[103]],[98,[133]],[20,[79]],[80,[130]],[28,[94]],[58,[74]],[37,[62]]],
@@ -12838,7 +12838,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[32,[67]],[8,[50]],[5,[77]],[23,[53]],[11,[41]],[7,[44]],[40,[76]]],
@@ -13028,7 +13028,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[37,[80]],[8,[46]],[20,[56]],[5,[40]],[61,[82]],[34,[83]]],
@@ -13267,7 +13267,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[62,[64]],[53,[55]],[40,[76]],[68,[83]],[80,[101]],[49,[59]],[86,[118]],[109,[130]],[8,[77]],[41,[70]],[37,[89]],[2,[124]],[46,[115]],[26,[58]]],
@@ -13511,7 +13511,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[13,[83]],[46,[58]],[52,[89]],[17,[64]],[49,[73]],[22,[77]],[4,[41]],[5,[62]],[28,[65]],[40,[71]],[23,[82]]],
@@ -13701,7 +13701,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[31,[67]],[4,[70]],[64,[68]],[28,[76]],[7,[65]],[2,[37]]],
@@ -13933,7 +13933,7 @@
       prisms: [{"r":6,"c":1,"t":"/"}],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[70,[80]],[53,[100]],[97,[112]],[44,[55]],[85,[130]],[124,[127]],[50,[59]],[32,[61]],[37,[67]],[109,[119]],[77,[86]],[25,[115]],[91,[122]],[43,[82]],[41,[74]]],
@@ -14174,7 +14174,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[20,[37]],[38,[40]],[52,[68]],[71,[74]],[22,[70]],[67,[85]],[10,[59]]],
@@ -14371,7 +14371,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[4,[61]],[13,[56]],[5,[65]],[14,[59]],[10,[71]],[55,[80]],[25,[68]],[2,[49]],[43,[86]],[34,[50]]],
@@ -14612,7 +14612,7 @@
       prisms: [],
       cfg: {
         lives: 3,
-        damageOnBlock: true,
+        damageOnBlock: false,
         items: { undo: 1, magnet: 1, shuffle: 1 },
         iceMode: "triple",
         chains: [[50,[71]],[44,[121]],[43,[59]],[23,[118]],[17,[52]],[100,[113]],[5,[94]],[29,[82]],[61,[106]],[83,[103]],[11,[88]],[16,[62]],[65,[74]],[4,[125]],[73,[80]]],

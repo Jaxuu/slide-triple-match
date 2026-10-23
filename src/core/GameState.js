@@ -4,7 +4,7 @@
  * 不实现任何规则（纯编排）——规则语义全部在 RulesEngine
  *
  * 状态机（data-model.md §7；Δ10 无锁连点）:
- *   LOADING → READY → WON | LOST_BURST | LOST_LIVES | LOST_DEADLOCK
+ *   LOADING → READY → WON | LOST_BURST | LOST_DEADLOCK
  *   逻辑瞬时结算：applyTap 同步执行（0ms），动画纯视觉异步并发；
  *   不存在 ANIMATING/SETTLING 输入锁——「别急，动画中…」提示已删除
  * ========================================================= */
@@ -19,7 +19,6 @@
     READY: 'READY',
     WON: 'WON',
     LOST_BURST: 'LOST_BURST',
-    LOST_LIVES: 'LOST_LIVES',
     LOST_DEADLOCK: 'LOST_DEADLOCK'
   };
 
@@ -92,7 +91,7 @@
       return !found;
     }
 
-    /* ---- 终局判定调度（SETTLING 末尾，顺序固定：won → burst → lives → deadlock） ---- */
+    /* ---- 终局判定调度（SETTLING 末尾，顺序固定：won → burst → deadlock） ---- */
     function judgeTerminal() {
       var t = RE.terminal(engine);
       if (t === 'playing') {
@@ -110,7 +109,6 @@
       }
       phase = t === 'won' ? PHASE.WON
         : t === 'lost_burst' ? PHASE.LOST_BURST
-        : t === 'lost_lives' ? PHASE.LOST_LIVES
         : PHASE.LOST_DEADLOCK;
       emitPhase();
       onTerminal({ kind: t, score: engine.score, combo: engine.combo });

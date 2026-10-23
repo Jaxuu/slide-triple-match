@@ -127,8 +127,8 @@
     opts = opts || {};
     var cfg = deepClone(level.cfg || {});
     /* cfg 默认值补全（level-data.md §2「默认值可省略——消费方补默认」） */
-    if (cfg.lives == null) cfg.lives = 3;
-    if (cfg.damageOnBlock == null) cfg.damageOnBlock = false;
+    if (cfg.lives == null) cfg.lives = 3; /* 兼容只读值——2026-10-23 起不参与终局 */
+    if (cfg.damageOnBlock == null) cfg.damageOnBlock = false; /* 已失效（保留旧关卡数据字段） */
     if (!cfg.items) cfg.items = { undo: 1, magnet: 1, shuffle: 1 };
     if (cfg.iceMode == null) cfg.iceMode = 'triple';
     if (!cfg.chains) cfg.chains = [];
@@ -376,10 +376,12 @@
     /* Step 1: 射线行走（Δ8 层高感知） */
     var ray = castRay(state, t.r, t.c, t.d, t.z || 0);
 
-    /* Step 2: Blocked 分支 */
+    /* Step 2: Blocked 分支
+     * 2026-10-23 收尾: 受阻只弹回 + 会话层清空 combo，MUST NOT 扣减 lives，
+     * 也绝不触发 lost_lives——失败条件收敛为 lost_burst / lost_deadlock。
+     * damage 字段保留恒 0（旧调用方兼容；cfg.damageOnBlock 已失效）。 */
     if (!ray.free && !(ray.cell && ray.cell.prism)) {
-      var damage = state.cfg.damageOnBlock ? 1 : 0;
-      if (damage) state.lives -= 1; /* 生命扣减写回 EngineState（rules-engine.md §7.3 契约） */
+      var damage = 0;
       var path = buildPath(state, t.r, t.c, t.d, t.z || 0);
       path.pop(); /* 去掉越界步（被阻挡时不到达越界格）——保留到阻挡格前一格（含凌空飞越格） */
       return {
@@ -496,9 +498,9 @@
     }
 
     if (blocked) {
-      /* 3b: 折射后受阻 → 弹回原位（单次折射上限，FR-022） */
-      var damage = state.cfg.damageOnBlock ? 1 : 0;
-      if (damage) state.lives -= 1;
+      /* 3b: 折射后受阻 → 弹回原位（单次折射上限，FR-022）
+       * 2026-10-23 收尾: 同样只弹回、不扣命（damage 恒 0）。 */
+      var damage = 0;
       var path = buildPath(state, t.r, t.c, t.d, zSelf);
       path.push({ r: ray.blocker.r, c: ray.blocker.c, z: zSelf }); /* 折射折点（棱镜格） */
       /* 棱镜格 → 受阻格前一行走（lastR/lastC 已算就——直接补 path 剩余段） */
@@ -812,8 +814,9 @@
       if (!has3) return 'lost_burst';
     }
 
-    /* lost_lives = lives ≤ 0 */
-    if (state.lives <= 0) return 'lost_lives';
+    /* 2026-10-23 收尾: 生命机制已下线——lives 不再参与终局判定。
+     * 失败条件仅剩 lost_burst（7 格爆满）与 lost_deadlock（无解）。
+     * 旧字段 state.lives 保留为兼容只读值（快照/展示），恒不递减。 */
 
     return 'playing';
   }
