@@ -203,13 +203,16 @@
      *   >252 纯白 → alpha 归 0；同时羽化带做 alpha 预乘防白边
      * 切片后贴图与奶油白牌面乘性自然融合（无矩形白底残留） */
     function whiteKeySlice(img, cellIndex) {
-      var CELL = img.width / 4;          /* 4×4 网格边长（2048→512） */
-      var PAD = Math.round(CELL * 0.04); /* 4% 内缩——避开邻格阴影 */
-      var row = Math.floor(cellIndex / 4);
-      var col = cellIndex % 4;
-      var sx = col * CELL + PAD;
-      var sy = row * CELL + PAD;
-      var sw = CELL - PAD * 2;
+      const cellW = img.width / 4;          /* 4×4 网格单元格宽 */
+      const cellH = img.height / 4;         /* 4×4 网格单元格高 */
+      const insetX = Math.round(cellW * 0.09);
+      const insetY = Math.round(cellH * 0.09);
+      const row = Math.floor(cellIndex / 4);
+      const col = cellIndex % 4;
+      const sx = col * cellW + insetX;
+      const sy = row * cellH + insetY;
+      const sw = cellW - insetX * 2;
+      const sh = cellH - insetY * 2;
       /* Δ15b3e（Bug B 修复）: 切片分辨率 128→256（Dock/棋盘双层消费——
        * drawImage 高质量缩放，2x 超采样下仍留有余量） */
       var S = SLICE_PX;
@@ -218,7 +221,7 @@
       var c2 = cv.getContext('2d');
       c2.imageSmoothingEnabled = true;
       c2.imageSmoothingQuality = 'high'; /* 高质量降采样——边缘锐利不发糊 */
-      c2.drawImage(img, sx, sy, sw, sw, 0, 0, S, S);
+      c2.drawImage(img, sx, sy, sw, sh, 0, 0, S, S);
       /* 圆角遮罩（软边——融入奶油白 3D 牌面） */
       maskRounded(c2, S);
       /* 白键控。Δ15b3e（Bug A 修复）: file:// 下画布被跨源污染，
@@ -239,6 +242,16 @@
             /* 次亮羽化带: 轻微降 alpha 消白边 */
             px[i + 3] = Math.round(px[i + 3] * 0.45);
           }
+          /* 边缘 10px 羽化：高亮近白/浅米色背景像素柔和透明 */
+          var _idx = i / 4;
+          var _ex = _idx % S;
+          var _ey = Math.floor(_idx / S);
+          var _edgeDist = Math.min(_ex, _ey, S - 1 - _ex, S - 1 - _ey);
+          if (_edgeDist < 10 && lum > 220) {
+            var _ef = _edgeDist / 10;
+            px[i + 3] = Math.round(px[i + 3] * _ef * _ef);
+          }
+
         }
         c2.putImageData(d, 0, 0);
         keyingOk = true;
@@ -468,48 +481,62 @@
     var sv = suitVisual(t.s);
     scale = scale || 1;
     alpha = alpha == null ? 1 : alpha;
-    var w = Math.max(1, cell - GAP) * scale; /* tileSize = cellStep - 1：紧密贴合 */
-    var r = w * 0.18;
+    var w = Math.max(1, cell - GAP) * scale; /* tileSize = cellStep - 1 */
+    var r = Math.round(w * 0.20);
     var x = px - w / 2;
     var y = py - w / 2;
     ctx.globalAlpha = alpha;
-    /* 1. 底部 3px 浅灰立体厚度边（自带柔和投影——唯一层次线索） */
+    /* 1. 底部 4px 立体厚度层 */
     ctx.save();
-    ctx.shadowColor = 'rgba(15, 23, 42, 0.30)';
-    ctx.shadowBlur = Math.max(2, w * 0.12);
-    ctx.shadowOffsetY = Math.max(1.5, w * 0.04);
-    roundRect(ctx, x, y + 3, w, w, r);
-    ctx.fillStyle = '#C3CEDC';
+    ctx.shadowColor = 'rgba(15, 23, 42, 0.25)';
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 3;
+    roundRect(ctx, x, y + 4, w, w, r);
+    ctx.fillStyle = '#CBD5E1';
     ctx.fill();
+    ctx.strokeStyle = '#94A3B8';
+    ctx.lineWidth = 1;
+    ctx.stroke();
     ctx.restore();
-    /* 2. 奶油白面板（#FFFFFF → #F4F7FB 微渐变） */
+    /* 2. 温润奶油白牌面 */
     var fg = ctx.createLinearGradient(x, y, x, y + w);
     fg.addColorStop(0, '#FFFFFF');
-    fg.addColorStop(0.62, '#FBFCFE');
-    fg.addColorStop(1, '#F4F7FB');
+    fg.addColorStop(1, '#F8FAFC');
     roundRect(ctx, x, y, w, w, r);
     ctx.fillStyle = fg;
     ctx.fill();
-    /* 3. 唯一一道外缘细边（主题色 55%）——严禁再加内缩白描边 */
-    ctx.strokeStyle = hexA(sv.fill, 0.55);
-    ctx.lineWidth = 1.5;
-    roundRect(ctx, x + 0.75, y + 0.75, w - 1.5, w - 1.5, Math.max(1, r - 0.75));
+    /* 顶部内侧 1px 纯白高光边 */
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 1;
+    roundRect(ctx, x + 1, y + 1, w - 2, w - 2, Math.max(1, r - 1));
     ctx.stroke();
-    /* 4. 图鉴图案（iconSize = tileSize * 0.84 —— 居中完整展示零遮挡） */
-    drawBestiaryIcon(ctx, sv, x + w / 2, y + w / 2, w * 0.84);
-    /* 5. 边缘嵌入式方向角标（朝向侧边正中——替代面部箭头圆圈） */
+    /* 外侧 1px solid #E2E8F0 柔和边界 */
+    ctx.strokeStyle = '#E2E8F0';
+    ctx.lineWidth = 1;
+    roundRect(ctx, x, y, w, w, r);
+    ctx.stroke();
+    /* 3. 图鉴图案 */
+    drawBestiaryIcon(ctx, sv, x + w / 2, y + w / 2, w * 0.85);
+    /* 零偏移原位被压变暗 */
+    // covered = RulesEngine.isCovered(state, tile) 或 probe.covered
+    var covered = (t && t.covered === true);
+    if (covered === true) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.28)';
+      roundRect(ctx, x, y, w, w, r);
+      ctx.fill();
+      ctx.restore();
+    }
+    /* 4. 边缘嵌入式方向角标 */
     drawWingBadge(ctx, t.d, x, y, w, cell, sv, nowMs);
-    /* 6. T034 机制角标: 齿轮(右上)/冰封(全牌覆层+厚度)/锁链(四角)/钥匙(左上) */
+    /* 5. T034 机制角标 */
     if (t.m === 'g') drawGearBadge(ctx, x, y, w, cell);
-    else if (t.m === 'i') drawIceOverlay(ctx, x, y, w, cell, t.ice != null ? t.ice : (t.x || 1)); /* Δ12: 运行态字段 ice（t.x 仅 TileSpec 原始字段） */
+    else if (t.m === 'i') drawIceOverlay(ctx, x, y, w, cell, t.ice != null ? t.ice : (t.x || 1));
     else if (t.m === 'k') drawKeyBadge(ctx, x, y, w, cell);
     else if (t.m === 'c') drawChainCorners(ctx, x, y, w, cell);
     ctx.globalAlpha = 1;
   }
 
-  /* 图鉴图案绘制：sprite 命中即按「切片内容框」裁剪后铺满 iconSize
-   * （图标真实占满卡面，而非被 SPRITE_PAD 透明边距吃掉 38%）；
-   * Node/无 DOM 或未命中走直绘。 */
   function drawBestiaryIcon(ctx, sv, cx, cy, iconSize) {
     var R = iconSize / 2;
     if (sv.bid != null) {

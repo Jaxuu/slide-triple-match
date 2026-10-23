@@ -1,3 +1,8 @@
+#dock .slot {
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 10px;
+}
 /* =========================================================
  * Slide & Triple（滑块三消）— 9:16 响应式外壳（D-13）
  * 零外部资源：全部 CSS 渐变/动效程序化（宪章 III）
@@ -323,12 +328,13 @@ html, body {
 }
 /* 7 个干净的深色半透明圆角空槽（无内部横线） */
 .slot {
+  padding: 0 !important;
   position: relative;
   z-index: 1;
   width: clamp(32px, 10.4cqw, 44px);
   height: clamp(32px, 10.4cqw, 44px);
   flex: none;
-  border-radius: 9px;
+  border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, .10);
   background: rgba(15, 23, 42, .42);
   display: flex;
@@ -371,13 +377,29 @@ html, body {
    · 出口① http:// 等可导出环境 → <img class="dock-icon">（DataURL 切片）
    · 出口② file:// 跨源污染 → <canvas class="dock-icon" data-bid>（同源切片直绘）
    二者消费同一张离屏切片，故与棋盘图标 100% 同源同图。 */
+.slot .dock-chip,
+.slot.has-tile > .dock-icon {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F1F5F9 100%);
+  box-shadow: inset 0 -3px 0 #CBD5E1;
+  border: 1px solid #94A3B8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+}
 .slot .dock-icon {
-  width: 82%;
-  height: 82%;
+  width: 86%;
+  height: 86%;
+  margin: 0;
+  border-radius: 10px;
   display: block;
   object-fit: contain;
   filter: drop-shadow(0 2px 3px rgba(15, 23, 42, .38));
-  border-radius: 18%;
   pointer-events: none;
   user-select: none;
 }

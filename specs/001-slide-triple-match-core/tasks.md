@@ -529,8 +529,8 @@ T014/T015 GameState（依赖引擎 API）→ T020/T021 main.js 集成 → T022 M
 
 ### Batch 2 — 棋盘卡牌渲染与待消槽填充精修（T090~T091）
 
-- [ ] T090 [Δ20] 修改 `src/render/BoardRenderer.js` 与 `css/style.css`：实现 `sheet1~3.png` 切图向内缩进裁剪 9%（`margin = 0.09 * cellW`）去内框；加厚 3D 玉石麻将底座（温润奶油白牌面 + 底部 5px `#CBD5E1` 厚度边 + 1px `#94A3B8` 轮廓线，`gap = 1px`）；恢复零偏移原位被压变暗（`RulesEngine.isCovered(state, tile)` 为 true 时在自身圆角矩形路径内叠加 `rgba(15,23,42,0.28)`，0px 偏移）。
-- [ ] T091 [Δ20] 修改 `css/style.css`：`#dock .slot` 零内边距 100% 占满格子（`padding: 0`），飞入卡牌带 3D 奶油白底座与圆角，严禁槽位黑框与白色卡牌之间留出黑边空隙；更新 `quickstart.md` 人工场景核对口径。
+- [x] T090 [Δ20] 修改 `src/render/BoardRenderer.js` 与 `css/style.css`：实现 `sheet1~3.png` 切图向内缩进裁剪 9%（`margin = 0.09 * cellW`）去内框；加厚 3D 玉石麻将底座（温润奶油白牌面 + 底部 5px `#CBD5E1` 厚度边 + 1px `#94A3B8` 轮廓线，`gap = 1px`）；恢复零偏移原位被压变暗（`RulesEngine.isCovered(state, tile)` 为 true 时在自身圆角矩形路径内叠加 `rgba(15,23,42,0.28)`，0px 偏移）。
+- [x] T091 [Δ20] 修改 `css/style.css`：`#dock .slot` 零内边距 100% 占满格子（`padding: 0`），飞入卡牌带 3D 奶油白底座与圆角，严禁槽位黑框与白色卡牌之间留出黑边空隙；更新 `quickstart.md` 人工场景核对口径。
 
 ### Batch 3 — 全屏白瓷碎片瀑布与卡牌碎裂延迟（T092~T093）
 

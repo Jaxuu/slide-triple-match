@@ -788,7 +788,7 @@
     var html = '';
     for (var i = 0; i < 7; i++) {
       if (i < s.dock.length) {
-        html += '<div class="slot has-tile" data-idx="' + i + '">' + STM.chipSVG(s.dock[i].s, currentLevel) + '</div>';
+        html += '<div class="slot has-tile" data-idx="' + i + '"><div class="dock-chip">' + STM.chipSVG(s.dock[i].s, currentLevel) + '</div></div>';
       } else {
         html += '<div class="slot empty"></div>';
       }
