@@ -809,7 +809,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     var html = '';
     for (var i = 0; i < 7; i++) {
       if (i < s.dock.length) {
-        html += '<div class="slot has-tile" data-idx="' + i + '"><div class="dock-chip">' + STM.chipSVG(s.dock[i].s, currentLevel) + '</div></div>';
+        html += '<div class="slot has-tile is-filled filled" data-idx="' + i + '"><div class="dock-chip">' + STM.chipSVG(s.dock[i].s, currentLevel) + '</div></div>';
       } else {
         html += '<div class="slot empty"></div>';
       }
@@ -1051,6 +1051,14 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
               var idxs = [];
               for (var sj = 0; sj < lastDockSnapshot.length; sj++) if (lastDockSnapshot[sj].s === e.suit) idxs.push(sj);
               slotIndices = idxs.slice(0, 3);
+            }
+            if (!slotIndices.length) {
+              var filledIdx = [];
+              for (var sf = 0; sf < lastDockSnapshot.length; sf++) if (lastDockSnapshot[sf]) filledIdx.push(sf);
+              slotIndices = filledIdx.slice(0, 3);
+            }
+            if (slotIndices.length < 3) {
+              for (var sk0 = slotIndices.length; sk0 < 3; sk0++) slotIndices.push(sk0);
             }
           }
           var slotNodes = els.dock ? els.dock.querySelectorAll('.slot') : [];

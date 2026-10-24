@@ -379,10 +379,14 @@ html, body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
 }
 /* 有 chip = 凹坑内亮起，卡牌稳稳镶嵌 */
-.slot.has-tile {
-  border-color: rgba(160, 225, 255, .70);
-  background: rgba(20, 32, 48, .55);
-  box-shadow: 0 0 10px rgba(126, 220, 255, .32);
+.slot.has-tile,
+.slot.is-filled,
+.slot.filled,
+.slot:not(:empty) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
   animation: dock-seat .26s cubic-bezier(.2, 1.4, .4, 1);
 }
 @keyframes dock-seat {
@@ -412,14 +416,17 @@ html, body {
    · 出口② file:// 跨源污染 → <canvas class="dock-icon" data-bid>（同源切片直绘）
    二者消费同一张离屏切片，故与棋盘图标 100% 同源同图。 */
 .slot .dock-chip,
-.slot.has-tile > .dock-icon {
+.slot.has-tile > .dock-icon,
+.slot.is-filled > .dock-icon,
+.slot.filled > .dock-icon,
+.slot:not(:empty) > .dock-icon {
   width: 100%;
   height: 100%;
   margin: 0;
   border-radius: 10px;
-  background: linear-gradient(180deg, #FFFFFF 0%, #F1F5F9 100%);
-  box-shadow: inset 0 -3px 0 #CBD5E1;
-  border: 1px solid #94A3B8;
+  background: #FFFFFF;
+  box-shadow: 0 3px 0 #CBD5E1, 0 4px 8px rgba(15, 23, 42, 0.25);
+  border: 1px solid #E2E8F0;
   display: flex;
   align-items: center;
   justify-content: center;
