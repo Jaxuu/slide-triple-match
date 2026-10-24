@@ -386,6 +386,7 @@
     hasCleared: hasCleared,
     unlockPaintingTile: unlockPaintingTile,
     paintingIndexOfLevel: paintingIndexOfLevel,
+    albumIndex: paintingIndexOfLevel,
     levelSlotInPainting: levelSlotInPainting,
     maxPassedLevel: maxPassedLevel,
     chargeLevelOf: chargeLevelOf,
