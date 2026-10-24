@@ -3,7 +3,8 @@
   "integration_state_schema": 1,
   "installed_integrations": [
     "claude",
-    "opencode"
+    "opencode",
+    "codebuddy"
   ],
   "integration_settings": {
     "claude": {
@@ -13,8 +14,12 @@
     "opencode": {
       "script": "ps",
       "invoke_separator": "."
+    },
+    "codebuddy": {
+      "script": "ps",
+      "invoke_separator": "."
     }
   },
-  "integration": "opencode",
-  "default_integration": "opencode"
+  "integration": "codebuddy",
+  "default_integration": "codebuddy"
 }

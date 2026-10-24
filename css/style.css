@@ -469,13 +469,31 @@ html, body {
   border-radius: 8px;
   display: block;
   object-fit: contain;
-  filter: drop-shadow(0 2px 3px rgba(15, 23, 42, .38));
+  /* flight-neighbor-morph-dock-inset（Bug 2）: 此处**严禁**加 filter。
+   * file:// 形态下贴图切片无法逐像素扣白底（getImageData 抛 SecurityError），
+   * 切片 alpha 轮廓是一个「不透明圆角方块」；drop-shadow 严格按 alpha 轮廓
+   * 投射阴影，于是白卡内部多出一圈灰蓝「内嵌小方框」。
+   * 投影改由下方 .slot img.dock-icon 单独承担（只有 keying 成功的透明 PNG
+   * 才拥有真实动物轮廓）。 */
   pointer-events: none;
   user-select: none;
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
   background: transparent !important;
+}
+/* keying 成功（http / 无跨源污染）→ 切片 alpha 轮廓就是动物本体，投影贴合 */
+.slot img.dock-icon {
+  filter: drop-shadow(0 2px 3px rgba(15, 23, 42, .38));
+}
+/* keying 失败（file:// 直接双击运行）→ 切片保留不透明白底：
+ * 用 darken 把纯白融进 .dock-chip 的白卡面，动物本体基本不变色，白底隐形。
+ * 注意**不能**改用 canvas 内的 globalCompositeOperation='darken'——<canvas>
+ * 自身背景透明，按规范 alpha=0 处取源色，白底照旧画出（A/B 实测已验证）。
+ * 只作用于「canvas 直绘」这一种形态（keying 失败时 chipSVG 的唯一出口）；
+ * 托盘 #dock 的深色半透明磨砂样式完全不受影响。 */
+#dock.no-keying .slot canvas.dock-icon {
+  mix-blend-mode: darken;
 }
 /* Δ15b/T052i: Dock 贴图切片 chip（精灵图集切片 DataURL）——历史类名保留 */
 .tile-chip .chip-icon-canvas,

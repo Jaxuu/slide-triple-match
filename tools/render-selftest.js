@@ -1351,6 +1351,158 @@ function scenarioHitGeometry() {
     JSON.stringify(tr));
 }
 
+/* ---- 场景 K: 动画层 z 序不变量（Bug 1）+ dock 内框（Bug 2） ----
+ * flight-neighbor-morph-dock-inset 回归闸门：
+ *   Bug 1 根因——drawAnim 的 gear/unlock 分支调用 drawTileBody 重绘整块卡体，
+ *   而动画层整体叠在静态层之后、不做 z 交错 → 低层牌盖住压在其格心上的高层牌。
+ *   Bug 2 根因——.slot .dock-icon 的 drop-shadow 按切片 alpha 轮廓（圆角方块）
+ *   投射阴影 → 白卡内出现灰蓝内嵌小方框。
+ * 断言分三层：① 源码结构 ② 真实跑帧的 drawImage 轨迹 ③ CSS 口径。 */
+function scenarioAnimLayerZOrder() {
+  console.log('场景 K: 动画层 z 序不变量（Bug 1）+ dock 内框（Bug 2）');
+  var fs2 = require('fs');
+  var rawSrc = fs2.readFileSync(__dirname + '/../src/render/BoardRenderer.js', 'utf8');
+  var src = rawSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  /* 大括号配对截取函数体（含嵌套） */
+  function sliceFn(name) {
+    var at = src.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    var i = src.indexOf('{', at), depth = 0;
+    for (var j = i; j < src.length; j++) {
+      if (src[j] === '{') depth++;
+      else if (src[j] === '}') { depth--; if (depth === 0) return src.slice(i, j + 1); }
+    }
+    return '';
+  }
+  var animBody = sliceFn('drawAnim');
+  function branch(kind) {
+    if (!animBody) return null;
+    var at = animBody.indexOf("a.kind === '" + kind + "'");
+    if (at < 0) return null;
+    var nxt = animBody.indexOf('} else if (', at);
+    return animBody.slice(at, nxt > 0 ? nxt : animBody.length);
+  }
+  var gearBr = branch('gear');
+  var unlockBr = branch('unlock');
+  check('Bug1: gear 分支不再重绘卡体（分支内无 drawTileBody）',
+    !!gearBr && gearBr.indexOf('drawTileBody') === -1);
+  check('Bug1: unlock 分支不再重绘卡体（分支内无 drawTileBody）',
+    !!unlockBr && unlockBr.indexOf('drawTileBody') === -1);
+  check('Bug1: block 分支已移出动画层（改由静态层施加位移）', branch('block') === null);
+  check('Bug1: 动画层循环显式跳过 block', /kind === 'block'\)\s*continue/.test(src));
+  check('Bug1: 静态层 drawBoardTile 施加受阻微震位移', src.indexOf('blockDx[t.id]') !== -1);
+  check('Bug1: 动画坐标改走 getTileCssRect（无逻辑坐标直乘卡体）',
+    !!gearBr && !!unlockBr &&
+    gearBr.indexOf('getTileCssRect') !== -1 && unlockBr.indexOf('getTileCssRect') !== -1 &&
+    src.indexOf('drawTileBody(ctx, cell, (t.c + 0.5) * cell') === -1);
+  check('Bug1: tileInfo 缓存补 covered（防御位）',
+    /covered:\s*t\.covered === true/.test(src));
+
+  /* ② 真实跑帧：低层齿轮 + 高层压角牌，触发 gear 动画并记录 drawImage 轨迹 */
+  var recCtx = makeCtx();
+  recCtx.drawImage = function (img) {
+    if (!img || img.__bid == null) return;
+    var a = Array.prototype.slice.call(arguments, 1), dx, dy, dw;
+    if (a.length >= 8) { dx = a[4]; dy = a[5]; dw = a[6]; }
+    else if (a.length >= 4) { dx = a[0]; dy = a[1]; dw = a[2]; }
+    else { dx = a[0]; dy = a[1]; dw = img.width; }
+    if (zTrace) zTrace.push({ bid: img.__bid, x: dx, y: dy, w: dw });
+  };
+  var zTrace = null;
+  var recCanvas = {
+    clientWidth: 320, parentElement: { clientWidth: 320 }, width: 0, height: 0,
+    getContext: function () { return recCtx; },
+    getBoundingClientRect: function () { return { left: 0, top: 0, width: 320, height: 320 }; }
+  };
+  var lvZ = {
+    id: 1, n: 3, cfg: {},
+    tiles: [
+      { r: 1, c: 1, d: 0, s: 0, z: 0, m: 'g' },  /* 低层齿轮（被联动对象） */
+      { r: 1, c: 1, d: 0, s: 1, z: 1 },           /* 高层压角牌（必须始终最上） */
+      { r: 0, c: 2, d: 1, s: 2, z: 0 }
+    ]
+  };
+  var renderer2 = null;
+  var sessZ = STM.GameState.createSession(lvZ, {
+    onEvent: function (e) { if (renderer2) renderer2.handleEvent(e); }
+  });
+  renderer2 = STM.createBoardRenderer(recCanvas, sessZ, {});
+  renderer2.setLevel(lvZ);
+  renderer2.refresh();
+
+  var IA = STM.IconAssets;
+  var origSlice = IA.sliceCanvasOf;
+  IA.sliceCanvasOf = function (bid) { return { width: 64, height: 64, __bid: bid }; };
+  try {
+    var prZ = RE.renderProbe(sessZ.engineState());
+    var mapZ = STM.Bestiary.mappingForLevel(lvZ);
+    var zOfBid = {};
+    prZ.tiles.forEach(function (t) { zOfBid[mapZ[t.s]] = t.z; });
+    var gearTile = prZ.tiles.filter(function (t) { return t.m === 'g'; })[0];
+    check('Bug1(行为): 关卡含「低层齿轮 + 高层压角」组合（Bug 1 触发前提）',
+      !!gearTile && gearTile.z === 0 && gearTile.covered === true);
+    if (gearTile) {
+      renderer2.handleEvent({ e: 'gear', id: gearTile.id });
+      var framesZ = [], sampled = 0, inversions = 0;
+      for (var f = 0; f < 26; f++) {
+        zTrace = [];
+        framesZ.push(zTrace);
+        pumpFrames(1);
+      }
+      framesZ.forEach(function (calls) {
+        if (calls.length) sampled++;
+        for (var i = 0; i < calls.length; i++) {
+          for (var j = i + 1; j < calls.length; j++) {
+            var A = calls[i], B = calls[j];
+            var za = zOfBid[A.bid], zb = zOfBid[B.bid];
+            if (za == null || zb == null || za <= zb) continue; /* 只看「高层先画」 */
+            var ox = Math.max(0, Math.min(A.x + A.w, B.x + B.w) - Math.max(A.x, B.x));
+            var oy = Math.max(0, Math.min(A.y + A.w, B.y + B.w) - Math.max(A.y, B.y));
+            if (ox * oy > Math.min(A.w * A.w, B.w * B.w) * 0.08) inversions++;
+          }
+        }
+      });
+      check('Bug1(行为): gear 动画全程零 z 序反转（' + sampled + ' 帧采样）',
+        inversions === 0 && sampled > 0, 'inversions=' + inversions + ' sampled=' + sampled);
+
+      /* ④ 微震下放静态层后必须真的还在抖（防「静默失去动感」的表现层回归） */
+      var bt = prZ.tiles.filter(function (t) { return t.r === 0 && t.c === 2; })[0];
+      if (bt) {
+        renderer2.handleEvent({ e: 'blocked', tileId: bt.id });
+        var bxs = {};
+        for (var bf = 0; bf < 12; bf++) {
+          zTrace = [];
+          pumpFrames(1);
+          zTrace.forEach(function (r) { if (r.bid === mapZ[bt.s]) bxs[Math.round(r.x)] = 1; });
+        }
+        check('Bug1(行为): block 微震下放静态层后仍产生水平位移（≥2 个不同 x）',
+          Object.keys(bxs).length >= 2, 'xs=' + JSON.stringify(Object.keys(bxs)));
+      }
+    }
+  } finally {
+    IA.sliceCanvasOf = origSlice;
+    zTrace = null;
+  }
+
+  /* ③ CSS 口径（Bug 2）——先剥注释，避免注释里的旧写法误判 */
+  var css = fs2.readFileSync(__dirname + '/../css/style.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  var dockIconRule = (css.match(/\.slot\s+\.dock-icon\s*\{[^}]*\}/) || [''])[0];
+  check('Bug2: .slot .dock-icon 不再带 filter（画出内嵌方框的元凶）',
+    !!dockIconRule && !/filter\s*:/.test(dockIconRule));
+  check('Bug2: keying 成功时投影只给 <img class="dock-icon">（贴合动物轮廓）',
+    /\.slot\s+img\.dock-icon\s*\{[^}]*filter\s*:\s*drop-shadow/.test(css));
+  check('Bug2: file:// 降级规则 #dock.no-keying 用 darken 融掉切片白底（仅 canvas 直绘形态）',
+    /#dock\.no-keying\s+\.slot\s+canvas\.dock-icon\s*\{[^}]*mix-blend-mode\s*:\s*darken/.test(css));
+  var dockRule = (css.match(/#dock\s*\{[^}]*\}/) || [''])[0];
+  check('Bug2: #dock 托盘仍为深色半透明磨砂（严禁改白）',
+    /background\s*:\s*rgba\(30,\s*41,\s*59,\s*0\.55\)/.test(dockRule) &&
+    /backdrop-filter\s*:\s*blur\(10px\)/.test(dockRule));
+  check('Bug2: paintDockIcons 按 keyingAvailable() 同步 no-keying 类',
+    src.indexOf("classList.add('no-keying')") !== -1 &&
+    src.indexOf("classList.remove('no-keying')") !== -1);
+}
+
 scenarioBlocked();
 scenarioMechAnims();
 scenarioPrismBlocked();
@@ -1362,6 +1514,7 @@ scenarioDelta16();
 scenarioPurifyAndOriginality();
 scenarioDelta19();
 scenarioHitGeometry();
+scenarioAnimLayerZOrder();
 
 console.log('');
 if (failures.length) {

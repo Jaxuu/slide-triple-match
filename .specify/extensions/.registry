@@ -17,6 +17,11 @@
           "speckit.bug.assess",
           "speckit.bug.fix",
           "speckit.bug.test"
+        ],
+        "codebuddy": [
+          "speckit.bug.assess",
+          "speckit.bug.fix",
+          "speckit.bug.test"
         ]
       },
       "registered_skills": [],
@@ -36,6 +41,12 @@
           "speckit.refine.status"
         ],
         "opencode": [
+          "speckit.refine.update",
+          "speckit.refine.propagate",
+          "speckit.refine.diff",
+          "speckit.refine.status"
+        ],
+        "codebuddy": [
           "speckit.refine.update",
           "speckit.refine.propagate",
           "speckit.refine.diff",

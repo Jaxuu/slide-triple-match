@@ -915,6 +915,12 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     var lastProbe = null;
     var tileInfo = {};     /* M1.6: id → {s,d,z,stackDepth} 视觉缓存（滑块移除后动画仍可绘制） */
     var revealAt = {};     /* Δ7: tileId → 上浮起始时刻（含延迟） */
+    /* flight-neighbor-morph-dock-inset（Bug 1）: 受阻微震的水平位移表。
+     * 原实现在动画层 drawAnim('block') 里整块重绘卡体，而动画层整体叠在静态层
+     * 之后、不做 z 交错 → 低层牌会盖住压在其格心上的高层牌（层次反转）。
+     * 现改为每帧在 draw() 里算出位移，交给静态层 drawBoardTile 施加，
+     * 使抖动天然遵守 z 序。 */
+    var blockDx = {};
 
     function nowMs() {
       return global.performance ? global.performance.now() : Date.now();
@@ -1310,10 +1316,16 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
        * M1.6 缺陷修复：reveal 目标滑块不跳过——由 drawBoardTile 内按 revealAt 插值上浮
        * （此前 animSet 跳过 + 动画层 continue → 下层滑块 560ms 隐形甚至永久隐形）
        * 飞出/弹回/三消源滑块已 removed，renderProbe 不含 → 无需 animSet 过滤 */
-      /* 弹回动画滑块仍在棋盘（未 removed）——仅由动画层绘制，防静态层重影 */
-      var blockSet = {};
+      /* 受阻微震：位移在静态层施加（不再由动画层重绘卡体）——
+       * 这样抖动卡牌仍处在自己的 z 位置，绝不会盖到更高层的牌上。 */
       var i;
-      for (i = 0; i < anims.length; i++) if (anims[i].kind === 'block') blockSet[anims[i].tileId] = true;
+      blockDx = {};
+      for (i = 0; i < anims.length; i++) {
+        var ab = anims[i];
+        if (ab.kind !== 'block') continue;
+        var bp = Math.min(1, (now - ab.t0) / ab.dur);
+        blockDx[ab.tileId] = Math.sin(bp * Math.PI * 6) * 3 * (1 - bp);
+      }
       var tiles = lastProbe.tiles;
       /* 飞行中的滑块集合（由动画层绘制，最终位于所有棋盘卡牌最顶层） */
       var flyingIds = {};
@@ -1327,7 +1339,6 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
         return a.z - b.z || a.r - b.r || a.c - b.c;
       });
       for (i = 0; i < renderList.length; i++) {
-        if (blockSet[renderList[i].id]) continue;
         /* ingame-hud-render-defects（Bug 2）: 已删除「上层投射环境阴影」——
          * 该状态会泄漏到 drawTileBody 内每次 fill，放大成错位灰黑块。
          * 层次改由卡牌自身投影表达（drawTileBody 内局部 save/restore）。 */
@@ -1336,10 +1347,14 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
 
       /* 动画层（飞出/弹回/爆闪；reveal 由 drawBoardTile 上浮插值处理——不再跳过绘制）
        * 图层纪律：飞行卡牌 MUST 作为最高图层最后绘制，避免静止卡牌覆盖飞行卡牌 */
-      /* 先绘制非飞行动画（block/gear/unlock/ice/prism/match） */
+      /* 先绘制非飞行动画（gear/unlock/ice/prism/match）
+       * flight-neighbor-morph-dock-inset（Bug 1）: 本层严禁绘制任何「卡体」——
+       * 动画层整体叠在静态层之后且不做 z 交错，一旦在此重绘卡体，低层牌就会
+       * 盖住更高层的牌（层次反转），表现为「未点击的相邻卡牌瞬间变成另一张」。
+       * reveal 由静态层 drawBoardTile 插值；block 由静态层施加水平位移。 */
       for (i = 0; i < anims.length; i++) {
         var a2 = anims[i];
-        if (a2.kind === 'reveal' || a2.kind === 'fly') continue;
+        if (a2.kind === 'reveal' || a2.kind === 'fly' || a2.kind === 'block') continue;
         drawAnim(a2, Math.min(1, (now - a2.t0) / a2.dur), now);
       }
       /* 最后绘制飞行卡牌（最高图层） */
@@ -1405,7 +1420,8 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
      * 一并删除，卡牌保持干净明亮本色。仅保留 Δ7 reveal 上浮。 */
     function drawBoardTile(t, now) {
       var rect = getTileCssRect(t, layout);
-      var px = rect.x + rect.w / 2;
+      /* 受阻微震：±3px 水平位移由本层施加（见 draw() 内 blockDx 计算） */
+      var px = rect.x + rect.w / 2 + (blockDx[t.id] || 0);
       var py = rect.y + rect.h / 2;
       var lift = 0;
       var rv = revealAt[t.id];
@@ -1434,8 +1450,13 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
         var slotX = ((a.slot != null ? a.slot : 3) + 0.5) / 7 * cssSize;
         var turn = Math.max(0, (prog - 0.30) / 0.70);
         var ease = turn * turn * (3 - 2 * turn);
-        var gx = (seg.c + 0.5) * cell;
-        var gy = (seg.r + 0.5) * cell;
+        /* 路径点来自引擎的**逻辑**坐标；奇数层（z=1/3）渲染时整牌偏移 +0.5 格。
+         * 把牌自身的渲染偏移量整体加到路径上，避免 z=1 的牌起飞瞬间跳半格。 */
+        var org = tileGridOf(t);
+        var dcOff = org.cc - (t.c != null ? t.c : org.cc);
+        var drOff = org.rr - (t.r != null ? t.r : org.rr);
+        var gx = (seg.c + 0.5 + dcOff) * cell;
+        var gy = (seg.r + 0.5 + drOff) * cell;
         gx += (slotX - gx) * ease;
         gy += (-cell * 0.55 - gy) * ease;
         /* Δ8 凌空飞越感: z>=1 高层飞出保持层高——上移偏移 + 放大 + 底部投影 */
@@ -1455,34 +1476,37 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
         /* Δ14: 白色推进云朵粒子（轻盈拖尾——随飞出迸发） */
         drawFlyPuff(a, prog);
         drawTileBody(ctx, cell, gx, gy - lift, t, sc, alpha, now);
-      } else if (a.kind === 'block') {
-        /* 受阻：原地极小幅度左右微震（±3px），不沿箭头方向冲出 */
-        var dx = Math.sin(prog * Math.PI * 6) * 3 * (1 - prog);
-        var baseX = (t.c != null ? t.c : 0) + 0.5;
-        var baseY = (t.r != null ? t.r : 0) + 0.5;
-        drawTileBody(ctx, cell, baseX * cell + dx, baseY * cell, t, 1, 1, now);
       } else if (a.kind === 'match') {
         drawTileBody(ctx, cell, a.x, a.y, t, 1 + 0.6 * prog, 1 - prog, now);
       } else if (a.kind === 'gear') {
-        /* T034 齿轮旋转脉冲: 牌体原地放大回弹 + 角标区高亮圈 */
+        /* T034 齿轮旋转脉冲：**只画角标区高亮环，绝不重绘卡体**。
+         * flight-neighbor-morph-dock-inset（Bug 1）直接元凶：原实现调用
+         * drawTileBody 重绘整块卡体，而本层整体叠在静态层之后、不做 z 交错，
+         * 且 tileInfo 不带 covered → 低层齿轮牌以「未压暗的亮牌」盖到压在其
+         * 格心上的高层牌之上（层次反转），观感即「未点击的相邻卡牌变成另一张」。
+         * 齿轮联动的唯一语义变化是 d（方向），refresh() 后静态层已是最新，
+         * 卡体无需重画。坐标一律走 getTileCssRect（rr/cc 渲染坐标）。 */
         var gp = prog < 0.5 ? prog / 0.5 : (1 - (prog - 0.5) / 0.5);
-        drawTileBody(ctx, cell, (t.c + 0.5) * cell, (t.r + 0.5) * cell, t, 1 + 0.12 * gp, 1, now);
+        var gr = getTileCssRect(t, layout);
+        var gcx = gr.x + gr.w / 2;
+        var gcy = gr.y + gr.h / 2;
         ctx.beginPath();
-        ctx.arc((t.c + 0.5) * cell + cell * 0.34, (t.r + 0.5) * cell - cell * 0.34, cell * 0.14 * (1 + gp), 0, Math.PI * 2);
+        ctx.arc(gcx + cell * 0.34, gcy - cell * 0.34, cell * 0.14 * (1 + gp), 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(232,217,160,' + (1 - prog) + ')';
         ctx.lineWidth = 2;
         ctx.stroke();
       } else if (a.kind === 'unlock') {
-        /* T034 锁链断开: 牌面亮闪 */
-        drawTileBody(ctx, cell, (t.c + 0.5) * cell, (t.r + 0.5) * cell, t, 1, 1, now);
+        /* T034 锁链断开：只画金色描边闪光，同样不重绘卡体（理由见 gear 分支） */
+        var ur = getTileCssRect(t, layout);
         ctx.beginPath();
-        roundRect(ctx, t.c * cell + 2, t.r * cell + 2, cell - 4, cell - 4, cell * 0.12);
+        roundRect(ctx, ur.x + 2, ur.y + 2, ur.w - 4, ur.h - 4, cell * 0.12);
         ctx.strokeStyle = 'rgba(255,200,80,' + (0.85 * (1 - prog)) + ')';
         ctx.lineWidth = 2.5;
         ctx.stroke();
       } else if (a.kind === 'ice') {
-        /* T034 破冰碎裂: 白蓝碎片从牌心四散 */
-        var icx = (t.c + 0.5) * cell, icy = (t.r + 0.5) * cell;
+        /* T034 破冰碎裂: 白蓝碎片从牌心四散（牌心取渲染坐标，奇数层不偏半格） */
+        var ir = getTileCssRect(t, layout);
+        var icx = ir.x + ir.w / 2, icy = ir.y + ir.h / 2;
         ctx.globalAlpha = 1 - prog;
         for (var fi = 0; fi < 6; fi++) {
           var fa = fi * Math.PI / 3 + 0.4;
@@ -1617,7 +1641,11 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
           var t = lastProbe.tiles[i];
           tileInfo[t.id] = {
             id: t.id, r: t.r, c: t.c, s: t.s, d: t.d, z: t.z || 0, stackDepth: t.stackDepth || 1,
-            m: t.m || null, ice: t.ice != null ? t.ice : null
+            m: t.m || null, ice: t.ice != null ? t.ice : null,
+            /* flight-neighbor-morph-dock-inset（Bug 1 防御位）: 缓存必须带上
+             * 压暗态，否则动画层任何残留的卡体重绘都会画出「没被压暗的亮牌」，
+             * 与周边形成强烈反差（历史上正是这条缺失放大了 Bug 1 的观感）。 */
+            covered: t.covered === true
           };
           currentIds[t.id] = true;
         }
@@ -1803,6 +1831,15 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     if (typeof document === 'undefined') return 0;
     var dock = document.getElementById('dock');
     if (!dock) return 0;
+    /* flight-neighbor-morph-dock-inset（Bug 2）: 同步「无键控」降级类。
+     * keyingAvailable()===false（file:// 双击运行）时切片保留不透明白底，
+     * 需要 CSS 的 mix-blend-mode:darken 把纯白融进 .dock-chip 的白卡面。
+     * 只给 #dock 挂一个类，托盘自身的深色半透明磨砂样式一行都不改。 */
+    var noKey = !IconAssets.keyingAvailable();
+    if (dock.classList) {
+      if (noKey) dock.classList.add('no-keying');
+      else dock.classList.remove('no-keying');
+    }
     var nodes = dock.querySelectorAll('canvas.dock-icon[data-bid]');
     if (!nodes || nodes.length === 0) return 0;
     var dpr = Math.max(1, global.devicePixelRatio || 1);
