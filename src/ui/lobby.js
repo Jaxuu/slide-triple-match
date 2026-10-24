@@ -51,8 +51,8 @@
   var visible = false;      /* 大厅是否处于显示态（后台 rAF 自动停） */
   var t0 = 0;               /* 进入大厅时刻（辉光呼吸相位） */
 
-  /* 当前浏览的画卷索引（Δ17 新增左右切换语义：0-based） */
-  var browsingIdx = 0;
+  /* 当前浏览的画卷索引（1-based painting index；默认第一幅画卷） */
+  var browsingIdx = 1;
 
   /* ---------- DOM 构建 ---------- */
   function h(tag, cls, parent) {

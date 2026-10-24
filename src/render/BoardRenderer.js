@@ -496,7 +496,7 @@
 
   /* ---------- 动效参数 ---------- */
   var FLY_MS = 420;        /* 飞出动画 */
-  var BLOCK_MS = 360;      /* 受阻弹回 */
+  var BLOCK_MS = 180;      /* 受阻原地微震 */
   var REVEAL_MS = 380;     /* Δ7 次顶层暴露上浮 */
   var REVEAL_DELAY = 180;  /* Δ7 上浮延迟（等飞出滑块让位） */
   var PARTICLE_LIFE = 600; /* 三消粒子 */
@@ -1446,12 +1446,11 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
         drawFlyPuff(a, prog);
         drawTileBody(ctx, cell, gx, gy - lift, t, sc, alpha, now);
       } else if (a.kind === 'block') {
-        var p = prog < 0.55 ? (prog / 0.55) : (1 - (prog - 0.55) / 0.45);
-        var dir = RE.DIR_VEC[t.d];
-        var zB = t.z || 0;
-        drawTileBody(ctx, cell,
-          (t.c + dir.dc * 0.38 * p + 0.5) * cell,
-          (t.r + dir.dr * 0.38 * p + 0.5) * cell - zB * cell * 0.22, t, 1, 1, now);
+        /* 受阻：原地极小幅度左右微震（±3px），不沿箭头方向冲出 */
+        var dx = Math.sin(prog * Math.PI * 6) * 3 * (1 - prog);
+        var baseX = (t.c != null ? t.c : 0) + 0.5;
+        var baseY = (t.r != null ? t.r : 0) + 0.5;
+        drawTileBody(ctx, cell, baseX * cell + dx, baseY * cell, t, 1, 1, now);
       } else if (a.kind === 'match') {
         drawTileBody(ctx, cell, a.x, a.y, t, 1 + 0.6 * prog, 1 - prog, now);
       } else if (a.kind === 'gear') {
