@@ -1226,9 +1226,25 @@
   };
 
   /* 显式缓存失效（测试用——会话内恒定） */
+  /* Δ21: 六画卷权威常量（单一数据源） */
+  var PAINTINGS = [
+    { id: 1, range: [1,12], name: '晨曦雪峰庄园', desc: '晨曦雪峰庄园', bg: 'bg1', aliases: ['画卷一'] },
+    { id: 2, range: [13,24], name: '云端飞瀑风车岛', desc: '云端飞瀑风车岛', bg: 'bg2', aliases: ['画卷二'] },
+    { id: 3, range: [25,36], name: '碧浪椰影浅湾', desc: '碧浪椰影浅湾', bg: 'bg3', aliases: ['画卷三'] },
+    { id: 4, range: [37,48], name: '凛冬冰川镜湖', desc: '凛冬冰川镜湖', bg: 'bg4', aliases: ['画卷四'] },
+    { id: 5, range: [49,60], name: '云端霞彩航道', desc: '云端霞彩航道', bg: 'bg5', aliases: ['画卷五'] },
+    { id: 6, range: [61,72], name: '星穹极光之巅', desc: '星穹极光之巅', bg: 'bg6', aliases: ['画卷六'] }
+  ];
+  function paintingForLevel(levelId) {
+    var idx = Math.min(PAINTINGS.length, Math.max(1, Math.floor(((levelId || 1) - 1) / 12) + 1));
+    return PAINTINGS[idx - 1];
+  }
+
   function clearCache() { cache = {}; }
 
   STM.Bestiary = {
+    PAINTINGS: PAINTINGS,
+    paintingForLevel: paintingForLevel,
     BESTIARY: BESTIARY,
     STAGES: STAGES,
     DRAW: DRAW,

@@ -877,6 +877,130 @@
     }
     return { healed: healed };
   }
+  /* findBestMove: recovery solver (ascii only) */
+  function isRayClear(state, t) {
+    if (!t) return false;
+    var ray = castRay(state, t.r, t.c, t.d, t.z || 0);
+    return !!ray.free;
+  }
+
+  function scoreTapForHint(state, tileId, dockCounts) {
+    var t = state.tiles[tileId];
+    if (!t || t.removed) return -1e9;
+    var sc = 0;
+    var cnt = dockCounts[t.s] || 0;
+    if (cnt >= 2) sc += 1000;
+    else if (cnt === 1) sc += 300;
+    if (t.z >= 2) sc += 150;
+    if (t.m === 'g' || t.m === 'k' || t.m === 'c' || t.m === 'i') sc += 150;
+    if (isRayClear(state, t)) sc += 2000;
+    else sc -= 1000;
+    if (cnt >= 1 && isRayClear(state, t)) sc += 150;
+    return sc;
+  }
+
+  function findBestMove(state) {
+    if (!state || !state.tiles) return -1;
+    var _taps0 = enumerateTaps(state);
+    var _hasClear0 = false;
+    for (var _i0 = 0; _i0 < _taps0.length; _i0++) { if (isRayClear(state, state.tiles[_taps0[_i0]])) { _hasClear0 = true; break; } }
+    if (_taps0.length && !_hasClear0) { healHeadOnCollisions(state); }
+    var rootSnap = snapshot(state);
+    var result = -1;
+    var nodeCount = 0;
+    var NODE_CAP = 4000;
+    var t0 = Date.now();
+    var TIME_CAP = 200;
+    function dockCountsOf(st) {
+      var c = {};
+      var d = st.dock || [];
+      for (var i = 0; i < d.length; i++) {
+        var su = d[i].s;
+        c[su] = (c[su] || 0) + 1;
+      }
+      return c;
+    }
+    function dfs(cur, depth, firstId) {
+      if (nodeCount >= NODE_CAP || (Date.now() - t0) > TIME_CAP) return null;
+      if (terminal(cur) === 'won') {
+        return (firstId == null ? null : firstId);
+      }
+      if (depth <= 0) return null;
+      var taps = enumerateTaps(cur);
+      if (!taps || !taps.length) {
+        var snapHeal = snapshot(cur);
+        healHeadOnCollisions(cur);
+        taps = enumerateTaps(cur);
+        if (!taps || !taps.length) {
+          restore(cur, snapHeal);
+          return null;
+        }
+      }
+      var dc = dockCountsOf(cur);
+      var scored = [];
+      for (var i = 0; i < taps.length; i++) {
+        scored.push({ id: taps[i], score: scoreTapForHint(cur, taps[i], dc) });
+      }
+      scored.sort(function (a, b) { return b.score - a.score; });
+      for (var si = 0; si < scored.length; si++) {
+        var tid = scored[si].id;
+        nodeCount++;
+        var snap = snapshot(cur);
+        var res = applyTap(cur, tid);
+        if (res && (res.type === 'flyout' || res.type === 'prism-flyout' || res.type === 'blocked')) {
+          var subFirst = (firstId == null) ? tid : firstId;
+          var sub = dfs(cur, depth - 1, subFirst);
+          restore(cur, snap);
+          if (sub != null) return sub;
+        } else {
+          restore(cur, snap);
+        }
+        if (nodeCount >= NODE_CAP || (Date.now() - t0) > TIME_CAP) break;
+      }
+      return null;
+    }
+    try {
+      var r = dfs(state, 10, null);
+      if (r != null && r >= 0) result = r;
+    } catch (e) { }
+    if (result < 0) {
+      var taps = enumerateTaps(state);
+      var hasClear = false;
+      for (var _i = 0; _i < taps.length; _i++) { if (isRayClear(state, state.tiles[taps[_i]])) { hasClear = true; break; } }
+      if (taps.length && !hasClear) {
+        var sh = snapshot(state);
+        healHeadOnCollisions(state);
+        taps = enumerateTaps(state);
+        if (!taps.length) { restore(state, sh); taps = enumerateTaps(state); }
+      }
+      if (!taps || !taps.length) {
+        var snapHeal = snapshot(state);
+        healHeadOnCollisions(state);
+        taps = enumerateTaps(state);
+        if (!taps || !taps.length) {
+          restore(state, snapHeal);
+          taps = [];
+        }
+      }
+      if (taps && taps.length) {
+        var dc = dockCountsOf(state);
+        var best = taps[0], bestScore = scoreTapForHint(state, taps[0], dc);
+        for (var i = 1; i < taps.length; i++) {
+          var sc = scoreTapForHint(state, taps[i], dc);
+          if (sc > bestScore) { bestScore = sc; best = taps[i]; }
+        }
+        result = best;
+      } else {
+        for (var i = 0; i < state.tiles.length; i++) {
+          if (!state.tiles[i].removed) { result = i; break; }
+        }
+      }
+    }
+    restore(state, rootSnap);
+    if (result == null) result = -1;
+    return result;
+  }
+
   var selfHealDeadlocks = healHeadOnCollisions;
 
   /* T011: terminal 终局判定（暂存区已移除: won = 棋盘滑块 == 0 且 dock == 0） */
@@ -1362,6 +1486,8 @@
     applyPurify: applyPurify,
     terminal: terminal,
     deadlockSuspect: deadlockSuspect,
+    isRayClear: isRayClear,
+    findBestMove: findBestMove,
     enumerateTaps: enumerateTaps,
     validateLevel: validateLevel,
     renderProbe: renderProbe,

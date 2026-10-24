@@ -329,7 +329,16 @@
     /* ---- 引擎态直访（Renderer 轮询用） ---- */
     function engineState() { return engine; }
 
-    ready = true; /* 构造完毕：此后事件可正常下发（首 phase 事件于返回后异步发） */
+    function findBestNextMove() {
+    if (phase !== PHASE.READY) return -1;
+    if (onRail) {
+      var sol = levelDef.solutionMoves || [];
+      if (railIndex < sol.length) return sol[railIndex].t;
+    }
+    return RE.findBestMove(engine);
+  }
+
+  ready = true; /* 构造完毕：此后事件可正常下发（首 phase 事件于返回后异步发） */
     var api = {
       tap: tap,
       useItem: useItem,
@@ -339,6 +348,8 @@
       reset: reset,
       state: state,
       onRail: onRailCheck,
+      findBestNextMove: findBestNextMove,
+      findBestMove: findBestNextMove,
       engineState: engineState,
       PHASE: PHASE
     };

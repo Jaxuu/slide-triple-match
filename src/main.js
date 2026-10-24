@@ -201,6 +201,9 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
           var s = STM.Profile.get().settings;
           if (sound.setBgmMute) sound.setBgmMute(!s.bgm);
           if (sound.setSfxMute) sound.setSfxMute(!s.sfx);
+          if (els.debugMute) els.debugMute.checked = !!(s.bgm && s.sfx);
+          progress.muted = !(s.bgm && s.sfx);
+          renderMuteBtn();
         } catch (e) { /* 存储不可用 → 内存态照常（D-03） */ }
       },
       onBackToLobby: function () { enterLobby({ unlocked: progress.unlocked, level: progress.last }); },
@@ -626,7 +629,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
         }
         els.debugLevel.innerHTML = opts;
       }
-      if (els.debugMute) els.debugMute.checked = !!progress.muted;
+      if (els.debugMute) els.debugMute.checked = sound ? !sound.isMuted() : !progress.muted;
     }
     /* 同步下拉框当前选中 → currentId */
     if (els.debugLevel) els.debugLevel.value = String(id);
@@ -1259,7 +1262,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
 
     /* T057: 默认静音 checkbox 反映 progress.muted */
     if (els.debugMute) {
-      els.debugMute.checked = !!progress.muted;
+      els.debugMute.checked = sound ? !sound.isMuted() : !progress.muted;
     }
 
     /* T053: 移动端浮动按钮 + 抽屉切换 */
@@ -1354,6 +1357,15 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     }
     var mechFlags = levelFlagLabel(lv);
     var themes = lv.theme || '';
+    var paintingName = '—';
+    try {
+      if (STM.Bestiary && typeof STM.Bestiary.paintingForLevel === 'function') {
+        paintingName = STM.Bestiary.paintingForLevel(currentId).name;
+      } else if (STM.Bestiary && STM.Bestiary.PAINTINGS) {
+        var _pi = Math.min(STM.Bestiary.PAINTINGS.length, Math.max(1, Math.floor((currentId - 1) / 12) + 1));
+        paintingName = STM.Bestiary.PAINTINGS[_pi - 1].name;
+      }
+    } catch (ePaint) { paintingName = '—'; }
     var suitSet = {};
     var suitCount = 0;
     for (var j = 0; j < tiles.length; j++) {
@@ -1363,7 +1375,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     var metrics = lv.metrics || {};
     var info =
       '<div><b>' + (lv.name || ('L' + currentId)) + '</b> · ' + n + '×' + n + ' · ' + maxZ + '层</div>' +
-      '<div>主题: ' + (themes || '—') + '</div>' +
+      '<div>主题: ' + paintingName + '</div>' +
       '<div>滑块 ' + tiles.length + ' · 花色 ' + suitCount + '</div>' +
       '<div>难度 <b>' + (metrics.difficultyScore || 0) + '</b> · 槽压峰 ' + (metrics.dockPeak || '-') +
         ' · 最优 ' + (metrics.minMoves || '-') + ' 步</div>' +
@@ -1373,7 +1385,16 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
 
   /* T057: 音效开关（与 HUD 的 mute 同步——走 setMuted 单入口） */
   function onDebugMuteChange() {
-    setMuted(!!els.debugMute.checked);
+    var on = !!els.debugMute.checked;
+    setMuted(!on);
+    try {
+      if (STM.Profile) {
+        STM.Profile.setSetting('bgm', on);
+        STM.Profile.setSetting('sfx', on);
+      }
+    } catch (e) { }
+    if (sound && sound.setBgmMute) sound.setBgmMute(!on);
+    if (sound && sound.setSfxMute) sound.setSfxMute(!on);
     renderMuteBtn();
   }
 
@@ -1385,42 +1406,38 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
   function onDebugHintDown() {
     if (!session) return;
     stopAutoBot('Hint');
-    /* 必须在 READY 态 */
     var st = session.state();
     if (st.phase === 'WON' || st.phase === 'LOST_BURST' || st.phase === 'LOST_DEADLOCK') {
       toast('终局态不可 Hint');
       return;
     }
-    /* 已存在高亮 → 用户再次请求相同高亮=无操作（避免频繁闪烁） */
+    var tileId = -1;
     if (session.onRail()) {
       var sol = currentLevel.solutionMoves || [];
       if (currentHintIndex >= sol.length) {
         toast('已通关——无可 Hint');
         return;
       }
-      var tileId = sol[currentHintIndex].t;
-      highlightTile(tileId, 1800);
-      return;
-    }
-    /* off-rail → 有界 DFS 搜索（复用 T033 死锁复证搜索器同形 action set） */
-    var found = searchHint(/*depth*/6, /*nodeCap*/100000, /*timeCap*/300);
-    if (found && found.firstTileId != null) {
-      highlightTile(found.firstTileId, 1800);
-      if (found.guaranteed) {
-        sound.play('click');
-      } else {
-        toast('非保证建议');
-      }
-      return;
-    }
-    /* 失败 → 启发式: 找一个能飞出、且降低当前 dock 压力的 tap */
-    var tip = heuristicHint();
-    if (tip != null && tip >= 0) {
-      highlightTile(tip, 1800);
-      toast('启发式建议（非保证）');
+      tileId = sol[currentHintIndex].t;
     } else {
-      toast('无可用提示——尝试 Undo 或扳手');
+      var eng = session.engineState();
+      var RE = STM.RulesEngine;
+      tileId = (typeof session.findBestNextMove === 'function') ? session.findBestNextMove() : RE.findBestMove(eng);
+      if (tileId == null || tileId < 0) {
+        try { RE.healHeadOnCollisions(eng); } catch (e) { }
+        tileId = RE.findBestMove(eng);
+      }
+      if (tileId == null || tileId < 0) {
+        var tip = heuristicHint();
+        if (tip != null && tip >= 0) tileId = tip;
+      }
     }
+    if (tileId == null || tileId < 0) {
+      toast('无可用提示——尝试 Undo 或洗牌');
+      return;
+    }
+    highlightTile(tileId, 1800);
+    sound.play('click');
   }
 
   function highlightTile(tileId, ttlMs) {
@@ -1548,7 +1565,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
 
   function scheduleNextBotStep() {
     if (!autoBot || !autoBot.running) return;
-    autoBot.timer = setTimeout(autoBotTick, 450);
+    autoBot.timer = setTimeout(autoBotTick, 420);
   }
 
   function autoBotTick() {
@@ -1571,12 +1588,17 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
       }
       tileId = sol[autoBot.stepIndex].t;
     } else {
-      /* off-rail: 优先尝试有界 DFS 续解 */
-      var r = searchHint(6, 50000, 200);
-      if (r && r.firstTileId != null) {
-        tileId = r.firstTileId;
-      } else {
-        /* 兜底 reset + 重放（保证「直至该关胜利」承诺） */
+      /* off-rail: findBestMove 实时启发式 */
+      var RE2 = STM.RulesEngine;
+      var eng2 = session.engineState();
+      try { RE2.healHeadOnCollisions(eng2); } catch (e) { }
+      tileId = (typeof session.findBestNextMove === 'function') ? session.findBestNextMove() : RE2.findBestMove(eng2);
+      if (tileId == null || tileId < 0) {
+        try { RE2.healHeadOnCollisions(eng2); } catch (e) { }
+        tileId = RE2.findBestMove(eng2);
+      }
+      if (tileId == null || tileId < 0) {
+        /* 兜底 reset + 重放 */
         toast('Bot 偏离 → 重置并重放最优解');
         session.reset();
         renderer.refresh();
@@ -1663,6 +1685,9 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     renderer: function () { return renderer; },
     progress: progress,
     /* Δ20 Bug 1：有效已通关最大关卡号（大厅晶片点亮态的权威口径） */
-    maxPassedLevel: maxPassedLevel
+    maxPassedLevel: maxPassedLevel,
+    findBestMove: function (state) { return STM.RulesEngine.findBestMove(state); },
+    nextHint: function () { return onDebugHintDown(); }
   };
+  try { global.findBestMove = STM.RulesEngine.findBestMove; global.nextHint = onDebugHintDown; } catch (e) { }
 })(typeof window !== 'undefined' ? window : globalThis);

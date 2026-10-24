@@ -1215,3 +1215,11 @@ ingame-shots: all green（布局/教学/IQ/道具/溢出）
 - IQ index now starts at 50 and caps at 200 with three multipliers: baseGain = 150 / totalTriples, comboMul = min(1.08, 0.76 + combo*0.08), errorMul = pow(0.88, blockErrors), timeMul = max(0.50, 1.0 - mins*0.15). Excess above 165 damped by (200 - iqScore)/38. Blocked taps reset combo and increment blockErrors without reducing IQ.
 - Result praise text changed to borderless 3D gradient gold text (36px/900/0.08em) removing orange frame.
 - Result main button now reads level X+1 and directly starts next level; painting full triggers portal board then continue to next level; home icon button returns to lobby.
+
+## Δ21 全图鉴与零死锁（M8 Batch 3 收口）
+
+- 90 种 3D 图标、六画卷权威命名（晨曦雪峰庄园 / 云端飞瀑风车岛 / 碧浪椰影浅湾 / 凛冬冰川镜湖 / 云端霞彩航道 / 星穹极光之巅）。
+- 自动质心居中：切图 9% 内缩 + 非白包围盒质心对齐 256×256。
+- 零相向死锁自愈：findHeadOnDeadlocks + healHeadOnCollisions，静态门禁 + 运行期防御。
+- 无黑边 Low-Poly 白瓷碎片瀑布：无描边、三级尺度、三槽包围盒并集全宽。
+- 残局 Hint / Auto-Play：findBestMove 有界搜索 + 贪心兜底，绝不返回 null。
