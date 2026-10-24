@@ -191,11 +191,11 @@
      * 融进卡面（见该函数注释），避免「内嵌白方框」露出。 */
     var keyingOk = true;
     var SHEETS = [
-      { file: 'assets/icons/sheet1.jpg', base: 0,  count: 15 },
-      { file: 'assets/icons/sheet2.jpg', base: 15, count: 15 },
-      { file: 'assets/icons/sheet3.jpg', base: 30, count: 15 },
-      { file: 'assets/icons/sheet4.jpg', base: 45, count: 15 },
-      { file: 'assets/icons/sheet5.jpg', base: 60, count: 15 },
+      { file: 'assets/icons/sheet1.png', base: 0,  count: 15 },
+      { file: 'assets/icons/sheet2.png', base: 15, count: 15 },
+      { file: 'assets/icons/sheet3.png', base: 30, count: 15 },
+      { file: 'assets/icons/sheet4.png', base: 45, count: 15 },
+      { file: 'assets/icons/sheet5.png', base: 60, count: 15 },
       { file: 'assets/icons/sheet6.png', base: 75, count: 15 }
     ];
 
@@ -362,7 +362,7 @@
           }
         };
         img.onerror = tryNext;
-        img.src = baseFile + '.' + ext;
+        img.src = baseFile + '.' + ext + '?v=21';
       }
       tryNext();
     }
@@ -392,7 +392,7 @@
           img.onerror = function () {
             if (source[bid] !== 'sheet' && source[bid] !== 'single') source[bid] = 'emoji';
           };
-          img.src = 'assets/icons/' + bid + '.png';
+          img.src = 'assets/icons/' + bid + '.png?v=21';
         })(bids[i]);
       }
     }
@@ -1840,6 +1840,9 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     function paintingOf(levelId) {
       return Math.min(6, Math.max(1, Math.floor(((levelId || 1) - 1) / 12) + 1));
     }
+    function albumIndex(levelId) {
+      return Math.min(5, Math.floor(((levelId || 1) - 1) / 12));
+    }
 
     function bgIndexOf(ci) {
       return BG_INDEX[Math.min(CYCLES - 1, Math.max(0, ci))];
@@ -1863,7 +1866,7 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
           }
         };
         img.onerror = next; /* 扩展序逐个探测 */
-        img.src = 'assets/bg/bg' + bgNo + '.' + ext;
+        img.src = 'assets/bg/bg' + bgNo + '.' + ext + '?v=21';
       }
       next();
       return rec;
@@ -2146,7 +2149,8 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     STM.BackdropStage = {
       CYCLES: CYCLES,
       cycleOf: cycleOf,       /* Δ16b: 三关循环序号 0~23 */
-      paintingOf: paintingOf, /* Δ16b: 画卷序号 = floor((id-1)/12)+1 → bg{1..6} */
+      paintingOf: paintingOf,
+      albumIndex: albumIndex, /* Δ16b: 画卷序号 = floor((id-1)/12)+1 → bg{1..6} */
       bgIndexOf: bgIndexOf,
       probe: probe,
       onReady: onReady,

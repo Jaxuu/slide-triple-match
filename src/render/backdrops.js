@@ -664,6 +664,10 @@
   function paintingOf(levelId) {
     return Math.min(6, Math.max(1, Math.floor(((levelId || 1) - 1) / 12) + 1));
   }
+  /* albumIndex: 0-based 画卷索引 = Math.min(5, floor((level.id-1)/12)) */
+  function albumIndex(levelId) {
+    return Math.min(5, Math.floor(((levelId || 1) - 1) / 12));
+  }
 
   function probeBgImage(ci) {
     var rec = bgImageCache[ci];
@@ -684,7 +688,7 @@
         }
       };
       img.onerror = tryNext; /* 扩展序逐个探测 */
-      img.src = 'assets/bg/bg' + bgImageIndexOf(ci) + '.' + ext;
+      img.src = 'assets/bg/bg' + bgImageIndexOf(ci) + '.' + ext + '?v=21';
     }
     tryNext();
     return rec;
@@ -893,6 +897,7 @@
     SCENES: SCENES,
     cycleIndexOf: cycleIndexOf,
     paintingOf: paintingOf,
+    albumIndex: albumIndex,
     drawBackdrop: drawBackdrop,
     drawBackdropAnim: drawBackdropAnim,
     drawQuadrant: drawQuadrant,
