@@ -274,6 +274,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
   var splashProgressCurrent = 0;
   var splashProgressTarget = 0;
   var splashProgressRaf = 0;
+  var progressManualMode = false;
   var progressAnimationDone = false;
 
   function splashProgressTick() {
@@ -293,6 +294,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
 
   function bumpPreloadProgress() {
     preloadLoaded++;
+    if (progressManualMode) return;
     splashProgressTarget = Math.min(1, preloadLoaded / PRELOAD_TOTAL);
     if (!splashProgressRaf) splashProgressRaf = global.requestAnimationFrame(splashProgressTick);
   }
@@ -453,16 +455,24 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
           if (quote) quote.classList.add('stage-loading');
           var wrap = global.document.getElementById('splash-progress-wrap');
           if (wrap) wrap.classList.add('stage-loading');
-          /* 2.0s 严格进度补间（cubic-bezier(0.25, 1, 0.5, 1)） */
+          /* 进度条严格从 0% 补间至 100%（2.0s），避免预加载进度先写满 */
+          progressManualMode = true;
+          if (splashProgressRaf) {
+            try { global.cancelAnimationFrame(splashProgressRaf); } catch (e) { /* 降级 */ }
+            splashProgressRaf = 0;
+          }
           var fill = global.document.getElementById('splash-progress-fill');
           if (fill) {
-            fill.style.transition = 'width 2000ms cubic-bezier(0.25, 1, 0.5, 1)';
-            fill.style.width = '100%';
+            fill.style.transition = 'none';
+            fill.style.setProperty('width', '0%', 'important');
+            void fill.offsetHeight;
+            fill.style.transition = 'width 2000ms cubic-bezier(0.22, 1, 0.36, 1)';
+            fill.style.setProperty('width', '100%', 'important');
           }
           global.setTimeout(function () {
             progressAnimationDone = true;
             tryFinishSplashTransition();
-          }, 2000);
+          }, 2160);
           tryFinishSplashTransition();
         }
       });

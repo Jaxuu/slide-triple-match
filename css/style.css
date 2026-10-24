@@ -913,7 +913,7 @@ html, body {
 }
 .splash-progress-fill {
   height: 100%;
-  width: 0%;
+  width: 0% !important;
   background: linear-gradient(90deg, #38BDF8, #FBBF24);
   border-radius: 3px;
   position: relative;
