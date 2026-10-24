@@ -1,5 +1,7 @@
 # Contract: Level Pipeline（离线关卡流水线）
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-24 (Δ21: FR-045 §7 迎头死锁硬门禁（Generator 与洗牌器）+ §8 运行期自愈规则须纳入 Solver 模型并重跑 72/72 全量验证；FR-044 §7 图集质心居中切片；图鉴 90 种）。Run `/speckit.refine.propagate` to update this document.
+
 > ⚠️ **STALE**: spec.md was refined on 2026-10-22 (Δ19: **本契约为主要传播落点**——① Generator MUST 改用**奇偶层半格错位成型 + 36 套图形掩码轮廓**（废除「底层 100% 正方形满铺」旧规），并新增**零悬空约束**拒绝（任何 `z>0` 层滑块的 `z-1` 层支撑象限 MUST 非空）；② Generator MUST 实现**瓶颈卡点算法**（窄可行域咽喉点 → 解锁破局 → 连锁爽消 → 下一咽喉点）；③ **新增迁移器 `tools/migrate-layout-72.js`**——既有 L1~L72 全量受控迁移为 v2 布局（FR-008 Δ19 让位条款的落地执行器），迁移后 Solver MUST 全量重验证 72/72 并刷新 `tools/solver-report.json`；④ Solver 验证报告 MUST 增列**瓶颈节奏指标**（咽喉点数、最小咽喉点可行操作集大小、最长连锁爽消段长度）与**零悬空违规计数**；⑤ Solver 的射线/压制锁定判定 MUST 与前端完全一致（FR-032 铁律）；⑥ 层数矩阵修订（L1=1 层、L2=2 层、L3 起 `2-2-3`/`2-3-4`、7×7 简 ≤4 层、8×8 难 ≤5 层）；⑦ **原 FR-044 改号 FR-051**)。Run `/speckit.refine.propagate` to update this document.
 
 > ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: **tools/expand-60.js 需扩展以尾部增量生成 L61~L72 共 12 关（既有 60 关零改写）**；Solver 验证报告口径 60/60→72/72；Generator 沿用 FR-008 后期档位参数；FR-029 §4 聚散度末档延展至 L72)。Run `/speckit.refine.propagate` to update this document.

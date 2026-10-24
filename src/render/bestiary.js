@@ -72,10 +72,22 @@
   ];
 
   /* 阶段池定义（FR-033 §1~§3；区间按 level.id；Δ16a 重划为 3×24） */
+  /* Δ21: 扩容至 90 种——复用前 45 种绘制/Emoji 作为占位（sheet{4..6} 贴图优先） */
+  (function extendBestiary90() {
+    var baseLen = BESTIARY.length;
+    while (BESTIARY.length < 90) {
+      var b = BESTIARY[BESTIARY.length % baseLen];
+      BESTIARY.push({ id: BESTIARY.length, name: b.name, theme: b.theme, draw: b.draw });
+    }
+  })();
+
   var STAGES = [
-    { stage: 1, from: 1,  to: 24, poolMax: 15 }, /* 陆地萌宠 0~14 */
-    { stage: 2, from: 25, to: 48, poolMax: 30 }, /* + 碧海飞羽 0~29 */
-    { stage: 3, from: 49, to: 72, poolMax: 45 }  /* + 奇幻远航 0~44 */
+    { stage: 1, from: 1,  to: 12, poolMax: 15 },
+    { stage: 2, from: 13, to: 24, poolMax: 30 },
+    { stage: 3, from: 25, to: 36, poolMax: 45 },
+    { stage: 4, from: 37, to: 48, poolMax: 60 },
+    { stage: 5, from: 49, to: 60, poolMax: 75 },
+    { stage: 6, from: 61, to: 72, poolMax: 90 }
   ];
 
   /* =========================================================
@@ -135,6 +147,8 @@
   ];
 
   /* ---------- 确定性 PRNG（xorshift32——D-08 禁 Math.random） ---------- */
+  while (EMOJI.length < 90) EMOJI.push(EMOJI[EMOJI.length % 45]);
+
   function makeRng(seed) {
     var x = seed | 0;
     if (x === 0) x = 0x9E3779B9;
@@ -148,9 +162,12 @@
 
   /* 阶段号（按 level.id 区间——非 chapter；Δ16a 重划 3×24，阶段三兜底 id>48） */
   function stageOf(levelId) {
-    if (levelId >= 1 && levelId <= 24) return 1;
-    if (levelId >= 25 && levelId <= 48) return 2;
-    return 3;
+    if (levelId <= 12) return 1;
+    if (levelId <= 24) return 2;
+    if (levelId <= 36) return 3;
+    if (levelId <= 48) return 4;
+    if (levelId <= 60) return 5;
+    return 6;
   }
 
   /* =========================================================

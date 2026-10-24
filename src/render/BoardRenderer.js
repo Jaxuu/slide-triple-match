@@ -130,7 +130,7 @@
     }
     /* Emoji 兜底（bestiary.js EMOJI 码点表——ctx.fillText 原生全彩直渲染；
      * 严禁 ctx.arc 手绘圆球——宪章 III v2.0.0 红线） */
-    if (Bestiary.EMOJI && Bestiary.EMOJI.length === 45) {
+    if (Bestiary.EMOJI && Bestiary.EMOJI.length === 90) {
       var ch = Bestiary.emojiOf(bid);
       var fs = Math.round(band * 0.92);
       c2.font = 'bold ' + fs + "px 'Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif";
@@ -191,9 +191,12 @@
      * 融进卡面（见该函数注释），避免「内嵌白方框」露出。 */
     var keyingOk = true;
     var SHEETS = [
-      { file: 'assets/icons/sheet1.png', base: 0,  count: 15 },
-      { file: 'assets/icons/sheet2.png', base: 15, count: 15 },
-      { file: 'assets/icons/sheet3.png', base: 30, count: 15 }
+      { file: 'assets/icons/sheet1.jpg', base: 0,  count: 15 },
+      { file: 'assets/icons/sheet2.jpg', base: 15, count: 15 },
+      { file: 'assets/icons/sheet3.jpg', base: 30, count: 15 },
+      { file: 'assets/icons/sheet4.jpg', base: 45, count: 15 },
+      { file: 'assets/icons/sheet5.jpg', base: 60, count: 15 },
+      { file: 'assets/icons/sheet6.png', base: 75, count: 15 }
     ];
 
     function hasDOM() { return typeof document !== 'undefined' && typeof Image !== 'undefined'; }
@@ -206,14 +209,14 @@
     function whiteKeySlice(img, cellIndex) {
       const cellW = img.width / 4;          /* 4×4 网格单元格宽 */
       const cellH = img.height / 4;         /* 4×4 网格单元格高 */
-      const insetX = Math.round(cellW * 0.09);
-      const insetY = Math.round(cellH * 0.09);
+      const padX = Math.round(cellW * 0.035);
+      const padY = Math.round(cellH * 0.035);
       const row = Math.floor(cellIndex / 4);
       const col = cellIndex % 4;
-      const sx = col * cellW + insetX;
-      const sy = row * cellH + insetY;
-      const sw = cellW - insetX * 2;
-      const sh = cellH - insetY * 2;
+      const sx = Math.round(col * cellW) + padX;
+      const sy = Math.round(row * cellH) + padY;
+      const sw = Math.round(cellW) - padX * 2;
+      const sh = Math.round(cellH) - padY * 2;
       /* Δ15b3e（Bug B 修复）: 切片分辨率 128→256（Dock/棋盘双层消费——
        * drawImage 高质量缩放，2x 超采样下仍留有余量） */
       var S = SLICE_PX;
@@ -222,7 +225,7 @@
       var c2 = cv.getContext('2d');
       c2.imageSmoothingEnabled = true;
       c2.imageSmoothingQuality = 'high'; /* 高质量降采样——边缘锐利不发糊 */
-      c2.drawImage(img, sx, sy, sw, sh, 0, 0, S, S);
+      c2.drawImage(img, sx, sy, sw, sh, 8, 8, 240, 240);
       /* 圆角遮罩（软边——融入奶油白 3D 牌面） */
       maskRounded(c2, S);
       /* 白键控。Δ15b3e（Bug A 修复）: file:// 下画布被跨源污染，
@@ -308,13 +311,25 @@
     }
 
     function loadSheet(cfg) {
-      var img = new Image();
-      img.onload = function () {
-        if (img.naturalWidth >= 64) { /* 有效性下限（防御空图/损坏图） */
-          registerSheet(img, cfg.base);
-          sheetCount++;
-          bumpSprites();
-        }
+      var baseFile = (cfg.file || '').replace(/\.[^.]+$/, '');
+      var exts = ['png', 'jpg', 'jpeg', 'webp'];
+      var seq = 0;
+      function tryNext() {
+        if (seq >= exts.length) return;
+        var ext = exts[seq++];
+        var img = new Image();
+        img.onload = function () {
+          if (img.naturalWidth >= 64) {
+            registerSheet(img, cfg.base);
+            sheetCount++;
+            bumpSprites();
+          }
+        };
+        img.onerror = tryNext;
+        img.src = baseFile + '.' + ext;
+      }
+      tryNext();
+    }
       };
       img.onerror = function () { /* sheet 缺失 → 对应阶段回退单张/Emoji */ };
       img.src = cfg.file;
@@ -353,14 +368,14 @@
     /* 单张整图切片（无网格切分——直接 4% 内缩 + 白键控） */
     function whiteKeySliceSq(img) {
       var SS = Math.min(img.naturalWidth, img.naturalHeight);
-      var PAD = Math.round(SS * 0.04);
+      var PAD = Math.round(SS * 0.035);
       var S = SLICE_PX; /* Δ15b3e（Bug B 修复）: 128→256 */
       var cv = document.createElement('canvas');
       cv.width = S; cv.height = S;
       var c2 = cv.getContext('2d');
       c2.imageSmoothingEnabled = true;
       c2.imageSmoothingQuality = 'high';
-      c2.drawImage(img, PAD, PAD, SS - PAD * 2, SS - PAD * 2, 0, 0, S, S);
+      c2.drawImage(img, PAD, PAD, SS - PAD * 2, SS - PAD * 2, 8, 8, 240, 240);
       maskRounded(c2, S);
       try {
         var d = c2.getImageData(0, 0, S, S);
@@ -419,11 +434,11 @@
   var SHARD_COUNT_MIN = 48;
   var SHARD_COUNT_MAX = 60;  /* T084: 碎片数 MUST 落入 45~60 区间（Δ19e/FR-049） */
 /* Δ20/T093: 顶部待消槽全屏白瓷碎片瀑布（3 槽 × 45 = 135 枚） */
-var DOCK_SHARD_PER_SLOT = 45;
-var DOCK_SHARD_TOTAL = 135;
+var DOCK_SHARD_PER_SLOT = 50;
+var DOCK_SHARD_TOTAL = 150;
 var DOCK_SHARD_LIFE_MIN = 750;
 var DOCK_SHARD_LIFE_MAX = 950;
-var DOCK_SHARD_GRAVITY = 980; /* px/s² */
+var DOCK_SHARD_GRAVITY = 950; /* px/s² */
 
   /* ---------- 通用工具 ---------- */
   var RENDER_DPR = 1;
@@ -523,7 +538,7 @@ var DOCK_SHARD_GRAVITY = 980; /* px/s² */
     roundRect(ctx, x, y, w, w, r);
     ctx.stroke();
     /* 3. 图鉴图案 */
-    drawBestiaryIcon(ctx, sv, x + w / 2, y + w / 2, w * 0.85);
+    drawBestiaryIcon(ctx, sv, x + w / 2, y + w / 2, Math.round(w * 0.82));
     /* 零偏移原位被压变暗 */
     // covered = RulesEngine.isCovered(state, tile) 或 probe.covered
     var covered = (t && t.covered === true);
@@ -551,6 +566,14 @@ var DOCK_SHARD_GRAVITY = 980; /* px/s² */
       if (!IconAssets.sliceCanvasOf(sv.bid)) {
         IconAssets.ensureSinglesFor([sv.bid]); /* sheet 未覆盖 → 单张按需探测 */
       }
+      var slice = IconAssets.sliceCanvasOf(sv.bid);
+      if (slice) {
+        var noKeyS = !IconAssets.keyingAvailable();
+        if (noKeyS) { ctx.save(); ctx.globalCompositeOperation = 'darken'; }
+        ctx.drawImage(slice, 0, 0, slice.width, slice.height, Math.round(cx - iconSize / 2), Math.round(cy - iconSize / 2), iconSize, iconSize);
+        if (noKeyS) ctx.restore();
+        return;
+      }
       var sp = getSprite(sv.bid, iconSize);
       if (sp) {
         var sr = sp.__sliceRect || { x: 0, y: 0, w: sp.width, h: sp.height };
@@ -559,7 +582,7 @@ var DOCK_SHARD_GRAVITY = 980; /* px/s² */
          * http 正常态仍走 source-over，零行为漂移。 */
         var noKey = !IconAssets.keyingAvailable();
         if (noKey) { ctx.save(); ctx.globalCompositeOperation = 'darken'; }
-        ctx.drawImage(sp, sr.x, sr.y, sr.w, sr.h, cx - R, cy - R, iconSize, iconSize);
+        ctx.drawImage(sp, sr.x, sr.y, sr.w, sr.h, Math.round(cx - iconSize / 2), Math.round(cy - iconSize / 2), iconSize, iconSize);
         if (noKey) ctx.restore();
         return;
       }
@@ -936,7 +959,7 @@ var DOCK_SHARD_GRAVITY = 980; /* px/s² */
         var a = anims[i];
         if ((now - a.t0) / a.dur >= 1) {
           if (a.kind === 'match') spawnParticles(a, now);
-          if (a.kind === 'match') spawnShards(a, now);
+          /* Bug 2: 旧 #board 半透明碎片已禁用，仅 #vfx-canvas 瀑布 */
           if (a.kind === 'reveal') delete revealAt[a.tileId];
           anims.splice(i, 1);
           dirty = true; /* 动画结束时强制重绘（防“末帧静默”——M1.6 渲染缺陷修复） */
@@ -1006,11 +1029,15 @@ var DOCK_SHARD_GRAVITY = 980; /* px/s² */
       function spawnDockShatter(slotRects) {
         slotRects = slotRects || [];
         for (var si = 0; si < slotRects.length; si++) {
-          var rect = slotRects[si] || { x: 0, y: 0, w: 0, h: 0 };
-          var rw = rect.w || 1, rh = rect.h || 1;
+          var rect = slotRects[si] || {};
+          var rx = (rect.left != null ? rect.left : (rect.x != null ? rect.x : 0));
+          var ry = (rect.top != null ? rect.top : (rect.y != null ? rect.y : 0));
+          var rw = rect.width || rect.w || 1;
+          var rh = rect.height || rect.h || 1;
+          if (rw < 1) rw = 1; if (rh < 1) rh = 1;
           for (var i = 0; i < DOCK_SHARD_PER_SLOT; i++) {
-            var n = 4 + Math.floor(Math.random() * 3);
-            var r0 = 5 + Math.random() * 11;
+            var n = 5 + Math.floor(Math.random() * 2); /* 5~6 边 */
+            var r0 = 7 + Math.random() * 11; /* 7~18 px */
             var verts = [];
             for (var v = 0; v < n; v++) {
               var a2 = (v / n) * Math.PI * 2 + Math.random() * 0.6;
@@ -1019,10 +1046,10 @@ var DOCK_SHARD_GRAVITY = 980; /* px/s² */
             }
             var life = DOCK_SHARD_LIFE_MIN + Math.floor(Math.random() * (DOCK_SHARD_LIFE_MAX - DOCK_SHARD_LIFE_MIN + 1));
             vfxShards.push({
-              x: rect.x + Math.random() * rw,
-              y: rect.y + Math.random() * rh,
-              vx: -180 + Math.random() * 270,
-              vy: -(20 + Math.random() * 60),
+              x: rx + Math.random() * rw,
+              y: ry + Math.random() * rh,
+              vx: -220 + Math.random() * 280,   /* [-220, 60] px/s */
+              vy: -120 + Math.random() * 300,   /* [-120, 180] px/s */
               rot: Math.random() * Math.PI * 2,
               vr: (Math.random() - 0.5) * 0.25,
               verts: verts,
@@ -1088,27 +1115,30 @@ var DOCK_SHARD_GRAVITY = 980; /* px/s² */
       for (var i = 0; i < vfxShards.length; i++) {
         var sh = vfxShards[i];
         var ratio = sh.life0 > 0 ? (sh.life / sh.life0) : 0;
-        var a = ratio > 0.2 ? 1.0 : (ratio / 0.2);
+        /* 前 85% 生命周期强制不透明 */
+        var a = ratio > 0.15 ? 1.0 : (ratio / 0.15);
         if (a < 0) a = 0;
         vfxCtx.globalAlpha = a;
         vfxCtx.save();
         vfxCtx.translate(sh.x, sh.y);
         vfxCtx.rotate(sh.rot);
-        vfxCtx.shadowBlur = 4;
-        vfxCtx.shadowColor = 'rgba(15, 23, 42, 0.35)';
-        /* 侧面厚度层 */
+        /* 1. 银灰立体厚度底面（右下偏移 2.5px） */
+        vfxCtx.shadowColor = 'rgba(15, 23, 42, 0.45)';
+        vfxCtx.shadowBlur = 5;
+        vfxCtx.shadowOffsetY = 3;
         vfxCtx.fillStyle = '#94A3B8';
         vfxCtx.beginPath();
         for (var ti = 0; ti < sh.verts.length; ti++) {
           var tv = sh.verts[ti];
-          if (ti === 0) vfxCtx.moveTo(tv.x, tv.y + 3);
-          else vfxCtx.lineTo(tv.x, tv.y + 3);
+          if (ti === 0) vfxCtx.moveTo(tv.x + 2.5, tv.y + 2.5);
+          else vfxCtx.lineTo(tv.x + 2.5, tv.y + 2.5);
         }
         vfxCtx.closePath();
         vfxCtx.fill();
-        /* 正面 */
-        var frontColor = Math.cos(sh.rot) > 0 ? '#FFFFFF' : '#E2E8F0';
-        vfxCtx.fillStyle = frontColor;
+        /* 2. 纯白高光瓷面 */
+        vfxCtx.shadowBlur = 0;
+        vfxCtx.shadowOffsetY = 0;
+        vfxCtx.fillStyle = (Math.cos(sh.rot) > 0 ? '#FFFFFF' : '#F1F5F9');
         vfxCtx.beginPath();
         for (var fi = 0; fi < sh.verts.length; fi++) {
           var fv = sh.verts[fi];
@@ -1117,7 +1147,7 @@ var DOCK_SHARD_GRAVITY = 980; /* px/s² */
         }
         vfxCtx.closePath();
         vfxCtx.fill();
-        vfxCtx.lineWidth = 1;
+        vfxCtx.lineWidth = 1.2;
         vfxCtx.strokeStyle = '#64748B';
         vfxCtx.stroke();
         vfxCtx.restore();
@@ -1196,30 +1226,7 @@ var DOCK_SHARD_GRAVITY = 980; /* px/s² */
         ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
       }
       ctx.globalAlpha = 1;
-      /* T082: 白瓷多边形碎片绘制（保留粒子绘制） */
-      for (i = 0; i < shards.length; i++) {
-        var sh = shards[i];
-        var alpha = Math.max(0, Math.min(1, sh.life / sh.life0));
-        ctx.globalAlpha = alpha;
-        ctx.save();
-        ctx.translate(sh.x, sh.y);
-        ctx.rotate(sh.rot);
-        ctx.beginPath();
-        ctx.moveTo(sh.verts[0].x, sh.verts[0].y);
-        for (var vi = 1; vi < sh.verts.length; vi++) ctx.lineTo(sh.verts[vi].x, sh.verts[vi].y);
-        ctx.closePath();
-        /* 受光面/背光面渐变——按旋转角度动态切面 */
-        var g = ctx.createLinearGradient(-8, -8, 8, 8);
-        g.addColorStop(0, '#FFFFFF');
-        g.addColorStop(1, Math.cos(sh.rot) > 0 ? '#CBD5E1' : '#94A3B8');
-        ctx.fillStyle = g;
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(148,163,184,0.6)';
-        ctx.lineWidth = 0.6;
-        ctx.stroke();
-        ctx.restore();
-      }
-      ctx.globalAlpha = 1;
+      /* Bug 2: 旧 #board 半透明碎片绘制已移除，仅 #vfx-canvas 瀑布 */
 
       /* Hint 高亮 + Δ19e 教学引导高亮（脉冲描边，支持多目标） */
       var hs = highlightIds.length ? highlightIds : (highlight >= 0 ? [highlight] : []);
@@ -1606,7 +1613,7 @@ var DOCK_SHARD_GRAVITY = 980; /* px/s² */
           '" aria-label="' + (Bestiary.entry(bid).name || '') + '"></canvas>';
       }
       /* Emoji chip（原生全彩 Emoji 直渲染——无 ctx.arc 手绘） */
-      if (Bestiary.EMOJI && Bestiary.EMOJI.length === 45) {
+      if (Bestiary.EMOJI && Bestiary.EMOJI.length === 90) {
         return '<span class="chip-icon-emoji">' + Bestiary.emojiOf(bid) + '</span>';
       }
     }
@@ -2085,7 +2092,7 @@ var DOCK_SHARD_GRAVITY = 980; /* px/s² */
         bid + '" aria-label="' + name + '"></canvas>';
     }
     /* Emoji 兜底（sheet 未覆盖该条目） */
-    if (Bestiary && Bestiary.EMOJI && Bestiary.EMOJI.length === 45) {
+    if (Bestiary && Bestiary.EMOJI && Bestiary.EMOJI.length === 90) {
       return '<span class="pet-avatar-emoji">' + Bestiary.emojiOf(bid) + '</span>';
     }
     return '';
@@ -2109,7 +2116,7 @@ var DOCK_SHARD_GRAVITY = 980; /* px/s² */
   STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets, dockIconDataURL: dockIconDataURL, paintDockIcons: paintDockIcons, DIR_COLORS: DIR_COLORS };
   /* T084: Δ19 渲染常量外露（离线自测断言用——不参与运行时逻辑） */
   STM.rendererTest.SHARDS = { min: SHARD_COUNT_MIN, max: SHARD_COUNT_MAX };
-  STM.rendererTest.DOCK_SHARDS = { min: 120, max: 150, perSlot: DOCK_SHARD_PER_SLOT, total: DOCK_SHARD_TOTAL };
+  STM.rendererTest.DOCK_SHARDS = { min: 150, max: 150, perSlot: DOCK_SHARD_PER_SLOT, total: DOCK_SHARD_TOTAL };
   STM.rendererTest.VFX_SHARDS = STM.rendererTest.DOCK_SHARDS;
   STM.rendererTest.SHATTER_SHARDS = STM.rendererTest.DOCK_SHARDS;
   STM.rendererTest.FRAGMENTS = STM.rendererTest.DOCK_SHARDS;

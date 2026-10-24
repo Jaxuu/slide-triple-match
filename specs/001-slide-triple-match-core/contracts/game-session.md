@@ -1,5 +1,7 @@
 # Contract: Game Session / UI / Rendering / Audio / Debug（前端运行时接口）
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-24 (Δ21: 调试面板 `findBestNextMove(state)` 残局启发式求解与音效复选框布尔修正、`#dock .slot` 单层卡牌、FR-049 无描边 Low-Poly 碎片参数、画卷主题名显示、图集质心居中切片、`bg`/`sheet` 扩展名自适应)。Run `/speckit.refine.propagate` to update this document.
+
 > ⚠️ **STALE**: spec.md was refined on 2026-10-22 (Δ19: **本契约为主要传播落点**——① FR-046 前两关**交互式教学**（L1 玩法引导卡片+动态手指指引 / L2 层叠压制引导 / L3 起零提示，可跳过、非阻塞）；② FR-047 **顶部导航栏**（左上并排【↩ 返回大厅】【⚙️ 设置】圆形立体按钮、正中央严格 `关卡 X` 无 `/72` 后缀、右上【💎 棱晶数量】）+ **IQ 指数条**（初始 `IQ: 90`、三消 `+(3+combo×2)`、跳字动效与趣味头衔、受阻不扣 IQ 但 combo 归零）+ **7 格待消槽上移**至 IQ 条正下方/棋盘上方（立体深木色/银色金属内凹托盘样式，含命中区域互斥与飞入动画终点坐标改向）；③ FR-048 **三大道具**（撤销/灵犀三消/乾坤洗牌）——灵犀三消无视阻挡与锁定、优先匹配待消槽花色、同花色取最顶层防悬空、全场同花色不足 3 张时拒绝；乾坤洗牌重排花色与方向且保持必胜可解 + 翻转动画；④ FR-049 **白瓷多边形碎裂 VFX**（45~60 枚带高光与阴影面片、抛射翻滚重力飘落）；⑤ FR-050 **清脆碎裂音效**（Web Audio 合成、受 SFX 开关联动）；⑥ **扳手下线**——道具栏固定三键、`useItem('wrench')` 与目标选择交互态移除；⑦ **原 FR-044 改号 FR-051**)。Run `/speckit.refine.propagate` to update this document.
 
 > ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: **本契约为主要传播落点**——① FR-038 开机动画、FR-039 主大厅（Glide Critters 六区布局）、FR-040 设置/个人信息弹窗、FR-041 棱晶经济与局内道具购买闭环、FR-042 通关结算与画卷解锁展板、FR-043 失败与棱晶复活界面（含"净化消除"语义）、FR-044 画卷拼图进度系统——全部为新增前端运行时契约；② FR-035 §6 拼图切片与局内背景同源；③ 关卡总数 60→72、背景贴图口径 bg{1..20}→bg{1..6})。Run `/speckit.refine.propagate` to update this document.

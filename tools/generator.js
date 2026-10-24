@@ -25,6 +25,7 @@
 var path = require('path');
 var RE = require(path.join(__dirname, '..', 'src', 'core', 'RulesEngine.js'));
 var CFG = require(path.join(__dirname, 'level-config.js'));
+var PAINTING_NAMES_GEN = ['晨曦雪峰浮岛', '云端飞瀑风车岛', '碧浪果冻浅湾', '凛冬冰川镜湖', '云端热气球航道', '星穹极光之巅'];
 var SOLVER = require(path.join(__dirname, 'solver.js'));
 
 /* =========================================================
@@ -568,6 +569,102 @@ function peelOrder(slots, prisms, n, params, rng) {
 })();
 /* DEBUG after interlock */
   (function(){var maxR=0;var layers={};slots.forEach(function(s,idx){(layers[s.z||0]=layers[s.z||0]||[]).push(idx);});for(var z in layers){var idxs=layers[z];var rows={};idxs.forEach(function(id){(rows[slots[id].r]=rows[slots[id].r]||[]).push(id);});for(var r in rows){var row=rows[r].sort(function(a,b){return slots[a].c-slots[b].c;});var run=1;for(var i=1;i<row.length;i++){if(dirs[row[i]]===dirs[row[i-1]])run++;else run=1;if(run>maxR)maxR=run;}}}if(params.id===12)console.log('L12 maxdir after interlock:',maxR);})();
+
+  /* Δ21: 生成期彻底消灭同行 R-L / 同列 D-U 迎头对撞死锁 */
+  (function fixHeadOn() {
+    function buildState() {
+      var probeTiles = slots.map(function (s, idx) {
+        return { r: s.r, c: s.c, s: 0, d: (dirs[idx] != null ? dirs[idx] : 0), z: s.z };
+      });
+      var probe = { id: 1, n: n, tiles: probeTiles, prisms: prisms || [], cfg: { lives: 3, damageOnBlock: false, items: { undo: 1, magnet: 1, shuffle: 1 }, iceMode: 'triple', chains: [], scoring: { comboBase: 10, comboStep: 5 } }, metrics: null, solutionMoves: [] };
+      return RE.init(probe);
+    }
+    function isFree(slotIdx, d) {
+      var st = buildState();
+      var s = slots[slotIdx];
+      var ray = RE.castRay(st, s.r, s.c, d, s.z || 0);
+      return ray.free;
+    }
+    function prefDirs(slotIdx, mode) {
+      var s = slots[slotIdx];
+      if (mode === 'rowLeft') return [3, 0, 2];
+      if (mode === 'rowRight') return [1, 0, 2];
+      if (mode === 'colTop') return [0, 3, 1];
+      if (mode === 'colBottom') return [2, 3, 1];
+      return [0, 1, 2, 3];
+    }
+    var guard = 0;
+    var changed = true;
+    while (changed && guard < 2000) {
+      guard++;
+      changed = false;
+      var layers = {};
+      slots.forEach(function (s, idx) { (layers[s.z || 0] = layers[s.z || 0] || []).push(idx); });
+      for (var z in layers) {
+        var idxs = layers[z];
+        // rows
+        var rows = {};
+        idxs.forEach(function (id) { (rows[slots[id].r] = rows[slots[id].r] || []).push(id); });
+        for (var r in rows) {
+          var row = rows[r].slice().sort(function (a, b) { return slots[a].c - slots[b].c; });
+          for (var i = 0; i < row.length; i++) {
+            for (var j = i + 1; j < row.length; j++) {
+              var a = row[i], b = row[j];
+              if (slots[a].c >= slots[b].c) continue;
+              if (dirs[a] === 1 && dirs[b] === 3) {
+                // R-L head-on
+                var fixed = false;
+                var cands = prefDirs(a, 'rowLeft');
+                for (var pi = 0; pi < cands.length; pi++) {
+                  if (cands[pi] === dirs[a]) continue;
+                  if (!isFree(a, cands[pi])) continue;
+                  dirs[a] = cands[pi]; changed = true; fixed = true; break;
+                }
+                if (!fixed) {
+                  var cands2 = prefDirs(b, 'rowRight');
+                  for (var pi2 = 0; pi2 < cands2.length; pi2++) {
+                    if (cands2[pi2] === dirs[b]) continue;
+                    if (!isFree(b, cands2[pi2])) continue;
+                    dirs[b] = cands2[pi2]; changed = true; fixed = true; break;
+                  }
+                }
+              }
+            }
+          }
+        }
+        // cols
+        var cols = {};
+        idxs.forEach(function (id) { (cols[slots[id].c] = cols[slots[id].c] || []).push(id); });
+        for (var c in cols) {
+          var col = cols[c].slice().sort(function (a, b) { return slots[a].r - slots[b].r; });
+          for (var i = 0; i < col.length; i++) {
+            for (var j = i + 1; j < col.length; j++) {
+              var a = col[i], b = col[j];
+              if (slots[a].r >= slots[b].r) continue;
+              if (dirs[a] === 2 && dirs[b] === 0) {
+                // D-U head-on
+                var fixed = false;
+                var cands = prefDirs(a, 'colTop');
+                for (var pi = 0; pi < cands.length; pi++) {
+                  if (cands[pi] === dirs[a]) continue;
+                  if (!isFree(a, cands[pi])) continue;
+                  dirs[a] = cands[pi]; changed = true; fixed = true; break;
+                }
+                if (!fixed) {
+                  var cands2 = prefDirs(b, 'colBottom');
+                  for (var pi2 = 0; pi2 < cands2.length; pi2++) {
+                    if (cands2[pi2] === dirs[b]) continue;
+                    if (!isFree(b, cands2[pi2])) continue;
+                    dirs[b] = cands2[pi2]; changed = true; fixed = true; break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  })();
 
   if (minChoke === Infinity) minChoke = 0;
   return {
@@ -1163,6 +1260,89 @@ function assembleLevelV2(params, rng, variant) {
     return [tileIndexOfSlot[pair[0]], [tileIndexOfSlot[pair[1][0]]]];
   });
 
+  /* Δ21: 生成期末消除 gear 旋转等导致的迎头对撞 */
+  (function fixTilesHeadOn() {
+    function buildState() {
+      var ts = tiles.map(function (t) { return { r: t.r, c: t.c, s: t.s, d: t.d, z: t.z || 0 }; });
+      var probe = { id: params.id, n: params.n, tiles: ts, prisms: prisms, cfg: JSON.parse(JSON.stringify(params.cfg)), metrics: null, solutionMoves: [] };
+      return RE.init(probe);
+    }
+    function isFree(tileIdx, d) {
+      var st = buildState();
+      var t = tiles[tileIdx];
+      var ray = RE.castRay(st, t.r, t.c, d, t.z || 0);
+      return ray.free;
+    }
+    var guard = 0, changed = true;
+    while (changed && guard < 5000) {
+      guard++;
+      changed = false;
+      var layers = {};
+      tiles.forEach(function (t, idx) { (layers[t.z || 0] = layers[t.z || 0] || []).push(idx); });
+      for (var z in layers) {
+        var idxs = layers[z];
+        // rows
+        var rows = {};
+        idxs.forEach(function (idx) { (rows[tiles[idx].r] = rows[tiles[idx].r] || []).push(idx); });
+        for (var r in rows) {
+          var row = rows[r].slice().sort(function (a, b) { return tiles[a].c - tiles[b].c; });
+          for (var i = 0; i < row.length; i++) {
+            for (var j = i + 1; j < row.length; j++) {
+              var a = row[i], b = row[j];
+              if (tiles[a].c >= tiles[b].c) continue;
+              if (tiles[a].d === 1 && tiles[b].d === 3) {
+                var fixed = false;
+                var prefs = [3, 0, 2];
+                for (var p = 0; p < prefs.length; p++) {
+                  if (prefs[p] === tiles[a].d) continue;
+                  if (!isFree(a, prefs[p])) continue;
+                  tiles[a].d = prefs[p]; changed = true; fixed = true; break;
+                }
+                if (!fixed) {
+                  var prefs2 = [1, 0, 2];
+                  for (var p2 = 0; p2 < prefs2.length; p2++) {
+                    if (prefs2[p2] === tiles[b].d) continue;
+                    if (!isFree(b, prefs2[p2])) continue;
+                    tiles[b].d = prefs2[p2]; changed = true; fixed = true; break;
+                  }
+                }
+              }
+            }
+          }
+        }
+        // cols
+        var cols = {};
+        idxs.forEach(function (idx) { (cols[tiles[idx].c] = cols[tiles[idx].c] || []).push(idx); });
+        for (var c in cols) {
+          var col = cols[c].slice().sort(function (a, b) { return tiles[a].r - tiles[b].r; });
+          for (var i = 0; i < col.length; i++) {
+            for (var j = i + 1; j < col.length; j++) {
+              var a = col[i], b = col[j];
+              if (tiles[a].r >= tiles[b].r) continue;
+              if (tiles[a].d === 2 && tiles[b].d === 0) {
+                var fixed = false;
+                var prefs = [0, 3, 1];
+                for (var p = 0; p < prefs.length; p++) {
+                  if (prefs[p] === tiles[a].d) continue;
+                  if (!isFree(a, prefs[p])) continue;
+                  tiles[a].d = prefs[p]; changed = true; fixed = true; break;
+                }
+                if (!fixed) {
+                  var prefs2 = [2, 3, 1];
+                  for (var p2 = 0; p2 < prefs2.length; p2++) {
+                    if (prefs2[p2] === tiles[b].d) continue;
+                    if (!isFree(b, prefs2[p2])) continue;
+                    tiles[b].d = prefs2[p2]; changed = true; fixed = true; break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  })();
+
   var levelDef = {
     id: params.id,
     chapter: params.chapter,
@@ -1306,6 +1486,7 @@ function generateOne(levelId, seed) {
   params.v2MaskIds = CFG.v2MaskIds(levelId);
   params.cfg.maskBase = params.v2MaskIds.base;
   params.cfg.maskUpper = params.v2MaskIds.upper;
+  params.theme = PAINTING_NAMES_GEN[Math.floor((levelId - 1) / 12)] || params.theme;
 
   function attemptWith(p, tagPrefix) {
     for (var attempt = 0; attempt < MAX_RETRY; attempt++) {

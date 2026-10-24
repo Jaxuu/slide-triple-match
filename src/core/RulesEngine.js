@@ -405,6 +405,7 @@
     if (revealed) events.push({ e: 'reveal', id: revealed.id, r: revealed.r, c: revealed.c, z: revealed.z });
     /* T027 级联管线（顺序固定）: 4a 齿轮 → 4b 钥匙解锁 → adjacent 破冰 → 4c 入槽 → 4d 三消 */
     cascadeOnFlyout(state, t, events);
+    healHeadOnCollisions(state);
     var slotIndex = dockInsert(state.dock, t);
     events.push({ e: 'dock', id: tileId, slotIndex: slotIndex });
 
@@ -543,6 +544,7 @@
     removeFromBoard(state, t);
     /* T027: prism-flyout 同走级联管线（齿轮/钥匙/adjacent 破冰） */
     cascadeOnFlyout(state, t, events);
+    healHeadOnCollisions(state);
     var slotIndex = dockInsert(state.dock, t);
     events.push({ e: 'dock', id: t.id, slotIndex: slotIndex });
     settleMatches(state, events);
@@ -789,9 +791,93 @@
         changed++;
       }
     }
+    healHeadOnCollisions(state);
     state.actions.push({ k: 4, t: -1 });
     return { type: 'shuffle', changed: changed, events: events };
   }
+
+  /* Δ21: 迎头对撞死锁检测与自愈 */
+  function findHeadOnDeadlocks(state) {
+    var out = [];
+    if (!state || !state.tiles) return out;
+    var layers = {};
+    for (var i = 0; i < state.tiles.length; i++) {
+      var t = state.tiles[i];
+      if (t.removed) continue;
+      var z = t.z || 0;
+      (layers[z] = layers[z] || []).push(i);
+    }
+    for (var z in layers) {
+      var idxs = layers[z];
+      var rows = {};
+      for (var a = 0; a < idxs.length; a++) {
+        var ta = state.tiles[idxs[a]];
+        (rows[ta.r] = rows[ta.r] || []).push(idxs[a]);
+      }
+      for (var r in rows) {
+        var row = rows[r].slice().sort(function (x, y) { return state.tiles[x].c - state.tiles[y].c; });
+        for (var i = 0; i < row.length; i++) {
+          for (var j = i + 1; j < row.length; j++) {
+            var t1 = state.tiles[row[i]], t2 = state.tiles[row[j]];
+            if (t1.c >= t2.c) continue;
+            if (t1.d === 1 && t2.d === 3) out.push({ z: +z, id1: t1.id, id2: t2.id, kind: 'RL' });
+          }
+        }
+      }
+      var cols = {};
+      for (var a = 0; a < idxs.length; a++) {
+        var tb = state.tiles[idxs[a]];
+        (cols[tb.c] = cols[tb.c] || []).push(idxs[a]);
+      }
+      for (var c in cols) {
+        var col = cols[c].slice().sort(function (x, y) { return state.tiles[x].r - state.tiles[y].r; });
+        for (var i = 0; i < col.length; i++) {
+          for (var j = i + 1; j < col.length; j++) {
+            var t1 = state.tiles[col[i]], t2 = state.tiles[col[j]];
+            if (t1.r >= t2.r) continue;
+            if (t1.d === 2 && t2.d === 0) out.push({ z: +z, id1: t1.id, id2: t2.id, kind: 'DU' });
+          }
+        }
+      }
+    }
+    return out;
+  }
+  function healHeadOnCollisions(state) {
+    if (!state || !state.tiles) return { healed: 0 };
+    var deadlocks = findHeadOnDeadlocks(state);
+    var healed = 0;
+    for (var k = 0; k < deadlocks.length; k++) {
+      var dl = deadlocks[k];
+      var t1 = state.tiles[dl.id1];
+      if (dl.kind === 'RL') {
+        var prefs = [3, 0, 2];
+        var chosen = null;
+        for (var p = 0; p < prefs.length; p++) {
+          var d = prefs[p];
+          if (d === t1.d) continue;
+          var ray = castRay(state, t1.r, t1.c, d, t1.z || 0);
+          if (ray.free) { chosen = d; break; }
+        }
+        if (chosen == null) chosen = 3;
+        t1.d = chosen;
+        healed++;
+      } else {
+        var prefs = [0, 3, 1];
+        var chosen = null;
+        for (var p = 0; p < prefs.length; p++) {
+          var d = prefs[p];
+          if (d === t1.d) continue;
+          var ray = castRay(state, t1.r, t1.c, d, t1.z || 0);
+          if (ray.free) { chosen = d; break; }
+        }
+        if (chosen == null) chosen = 0;
+        t1.d = chosen;
+        healed++;
+      }
+    }
+    return { healed: healed };
+  }
+  var selfHealDeadlocks = healHeadOnCollisions;
 
   /* T011: terminal 终局判定（暂存区已移除: won = 棋盘滑块 == 0 且 dock == 0） */
   function terminal(state) {
@@ -1270,6 +1356,9 @@
     canTap: canTap,
     applyTap: applyTap,
     applyItem: applyItem,
+    findHeadOnDeadlocks: findHeadOnDeadlocks,
+    healHeadOnCollisions: healHeadOnCollisions,
+    selfHealDeadlocks: selfHealDeadlocks,
     applyPurify: applyPurify,
     terminal: terminal,
     deadlockSuspect: deadlockSuspect,
