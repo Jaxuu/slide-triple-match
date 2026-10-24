@@ -119,10 +119,6 @@
     bSettings.type = 'button';
     bSettings.setAttribute('aria-label', '设置');
     bSettings.textContent = '⚙️';
-    var bDebug = h('button', 'lobby-round-btn lobby-btn-debug', topL);
-    bDebug.type = 'button';
-    bDebug.setAttribute('aria-label', '调试面板开关');
-    bDebug.textContent = '🛠';
 
     /* ③ 顶部右区: 棱晶货币栏（深色磨砂胶囊 + 七彩切面棱晶 SVG） */
     var topR = h('div', 'lobby-zone lobby-zone-topright', r);
@@ -671,10 +667,7 @@
     if (el.btnSettings) el.btnSettings.addEventListener('click', function () {
       if (latestHandlers.onSettings) latestHandlers.onSettings();
     });
-    if (el.btnDebug) el.btnDebug.addEventListener('click', function () {
-      debugOpenState = !!(latestHandlers.onToggleDebug && latestHandlers.onToggleDebug());
-      renderTopBar();
-    });
+    /* 锤子扳手按钮已删除——仅保留设置按钮 */
     if (el.btnLevel) el.btnLevel.addEventListener('click', function () {
       var lv = parseInt(el.btnLevel.getAttribute('data-level'), 10) || 1;
       if (latestHandlers.onPlay) latestHandlers.onPlay(lv);

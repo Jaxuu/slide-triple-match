@@ -725,7 +725,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     blockErrors = 0;
     totalTriples = Math.max(1, Math.round((((currentLevel && currentLevel.tiles) ? currentLevel.tiles.length : 3)) / 3));
     iqTitle = iqTitleOf(iqScore);
-    if (els.iqValue) els.iqValue.textContent = String(Math.round(iqScore));
+    if (els.iqValue) els.iqValue.textContent = String(Math.round(Number(iqScore) || 50));
     if (els.iqPill) {
       els.iqPill.classList.remove('level-up');
       els.iqPill.classList.remove('iq-broken');
@@ -751,11 +751,11 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     }
     if (newScore > 200) newScore = 200;
     var delta = newScore - iqScore;
-    iqScore = newScore;
+    iqScore = Math.round(newScore);
     var next = iqTitleOf(iqScore);
     var leveled = next !== iqTitle;
     iqTitle = next;
-    if (els.iqValue) els.iqValue.textContent = String(Math.round(iqScore));
+    if (els.iqValue) els.iqValue.textContent = String(Math.round(Number(iqScore) || 50));
     if (els.iqDelta) {
       els.iqDelta.textContent = '+' + (Math.round(delta * 10) / 10);
       els.iqDelta.classList.remove('show');
@@ -802,7 +802,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
       try { bal = STM.Profile ? STM.Profile.get().shards : 0; } catch (e) { bal = 0; }
       els.hudShards.innerHTML = prismHtml('prism-gem') + '<b>' + bal + '</b>';
     }
-    if (els.iqValue) els.iqValue.textContent = String(Math.round(iqScore));
+    if (els.iqValue) els.iqValue.textContent = String(Math.round(Number(iqScore) || 50));
   }
 
   function renderDock() {
@@ -1053,10 +1053,6 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
             if (!slotIndices.length) {
               var idxs = [];
               for (var sj = 0; sj < lastDockSnapshot.length; sj++) if (lastDockSnapshot[sj].s === e.suit) idxs.push(sj);
-              if (idxs.length < 3) {
-                idxs = [];
-                for (var sk2 = 0; sk2 < lastDockSnapshot.length; sk2++) if (lastDockSnapshot[sk2] && lastDockSnapshot[sk2].s != null) idxs.push(sk2);
-              }
               slotIndices = idxs.slice(0, 3);
             }
             if (!slotIndices.length) {
@@ -1073,7 +1069,6 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
           for (var sk = 0; sk < slotIndices.length; sk++) {
             var idx = slotIndices[sk];
             if (slotNodes[idx] && slotNodes[idx].getBoundingClientRect) {
-              try { slotNodes[idx].classList.add('slot-shattering'); } catch (eCls) {}
               rects.push(slotNodes[idx].getBoundingClientRect());
             }
           }
