@@ -1,5 +1,7 @@
 # Contract: Level Data（`src/data/levels.js` 数据契约）
 
+> ⚠️ **STALE**: spec.md was refined on 2026-10-24 (Δ21: 六大画卷权威主题名与介绍文案、图鉴池 90 种与 `sheet{1..6}` 映射、`bg{1..6}` 扩展名自适应；关卡数据的 suit/K/结构参数仍零改动)。Run `/speckit.refine.propagate` to update this document.
+
 > ⚠️ **STALE**: spec.md was refined on 2026-10-22 (Δ19: **FR-008 逐字节零改写铁律本轮受控让位**——既有 L1~L72 MUST 经 `tools/migrate-layout-72.js` 全量受控迁移为 v2 布局（奇偶层半格错位 + 每层按 36 套掩码轮廓成型），`tiles`（位置/层号）与 `cfg`（层数、掩码模板 id）重算、`solutionMoves` 同步重算；**迁移后铁律复位**，`src/data/levels.js` 唯一合法变更通道仍为离线工具链；② `cfg` MUST 增列**层数**与**掩码模板 id**；③ Tile MUST 承载**层号 `z`**（渲染实坐标由 `z` 奇偶推导）；④ `solutionMoves` 动作类型 `k` 由 `0/2` 改为 **`0`**（扳手下线，`k=2` use wrench 移除）；⑤ **原 FR-044 改号 FR-051**（关卡数据结构零改动）)。Run `/speckit.refine.propagate` to update this document.
 
 > ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: **FR-008 Δ16 扩容铁律——既有 L1~L60 零改写、仅尾部增量生成 L61~L72 共 12 关**；关卡总数 60→72、章节区间重划为 3×24；`solutionMoves` 报告口径 72/72)；Δ14: US5——FR-033 §3/§4 明确图鉴映射不改写 levels.js 的 suit 字段与花色数 K，Δ13 保留铁律延续；预期无 schema 变更，propagate 时复核)；Δ15: FR-029 §6 存量 60 关花色重打散迁移将改写 levels.js 同花色落位与 solutionMoves（结构字段不变、Solver 全量重验证后交付）——Δ13 逐字节保留预期就此受控让位。Run `/speckit.refine.propagate` to update this document.

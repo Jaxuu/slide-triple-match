@@ -130,7 +130,7 @@
     }
     /* Emoji 兜底（bestiary.js EMOJI 码点表——ctx.fillText 原生全彩直渲染；
      * 严禁 ctx.arc 手绘圆球——宪章 III v2.0.0 红线） */
-    if (Bestiary.EMOJI && Bestiary.EMOJI.length === 45) {
+    if (Bestiary.EMOJI && Bestiary.EMOJI.length === 90) {
       var ch = Bestiary.emojiOf(bid);
       var fs = Math.round(band * 0.92);
       c2.font = 'bold ' + fs + "px 'Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif";
@@ -191,9 +191,12 @@
      * 融进卡面（见该函数注释），避免「内嵌白方框」露出。 */
     var keyingOk = true;
     var SHEETS = [
-      { file: 'assets/icons/sheet1.png', base: 0,  count: 15 },
-      { file: 'assets/icons/sheet2.png', base: 15, count: 15 },
-      { file: 'assets/icons/sheet3.png', base: 30, count: 15 }
+      { file: 'assets/icons/sheet1.jpg', base: 0,  count: 15 },
+      { file: 'assets/icons/sheet2.jpg', base: 15, count: 15 },
+      { file: 'assets/icons/sheet3.jpg', base: 30, count: 15 },
+      { file: 'assets/icons/sheet4.jpg', base: 45, count: 15 },
+      { file: 'assets/icons/sheet5.jpg', base: 60, count: 15 },
+      { file: 'assets/icons/sheet6.png', base: 75, count: 15 }
     ];
 
     function hasDOM() { return typeof document !== 'undefined' && typeof Image !== 'undefined'; }
@@ -204,66 +207,102 @@
      *   >252 纯白 → alpha 归 0；同时羽化带做 alpha 预乘防白边
      * 切片后贴图与奶油白牌面乘性自然融合（无矩形白底残留） */
     function whiteKeySlice(img, cellIndex) {
-      const cellW = img.width / 4;          /* 4×4 网格单元格宽 */
-      const cellH = img.height / 4;         /* 4×4 网格单元格高 */
-      const padX = Math.round(cellW * 0.035);
-      const padY = Math.round(cellH * 0.035);
-      const row = Math.floor(cellIndex / 4);
-      const col = cellIndex % 4;
-      const sx = Math.round(col * cellW) + padX;
-      const sy = Math.round(row * cellH) + padY;
-      const sw = Math.round(cellW) - padX * 2;
-      const sh = Math.round(cellH) - padY * 2;
-      /* Δ15b3e（Bug B 修复）: 切片分辨率 128→256（Dock/棋盘双层消费——
-       * drawImage 高质量缩放，2x 超采样下仍留有余量） */
+      /* Δ21b/T099: 9% 内缩 + 非白包围盒质心自动居中 */
       var S = SLICE_PX;
       var cv = document.createElement('canvas');
       cv.width = S; cv.height = S;
       var c2 = cv.getContext('2d');
       c2.imageSmoothingEnabled = true;
-      c2.imageSmoothingQuality = 'high'; /* 高质量降采样——边缘锐利不发糊 */
-      c2.drawImage(img, sx, sy, sw, sh, 8, 8, 240, 240);
-      /* 圆角遮罩（软边——融入奶油白 3D 牌面） */
-      maskRounded(c2, S);
-      /* 白键控。Δ15b3e（Bug A 修复）: file:// 下画布被跨源污染，
-       * getImageData 必抛 SecurityError——此时静默保留圆角白底切片
-       * （棋盘/Dock 仍与同一张切片同源，视觉一致）；
-       * 首次失败告警一次，不静默吞异常（可观测性）。 */
-      try {
-        var d = c2.getImageData(0, 0, S, S);
-        var px = d.data;
-        for (var i = 0; i < px.length; i += 4) {
-          var lum = (px[i] + px[i + 1] + px[i + 2]) / 3;
-          if (px[i] > 242 && px[i + 1] > 242 && px[i + 2] > 242) {
-            /* 柔化带: 242~246 线性衰减; ≥246 全透明（主体高光≠纯白免误杀） */
-            var t = (248 - Math.max(px[i], px[i + 1], px[i + 2])) / 6;
-            var a = Math.max(0, Math.min(1, t));
-            px[i + 3] = Math.round(px[i + 3] * a * a); /* 平方——边缘过渡更利落 */
-          } else if (lum > 238 && px[i] > 235 && px[i + 1] > 235 && px[i + 2] > 235) {
-            /* 次亮羽化带: 轻微降 alpha 消白边 */
-            px[i + 3] = Math.round(px[i + 3] * 0.45);
-          }
-          /* 边缘 10px 羽化：高亮近白/浅米色背景像素柔和透明 */
-          var _idx = i / 4;
-          var _ex = _idx % S;
-          var _ey = Math.floor(_idx / S);
-          var _edgeDist = Math.min(_ex, _ey, S - 1 - _ex, S - 1 - _ey);
-          if (_edgeDist < 10 && lum > 220) {
-            var _ef = _edgeDist / 10;
-            px[i + 3] = Math.round(px[i + 3] * _ef * _ef);
-          }
+      c2.imageSmoothingQuality = 'high';
 
+      function process(marginRatio) {
+        var cellW = img.width / 4;
+        var cellH = img.height / 4;
+        var row = Math.floor(cellIndex / 4);
+        var col = cellIndex % 4;
+        var marginX = Math.round(cellW * marginRatio);
+        var marginY = Math.round(cellH * marginRatio);
+        var sx = Math.round(col * cellW) + marginX;
+        var sy = Math.round(row * cellH) + marginY;
+        var sw = Math.round(cellW) - marginX * 2;
+        var sh = Math.round(cellH) - marginY * 2;
+        if (sw < 1) sw = 1;
+        if (sh < 1) sh = 1;
+        var tmp = document.createElement('canvas');
+        tmp.width = S; tmp.height = S;
+        var tctx = tmp.getContext('2d');
+        tctx.imageSmoothingEnabled = true;
+        tctx.imageSmoothingQuality = 'high';
+        try { tctx.drawImage(img, sx, sy, sw, sh, 0, 0, S, S); }
+        catch (eDraw) { return null; }
+
+        var bbox = null;
+        var edge = false;
+        try {
+          var d = tctx.getImageData(0, 0, S, S);
+          var px = d.data;
+          var minX = S, maxX = -1, minY = S, maxY = -1;
+          for (var y = 0; y < S; y++) {
+            for (var x = 0; x < S; x++) {
+              var idx = (y * S + x) * 4;
+              var a = px[idx + 3];
+              var r = px[idx], g = px[idx + 1], b = px[idx + 2];
+              if (a > 20 && r > 244 && g > 244 && b > 244) {
+                px[idx + 3] = 0;
+              } else if (a > 20 && (r < 248 || g < 248 || b < 248)) {
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+              }
+            }
+          }
+          tctx.putImageData(d, 0, 0);
+          keyingOk = true;
+          if (maxX >= 0) {
+            bbox = { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+            if (minX <= 0 || minY <= 0 || maxX >= S - 1 || maxY >= S - 1) edge = true;
+          }
+        } catch (err) {
+          keyingOk = false;
+          warnOnce('IconAssets', '白底 Alpha Keying 不可用（' + (err && err.name || 'err') +
+            '）——file:// 跨源污染或受限环境；贴图保留圆角白底，绘制时改用 darken 合成融入卡面');
         }
-        c2.putImageData(d, 0, 0);
-        keyingOk = true;
-      } catch (err) {
-        keyingOk = false;
-        warnOnce('IconAssets', '白底 Alpha Keying 不可用（' + (err && err.name || 'err') +
-          '）——file:// 跨源污染或受限环境；贴图保留圆角白底，绘制时改用 darken 合成融入卡面');
+        return { tmp: tmp, bbox: bbox, edge: edge };
       }
+
+      var res = process(0.09);
+      if (res && res.edge) {
+        var res2 = process(0);
+        if (res2) res = res2;
+      }
+      if (!res) {
+        maskRounded(c2, S);
+        return cv;
+      }
+      var tmp = res.tmp;
+      var bbox = res.bbox;
+      c2.clearRect(0, 0, S, S);
+      if (bbox) {
+        var bw = bbox.maxX - bbox.minX + 1;
+        var bh = bbox.maxY - bbox.minY + 1;
+        if (bw < 1) bw = 1;
+        if (bh < 1) bh = 1;
+        var scale = Math.min(220 / bw, 220 / bh);
+        if (!isFinite(scale) || scale <= 0) scale = 1;
+        var dw = Math.max(1, Math.round(bw * scale));
+        var dh = Math.max(1, Math.round(bh * scale));
+        var dx = Math.round((S - dw) / 2);
+        var dy = Math.round((S - dh) / 2);
+        c2.drawImage(tmp, bbox.minX, bbox.minY, bw, bh, dx, dy, dw, dh);
+      } else {
+        /* 全白空单元：整格居中 + 整格缩放 */
+        var off = Math.round((S - 220) / 2);
+        c2.drawImage(tmp, 0, 0, S, S, off, off, 220, 220);
+      }
+      maskRounded(c2, S);
       return cv;
     }
-
     /* 圆角软遮罩: destination-in 圆角矩形（清除四角硬边） */
     function maskRounded(c2, size) {
       c2.globalCompositeOperation = 'destination-in';
@@ -308,16 +347,24 @@
     }
 
     function loadSheet(cfg) {
-      var img = new Image();
-      img.onload = function () {
-        if (img.naturalWidth >= 64) { /* 有效性下限（防御空图/损坏图） */
-          registerSheet(img, cfg.base);
-          sheetCount++;
-          bumpSprites();
-        }
-      };
-      img.onerror = function () { /* sheet 缺失 → 对应阶段回退单张/Emoji */ };
-      img.src = cfg.file;
+      var baseFile = (cfg.file || '').replace(/\.[^.]+$/, '');
+      var exts = ['png', 'jpg', 'jpeg', 'webp'];
+      var seq = 0;
+      function tryNext() {
+        if (seq >= exts.length) return;
+        var ext = exts[seq++];
+        var img = new Image();
+        img.onload = function () {
+          if (img.naturalWidth >= 64) {
+            registerSheet(img, cfg.base);
+            sheetCount++;
+            bumpSprites();
+          }
+        };
+        img.onerror = tryNext;
+        img.src = baseFile + '.' + ext;
+      }
+      tryNext();
     }
 
     /* 单张 PNG 兜底加载（sheet 缺失阶段）——按需惰性: 仅无贴图来源的条目
@@ -419,11 +466,11 @@
   var SHARD_COUNT_MIN = 48;
   var SHARD_COUNT_MAX = 60;  /* T084: 碎片数 MUST 落入 45~60 区间（Δ19e/FR-049） */
 /* Δ20/T093: 顶部待消槽全屏白瓷碎片瀑布（3 槽 × 45 = 135 枚） */
-var DOCK_SHARD_PER_SLOT = 50;
-var DOCK_SHARD_TOTAL = 150;
+var DOCK_SHARD_PER_SLOT = 70;
+var DOCK_SHARD_TOTAL = 210;
 var DOCK_SHARD_LIFE_MIN = 750;
 var DOCK_SHARD_LIFE_MAX = 950;
-var DOCK_SHARD_GRAVITY = 950; /* px/s² */
+var DOCK_SHARD_GRAVITY = 920; /* px/s² */
 
   /* ---------- 通用工具 ---------- */
   var RENDER_DPR = 1;
@@ -1010,38 +1057,83 @@ var DOCK_SHARD_GRAVITY = 950; /* px/s² */
         });
       }
     }
-      /* Δ20/T093: 顶部待消槽全屏白瓷碎片瀑布发射器 */
+      /* Δ21d/T101: 无描边 Low-Poly 多面体瀑布发射器 */
       function spawnDockShatter(slotRects) {
         slotRects = slotRects || [];
+        /* 兜底：若未传入槽位矩形，则取 #dock 前 3 个有牌槽位 */
+        if (!slotRects.length && typeof document !== 'undefined') {
+          var nodes = document.querySelectorAll('#dock .slot');
+          var picks = [];
+          for (var pi = 0; pi < nodes.length && picks.length < 3; pi++) {
+            if (nodes[pi] && nodes[pi].getBoundingClientRect && nodes[pi].classList && nodes[pi].classList.contains('has-tile')) {
+              picks.push(nodes[pi].getBoundingClientRect());
+            }
+          }
+          if (picks.length < 3) {
+            for (var pj = 0; pj < nodes.length && picks.length < 3; pj++) {
+              if (nodes[pj] && nodes[pj].getBoundingClientRect) picks.push(nodes[pj].getBoundingClientRect());
+            }
+          }
+          slotRects = picks;
+        }
+        /* 联合矩形：覆盖 3 个槽位全宽 */
+        var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (var si = 0; si < slotRects.length; si++) {
           var rect = slotRects[si] || {};
           var rx = (rect.left != null ? rect.left : (rect.x != null ? rect.x : 0));
           var ry = (rect.top != null ? rect.top : (rect.y != null ? rect.y : 0));
-          var rw = rect.width || rect.w || 1;
-          var rh = rect.height || rect.h || 1;
+          var rw = rect.width || rect.w || 0;
+          var rh = rect.height || rect.h || 0;
           if (rw < 1) rw = 1; if (rh < 1) rh = 1;
-          for (var i = 0; i < DOCK_SHARD_PER_SLOT; i++) {
-            var n = 5 + Math.floor(Math.random() * 2); /* 5~6 边 */
-            var r0 = 7 + Math.random() * 11; /* 7~18 px */
-            var verts = [];
-            for (var v = 0; v < n; v++) {
-              var a2 = (v / n) * Math.PI * 2 + Math.random() * 0.6;
-              var rr = r0 * (0.7 + Math.random() * 0.6);
-              verts.push({ x: Math.cos(a2) * rr, y: Math.sin(a2) * rr });
-            }
-            var life = DOCK_SHARD_LIFE_MIN + Math.floor(Math.random() * (DOCK_SHARD_LIFE_MAX - DOCK_SHARD_LIFE_MIN + 1));
-            vfxShards.push({
-              x: rx + Math.random() * rw,
-              y: ry + Math.random() * rh,
-              vx: -220 + Math.random() * 280,   /* [-220, 60] px/s */
-              vy: -120 + Math.random() * 300,   /* [-120, 180] px/s */
-              rot: Math.random() * Math.PI * 2,
-              vr: (Math.random() - 0.5) * 0.25,
-              verts: verts,
-              life: life,
-              life0: life
-            });
+          if (rx < minX) minX = rx;
+          if (ry < minY) minY = ry;
+          if (rx + rw > maxX) maxX = rx + rw;
+          if (ry + rh > maxY) maxY = ry + rh;
+        }
+        if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 160; maxY = 44; }
+        var rw = Math.max(1, maxX - minX);
+        var rh = Math.max(1, maxY - minY);
+
+        function makeVerts(n, r0) {
+          var verts = [];
+          for (var v = 0; v < n; v++) {
+            var a2 = (v / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.9;
+            var rr = r0 * (0.6 + Math.random() * 0.75);
+            verts.push({ x: Math.cos(a2) * rr, y: Math.sin(a2) * rr });
           }
+          return verts;
+        }
+
+        var total = 210;
+        var largeCount = Math.round(total * 0.25);
+        var mediumCount = Math.round(total * 0.50);
+        var fineCount = total - largeCount - mediumCount;
+        var kinds = [];
+        for (var a = 0; a < largeCount; a++) kinds.push('large');
+        for (var b = 0; b < mediumCount; b++) kinds.push('medium');
+        for (var c = 0; c < fineCount; c++) kinds.push('fine');
+
+        for (var ki = 0; ki < kinds.length; ki++) {
+          var kind = kinds[ki];
+          var n, r0;
+          if (kind === 'large') { n = 4 + Math.floor(Math.random() * 3); r0 = 10 + Math.random() * 8; }
+          else if (kind === 'medium') { n = 4 + Math.floor(Math.random() * 3); r0 = 5 + Math.random() * 5; }
+          else { n = 4; r0 = 2 + Math.random() * 2; }
+          var verts = (kind === 'fine') ? null : makeVerts(n, r0);
+          var life = DOCK_SHARD_LIFE_MIN + Math.floor(Math.random() * (DOCK_SHARD_LIFE_MAX - DOCK_SHARD_LIFE_MIN + 1));
+          vfxShards.push({
+            x: minX + Math.random() * rw,
+            y: minY + Math.random() * rh,
+            vx: -260 + Math.random() * 300,
+            vy: -80 + Math.random() * 300,
+            rot: Math.random() * Math.PI * 2,
+            vr: (Math.random() - 0.5) * 0.25,
+            verts: verts,
+            size: r0,
+            kind: kind,
+            life: life,
+            life0: life
+          });
         }
         markDirty();
         return vfxShards.length;
@@ -1107,34 +1199,46 @@ var DOCK_SHARD_GRAVITY = 950; /* px/s² */
         vfxCtx.save();
         vfxCtx.translate(sh.x, sh.y);
         vfxCtx.rotate(sh.rot);
-        /* 1. 银灰立体厚度底面（右下偏移 2.5px） */
-        vfxCtx.shadowColor = 'rgba(15, 23, 42, 0.45)';
-        vfxCtx.shadowBlur = 5;
+        /* 环境投影（柔和） */
+        vfxCtx.shadowColor = 'rgba(15, 23, 42, 0.28)';
+        vfxCtx.shadowBlur = 6;
         vfxCtx.shadowOffsetY = 3;
-        vfxCtx.fillStyle = '#94A3B8';
-        vfxCtx.beginPath();
-        for (var ti = 0; ti < sh.verts.length; ti++) {
-          var tv = sh.verts[ti];
-          if (ti === 0) vfxCtx.moveTo(tv.x + 2.5, tv.y + 2.5);
-          else vfxCtx.lineTo(tv.x + 2.5, tv.y + 2.5);
+        if (sh.kind === 'fine') {
+          /* 细碎白瓷粉：纯白小菱形尖点 */
+          var r = sh.size || 3;
+          vfxCtx.fillStyle = '#FFFFFF';
+          vfxCtx.beginPath();
+          vfxCtx.moveTo(0, -r);
+          vfxCtx.lineTo(r, 0);
+          vfxCtx.lineTo(0, r);
+          vfxCtx.lineTo(-r, 0);
+          vfxCtx.closePath();
+          vfxCtx.fill();
+        } else {
+          var verts = sh.verts || [];
+          var n = verts.length;
+          if (n < 3) {
+            /* 兜底：三角形 */
+            n = 3;
+          }
+          for (var fi = 0; fi < n; fi++) {
+            var v0 = verts[fi];
+            var v1 = verts[(fi + 1) % n];
+            if (!v0 || !v1) continue;
+            vfxCtx.beginPath();
+            vfxCtx.moveTo(0, 0);
+            vfxCtx.lineTo(v0.x, v0.y);
+            vfxCtx.lineTo(v1.x, v1.y);
+            vfxCtx.closePath();
+            var fill = '#94A3B8';
+            if (fi === 0 || fi === 1) fill = '#FFFFFF';
+            else if (fi === 2) fill = '#E2E8F0';
+            else if (fi === 3) fill = '#CBD5E1';
+            else fill = '#94A3B8';
+            vfxCtx.fillStyle = fill;
+            vfxCtx.fill();
+          }
         }
-        vfxCtx.closePath();
-        vfxCtx.fill();
-        /* 2. 纯白高光瓷面 */
-        vfxCtx.shadowBlur = 0;
-        vfxCtx.shadowOffsetY = 0;
-        vfxCtx.fillStyle = (Math.cos(sh.rot) > 0 ? '#FFFFFF' : '#F1F5F9');
-        vfxCtx.beginPath();
-        for (var fi = 0; fi < sh.verts.length; fi++) {
-          var fv = sh.verts[fi];
-          if (fi === 0) vfxCtx.moveTo(fv.x, fv.y);
-          else vfxCtx.lineTo(fv.x, fv.y);
-        }
-        vfxCtx.closePath();
-        vfxCtx.fill();
-        vfxCtx.lineWidth = 1.2;
-        vfxCtx.strokeStyle = '#64748B';
-        vfxCtx.stroke();
         vfxCtx.restore();
       }
       vfxCtx.globalAlpha = 1;
@@ -1598,7 +1702,7 @@ var DOCK_SHARD_GRAVITY = 950; /* px/s² */
           '" aria-label="' + (Bestiary.entry(bid).name || '') + '"></canvas>';
       }
       /* Emoji chip（原生全彩 Emoji 直渲染——无 ctx.arc 手绘） */
-      if (Bestiary.EMOJI && Bestiary.EMOJI.length === 45) {
+      if (Bestiary.EMOJI && Bestiary.EMOJI.length === 90) {
         return '<span class="chip-icon-emoji">' + Bestiary.emojiOf(bid) + '</span>';
       }
     }
@@ -2077,7 +2181,7 @@ var DOCK_SHARD_GRAVITY = 950; /* px/s² */
         bid + '" aria-label="' + name + '"></canvas>';
     }
     /* Emoji 兜底（sheet 未覆盖该条目） */
-    if (Bestiary && Bestiary.EMOJI && Bestiary.EMOJI.length === 45) {
+    if (Bestiary && Bestiary.EMOJI && Bestiary.EMOJI.length === 90) {
       return '<span class="pet-avatar-emoji">' + Bestiary.emojiOf(bid) + '</span>';
     }
     return '';
@@ -2101,7 +2205,7 @@ var DOCK_SHARD_GRAVITY = 950; /* px/s² */
   STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets, dockIconDataURL: dockIconDataURL, paintDockIcons: paintDockIcons, DIR_COLORS: DIR_COLORS };
   /* T084: Δ19 渲染常量外露（离线自测断言用——不参与运行时逻辑） */
   STM.rendererTest.SHARDS = { min: SHARD_COUNT_MIN, max: SHARD_COUNT_MAX };
-  STM.rendererTest.DOCK_SHARDS = { min: 150, max: 150, perSlot: DOCK_SHARD_PER_SLOT, total: DOCK_SHARD_TOTAL };
+  STM.rendererTest.DOCK_SHARDS = { min: 210, max: 210, perSlot: DOCK_SHARD_PER_SLOT, total: DOCK_SHARD_TOTAL };
   STM.rendererTest.VFX_SHARDS = STM.rendererTest.DOCK_SHARDS;
   STM.rendererTest.SHATTER_SHARDS = STM.rendererTest.DOCK_SHARDS;
   STM.rendererTest.FRAGMENTS = STM.rendererTest.DOCK_SHARDS;
