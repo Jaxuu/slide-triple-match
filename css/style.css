@@ -787,6 +787,8 @@ html, body {
 #splash-screen {
   position: fixed;
   inset: 0;
+  width: 100vw;
+  height: 100vh;
   z-index: 9999;
   background: radial-gradient(circle at 50% 40%, #151A26 0%, #0A0D14 100%);
   display: flex;
@@ -817,9 +819,16 @@ html, body {
 }
 #splash-screen.stage-loading #splash-branding,
 #splash-branding.stage-loading {
-  margin-top: 24vh;
-  margin-bottom: 30px;
-  transform: scale(1);
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 84%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 28px;
   transform-origin: top center;
 }
 #splash-screen.stage-loading #splash-branding .splash-title,
@@ -837,15 +846,13 @@ html, body {
 #splash-quote {
   opacity: 0;
   transition: opacity 0.8s ease;
-  width: 86%;
-  max-width: 360px;
-  margin: 0 auto;
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 84%;
+  max-width: 340px;
   box-sizing: border-box;
-  text-align: center;
-  white-space: normal;
-  word-break: break-word;
-  line-height: 1.6;
-  font-size: 19px;
   pointer-events: none;
   margin-bottom: 0;
 }
@@ -853,24 +860,27 @@ html, body {
 #splash-quote.stage-loading {
   opacity: 1;
 }
-.splash-quote-text {
-  color: #F8FAFC;
+.splash-quote-text,
+.quote-text,
+#splash-quote p {
+  width: 100%;
+  text-align: left !important;
+  white-space: normal;
+  line-height: 1.65;
   font-size: 19px;
-  line-height: 1.6;
+  color: #F8FAFC;
   font-weight: 400;
   letter-spacing: 0.02em;
-  white-space: normal;
   word-break: break-word;
   text-shadow: 0 2px 10px rgba(255,255,255,0.15);
 }
-.splash-quote-author {
+.splash-quote-author,
+.quote-author {
   display: block;
   width: 100%;
   text-align: right;
-  padding-right: 8px;
-  margin-top: 12px;
+  margin-top: 10px;
   font-size: 14px;
-  box-sizing: border-box;
   color: #A7F3D0;
   letter-spacing: 0.08em;
 }
@@ -878,7 +888,7 @@ html, body {
   opacity: 0;
   transition: opacity 0.8s ease;
   position: absolute;
-  top: 79%;
+  top: 82%;
   left: 50%;
   transform: translateX(-50%);
   width: 280px;
@@ -927,7 +937,7 @@ html, body {
   background-clip: text;
   color: transparent;
   filter: drop-shadow(0 2px 6px rgba(56,189,248,0.35));
-  margin-top: 0;
+  margin-top: 14px;
 }
 
 .splash-brand {
