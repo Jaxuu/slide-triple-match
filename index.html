@@ -7,9 +7,9 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-<!-- Δ16d/T066: HooLey Games 品牌开机动画（FR-038——纯表现层，首次点击/按键可跳过） -->
+<!-- Δ16d/T066: HooLey Games 品牌开机动画 + 高级名言预加载过渡屏（FR-038） -->
 <div id="splash-screen">
-  <div class="splash-brand">
+  <div id="splash-branding" class="splash-brand">
     <div class="splash-title" aria-label="HooLey">
       <span class="splash-ch" data-ch="0">H</span>
       <span class="splash-ch splash-oo" data-ch="1"><i class="oo-ring"></i><i class="oo-eye"></i></span>
@@ -19,6 +19,16 @@
       <span class="splash-ch" data-ch="5">y</span>
     </div>
     <div class="splash-sub">GAMES</div>
+  </div>
+  <div id="splash-quote" class="splash-quote">
+    <div id="splash-quote-text" class="splash-quote-text"></div>
+    <div id="splash-quote-author" class="splash-quote-author"></div>
+  </div>
+  <div id="splash-progress-wrap" class="splash-progress-wrap">
+    <div class="splash-progress" id="splash-progress">
+      <div class="splash-progress-fill" id="splash-progress-fill"></div>
+    </div>
+    <div class="splash-glide-mark">GLIDE CRITTERS</div>
   </div>
 </div>
 
@@ -164,6 +174,7 @@
 <script defer src="src/render/bestiary.js"></script>
 <script defer src="src/render/backdrops.js"></script>
 <script defer src="src/data/icon-bboxes.js"></script>
+<script defer src="src/data/quotes.js"></script>
 <script defer src="src/render/BoardRenderer.js"></script>
 <script defer src="src/audio/SoundManager.js"></script>
 <script defer src="src/ui/splash.js"></script>

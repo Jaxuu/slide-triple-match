@@ -21,7 +21,7 @@
   var STM = global.STM = global.STM || {};
 
   /* 时序常量（FR-038 §5 ≈2.0s；rAF 动画分帧，末帧淡出卸载） */
-  var TOTAL_MS = 2000;      /* 开机动画总时长 */
+  var TOTAL_MS = 1600;      /* 开机动画总时长（字母碰撞与眨眼 1.6s） */
   var FADE_MS = 380;        /* 末尾淡出时长 */
   var CHIME_AT = 260;       /* 和弦音触发时刻（动画中段，视觉已成型） */
 
@@ -31,6 +31,7 @@
   var timer = 0;
   var chimeDone = false;
   var doneCb = null;
+  var stageCb = null; /* 过渡至加载阶段回调（1.6s 时） */
   var startTs = 0;
   var soundRef = null; /* SoundManager 实例（show({sound}) 注入） */
 
@@ -131,24 +132,25 @@
     rafId = global.requestAnimationFrame(frame);
   }
 
-  /* ---------- 淡出卸载 ---------- */
+  /* ---------- 过渡至加载阶段（1.6s 时） ----------
+   * 不再淡出卸载：添加 .stage-loading，由 main.js 负责后续预加载/淡出/移除 */
   function finish() {
     if (!running) return;
     running = false;
     if (rafId) { global.cancelAnimationFrame(rafId); rafId = 0; }
     if (timer) { global.clearTimeout(timer); timer = 0; }
     var root = ensureEl();
-    /* 平滑淡出 → 卸载（移除 DOM + 事件解绑） */
-    root.classList.add('splash-fading');
-    global.setTimeout(function () {
-      try {
-        root.parentNode && root.parentNode.removeChild(root);
-      } catch (err) { /* 已移除 */ }
-      el = null;
-      detachSkip();
-      var cb = doneCb; doneCb = null;
-      if (typeof cb === 'function') { try { cb(); } catch (err2) { /* 调用方异常隔离 */ } }
-    }, FADE_MS);
+    root.classList.add('stage-loading');
+    /* 品牌区自身也标记，便于 CSS 与 JS 双重驱动 */
+    var brand = root.querySelector('#splash-branding') || root.querySelector('.splash-brand');
+    if (brand) brand.classList.add('stage-loading');
+    var quote = root.querySelector('#splash-quote');
+    if (quote) quote.classList.add('stage-loading');
+    var prog = root.querySelector('#splash-progress-wrap');
+    if (prog) prog.classList.add('stage-loading');
+    detachSkip();
+    var cb = stageCb || doneCb; stageCb = null; doneCb = null;
+    if (typeof cb === 'function') { try { cb(); } catch (err2) { /* 调用方异常隔离 */ } }
   }
 
   /* ---------- 首次交互跳过（落点与自然播完一致：均走 finish()） ---------- */
@@ -185,11 +187,12 @@
     if (!d || running) return;
     var root = ensureEl();
     /* 显示（若已 fade 残留则重置类） */
-    root.classList.remove('splash-fading', 'splash-hide');
+    root.classList.remove('splash-fading', 'splash-hide', 'stage-loading', 'fade-out');
     root.style.display = '';
     running = true;
     chimeDone = false;
-    doneCb = opts.onDone;
+    doneCb = opts.onDone || null;
+    stageCb = opts.onStageLoading || opts.onStage || null;
     soundRef = opts.sound || null;
     startTs = (global.performance && global.performance.now) ? global.performance.now() : Date.now();
     attachSkip();

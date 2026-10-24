@@ -354,7 +354,7 @@ html, body {
   padding: 6px clamp(8px, 2.4%, 13px);
   border-radius: 16px;
   container-type: inline-size;
-  background: #FFFFFF;
+  background: rgba(30, 41, 59, .45);
   border: 2px solid rgba(226, 238, 248, .82);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, .22),
@@ -425,8 +425,8 @@ html, body {
   margin: 0;
   border-radius: 10px;
   background: #FFFFFF;
-  box-shadow: none;
-  border: none;
+  box-shadow: 0 3px 0 #CBD5E1, 0 4px 8px rgba(15, 23, 42, 0.25);
+  border: 1px solid #E2E8F0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -434,8 +434,8 @@ html, body {
   box-sizing: border-box;
 }
 .slot .dock-icon {
-  width: 76%;
-  height: 76%;
+  width: 86%;
+  height: 86%;
   margin: 0;
   border-radius: 10px;
   display: block;
@@ -788,16 +788,112 @@ html, body {
   position: fixed;
   inset: 0;
   z-index: 9999;
+  background: radial-gradient(circle at 50% 40%, #151A26 0%, #0A0D14 100%);
   display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   align-items: center;
-  justify-content: center;
-  background: radial-gradient(circle at 50% 42%, #181E29 0%, #0B0E14 60%, #05070A 100%);
+  padding: 48px 24px 36px;
   overflow: hidden;
-  transition: opacity .38s ease, visibility .38s ease;
+  transition: opacity 0.5s ease, filter 0.5s ease;
+}
+#splash-screen.fade-out {
+  opacity: 0;
+  filter: blur(6px);
 }
 #splash-screen.splash-fading {
   opacity: 0;
   visibility: hidden;
+}
+
+/* ---- 高级名言预加载过渡屏 ---- */
+#splash-branding {
+  margin-top: auto;
+  margin-bottom: auto;
+  transform: scale(1);
+  transition: transform 0.8s ease, margin 0.8s ease;
+  will-change: transform;
+}
+#splash-screen.stage-loading #splash-branding,
+#splash-branding.stage-loading {
+  margin-top: 0;
+  margin-bottom: 0;
+  transform: scale(0.65);
+  transform-origin: top center;
+}
+#splash-quote {
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  text-align: center;
+  max-width: 86vw;
+  pointer-events: none;
+}
+#splash-screen.stage-loading #splash-quote,
+#splash-quote.stage-loading {
+  opacity: 1;
+}
+.splash-quote-text {
+  color: #FFFFFF;
+  font-size: 19px;
+  line-height: 1.65;
+  font-weight: 300;
+  letter-spacing: 0.04em;
+  white-space: pre-wrap;
+}
+.splash-quote-author {
+  margin-top: 14px;
+  text-align: right;
+  font-size: 14px;
+  color: #E8C98A;
+  letter-spacing: 0.08em;
+}
+@media (prefers-color-scheme: light) {
+  .splash-quote-author { color: #A8E6CF; }
+}
+#splash-progress-wrap {
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+#splash-screen.stage-loading #splash-progress-wrap,
+#splash-progress-wrap.stage-loading {
+  opacity: 1;
+}
+.splash-progress {
+  width: 240px;
+  height: 4px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+.splash-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #E8A33D 0%, #7DD3FC 100%);
+  border-radius: 2px;
+  position: relative;
+  transition: width 0.2s linear;
+}
+.splash-progress-fill::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  top: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  box-shadow: 0 0 8px rgba(255,255,255,0.9);
+}
+.splash-glide-mark {
+  font-size: 11px;
+  letter-spacing: 0.25em;
+  color: rgba(255,255,255,0.4);
+  text-transform: uppercase;
 }
 
 .splash-brand {
@@ -1276,7 +1372,7 @@ html, body {
 }
 
 /* 强制纯白底（任务 3） */
-.logo-mascot, #lobby-mascot, .avatar-item, .lobby-brand-pet, .lobby-avatar, .avatar-cell, #dock {
+.logo-mascot, #lobby-mascot, .avatar-item, .lobby-brand-pet, .lobby-avatar, .avatar-cell {
   background: #FFFFFF !important;
 }
 

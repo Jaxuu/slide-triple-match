@@ -1315,21 +1315,22 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       var i;
       for (i = 0; i < anims.length; i++) if (anims[i].kind === 'block') blockSet[anims[i].tileId] = true;
       var tiles = lastProbe.tiles;
-      var boardTiles = [];
-      for (i = 0; i < tiles.length; i++) {
-        boardTiles.push(tiles[i]);
-      }
-      boardTiles.sort(function (p, q) {
-        if (p.z !== q.z) return p.z - q.z;
-        if (p.r !== q.r) return p.r - q.r;
-        return p.c - q.c;
+      /* 飞行中的滑块集合（由动画层绘制，最终位于所有棋盘卡牌最顶层） */
+      var flyingIds = {};
+      var flyingTiles = [];
+      for (i = 0; i < anims.length; i++) if (anims[i].kind === 'fly') { flyingIds[anims[i].tileId] = true; flyingTiles.push(anims[i]); }
+      /* 非飞行滑块：严格按物理层高升序排序（z → r → c），全量重绘 */
+      /* state.tiles.filter(t => !t.flying) —— 全量非飞行滑块（每帧重绘） */
+      var renderList = tiles.filter(function (t) { return !flyingIds[t.id]; });
+      renderList.sort(function (a, b) {
+        return a.z - b.z || a.r - b.r || a.c - b.c;
       });
-      for (i = 0; i < boardTiles.length; i++) {
-        if (blockSet[boardTiles[i].id]) continue;
+      for (i = 0; i < renderList.length; i++) {
+        if (blockSet[renderList[i].id]) continue;
         /* ingame-hud-render-defects（Bug 2）: 已删除「上层投射环境阴影」——
          * 该状态会泄漏到 drawTileBody 内每次 fill，放大成错位灰黑块。
          * 层次改由卡牌自身投影表达（drawTileBody 内局部 save/restore）。 */
-        drawBoardTile(boardTiles[i], now);
+        drawBoardTile(renderList[i], now);
       }
 
       /* 动画层（飞出/弹回/爆闪；reveal 由 drawBoardTile 上浮插值处理——不再跳过绘制） */

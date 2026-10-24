@@ -264,8 +264,115 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     } catch (e) { /* 存储不可用 → 内存态照常（D-03） */ }
   }
 
+  /* ---------- 高级名言预加载过渡屏：真实资源并行预加载 ---------- */
+  var PRELOAD_TOTAL = 9;
+  var preloadLoaded = 0;
+  var preloadDone = false;
+  var preloadPromise = null;
+  var splashStageReached = false;
+  var lobbyPrepared = false;
+  var splashProgressCurrent = 0;
+  var splashProgressTarget = 0;
+  var splashProgressRaf = 0;
+
+  function splashProgressTick() {
+    splashProgressRaf = 0;
+    var diff = splashProgressTarget - splashProgressCurrent;
+    if (Math.abs(diff) < 0.001) {
+      splashProgressCurrent = splashProgressTarget;
+    } else {
+      splashProgressCurrent += diff * 0.07;
+    }
+    var fill = global.document.getElementById('splash-progress-fill');
+    if (fill) fill.style.width = (splashProgressCurrent * 100).toFixed(2) + '%';
+    if (splashProgressCurrent < splashProgressTarget - 0.001 || splashProgressCurrent > splashProgressTarget + 0.001) {
+      splashProgressRaf = global.requestAnimationFrame(splashProgressTick);
+    }
+  }
+
+  function bumpPreloadProgress() {
+    preloadLoaded++;
+    splashProgressTarget = Math.min(1, preloadLoaded / PRELOAD_TOTAL);
+    if (!splashProgressRaf) splashProgressRaf = global.requestAnimationFrame(splashProgressTick);
+  }
+
+  function imgLoadPromise(src) {
+    return new Promise(function (resolve) {
+      var img = new Image();
+      var done = function () { bumpPreloadProgress(); resolve(); };
+      img.onload = done;
+      img.onerror = done;
+      img.src = src;
+    });
+  }
+
+  function waitForBBoxes() {
+    return new Promise(function (resolve) {
+      var tries = 0;
+      function check() {
+        var b = (typeof global.STM_ICON_BBOXES !== 'undefined') ? global.STM_ICON_BBOXES
+          : (global.STM && global.STM.ICON_BBOXES ? global.STM.ICON_BBOXES : null);
+        if (b) { bumpPreloadProgress(); resolve(); return; }
+        if (tries++ > 200) { bumpPreloadProgress(); resolve(); return; }
+        global.setTimeout(check, 16);
+      }
+      check();
+    });
+  }
+
+  function startPreloadResources() {
+    if (preloadPromise) return preloadPromise;
+    var items = [];
+    items.push(imgLoadPromise('assets/bg/lobby_bg.png'));
+    items.push(imgLoadPromise('assets/bg/bg1.png'));
+    for (var i = 1; i <= 6; i++) items.push(imgLoadPromise('assets/icons/sheet' + i + '.png'));
+    items.push(waitForBBoxes());
+    preloadPromise = Promise.all(items).then(function () {
+      preloadDone = true;
+      tryPrepareLobby();
+      tryFinishSplashTransition();
+    });
+    return preloadPromise;
+  }
+
+  function renderSplashQuote() {
+    var quotes = global.STM_QUOTES || (global.STM && global.STM.QUOTES) || [];
+    if (!quotes || !quotes.length) return;
+    var q = quotes[Math.floor(Math.random() * quotes.length)];
+    var textEl = global.document.getElementById('splash-quote-text');
+    var authorEl = global.document.getElementById('splash-quote-author');
+    if (textEl && q) textEl.textContent = q.text;
+    if (authorEl && q) authorEl.textContent = '—— ' + q.author;
+  }
+
+  function tryPrepareLobby() {
+    if (lobbyPrepared) return;
+    lobbyPrepared = true;
+    /* 在遮罩仍 100% 时后台完整准备大厅/局内 DOM 与 Canvas */
+    var startGame = function () {
+      if (deepIdGlobal > 1) enterGame(deepIdGlobal);
+      else enterLobby({ unlocked: progress.unlocked, level: progress.last });
+    };
+    try { startGame(); } catch (e) { /* 隔离 */ }
+  }
+
+  function tryFinishSplashTransition() {
+    if (!preloadDone || !splashStageReached) return;
+    global.setTimeout(function () {
+      var splash = global.document.getElementById('splash-screen');
+      if (!splash) return;
+      splash.classList.add('fade-out');
+      global.setTimeout(function () {
+        try { splash.parentNode && splash.parentNode.removeChild(splash); } catch (e) { /* 已移除 */ }
+      }, 500);
+    }, 120);
+  }
+
+  var deepIdGlobal = 1;
+
   function boot() {
     cacheEls();
+    startPreloadResources();
     var LEVELS = STM.LEVELS || [];
     if (!LEVELS.length) {
       showError('关卡数据为空（STM.LEVELS 未加载）');
@@ -280,6 +387,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
       var raw = parseInt(q.get('level'), 10);
       if (!isNaN(raw)) deepId = Math.min(Math.max(1, raw), LEVELS.length);
     } catch (e) { /* file:// 下 location.search 恒可读，防御性包裹 */ }
+    deepIdGlobal = deepId;
 
     sound = STM.createSoundManager({});
     if (sound.setMuted && progress.muted) sound.setMuted(progress.muted);
@@ -324,21 +432,33 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
       }
     } catch (eP) { /* 存储不可用 → 内存态照常可玩（D-03） */ }
 
-    /* Δ16d/T066: HooLey Games 开机动画（FR-038——纯表现层）
-     * Δ17/T068: 落点改为**主大厅**（FR-039——开机后与每关结算后的必经枢纽）
-     * 动画 MUST NOT 触碰进度/棱晶/拼图态——本调用不写任何持久化状态。
-     * 首次点击/按键可跳过，落点与自然播完一致（均进入大厅）。 */
+    /* Δ16d/T066: HooLey Games 开机动画 + 高级名言预加载过渡屏
+     * 真实资源并行预加载；动画 1.6s 后过渡至加载阶段；100% 后淡入大厅。 */
     scene = SCENE.SPLASH;
-    var startGame = function () {
-      /* 深链 ?level=N 优先；否则进入大厅（大厅内 `关卡 X` 按钮再进局内） */
-      if (deepId > 1) enterGame(deepId);
-      else enterLobby({ unlocked: progress.unlocked, level: progress.last });
-    };
+    /* 启动时立即执行真实预加载 */
+    startPreloadResources();
     if (STM.Splash) {
-      /* sound 已创建 → 注入供开机和弦音（playBootChime）使用 */
-      STM.Splash.show({ sound: sound, onDone: startGame });
+      STM.Splash.show({
+        sound: sound,
+        onStageLoading: function () {
+          splashStageReached = true;
+          renderSplashQuote();
+          /* 确保 stage-loading 类（CSS 驱动） */
+          var sp = global.document.getElementById('splash-screen');
+          if (sp) sp.classList.add('stage-loading');
+          var brand = global.document.getElementById('splash-branding');
+          if (brand) brand.classList.add('stage-loading');
+          var quote = global.document.getElementById('splash-quote');
+          if (quote) quote.classList.add('stage-loading');
+          var wrap = global.document.getElementById('splash-progress-wrap');
+          if (wrap) wrap.classList.add('stage-loading');
+          tryFinishSplashTransition();
+        }
+      });
     } else {
-      startGame();
+      splashStageReached = true;
+      renderSplashQuote();
+      tryFinishSplashTransition();
     }
   }
 
