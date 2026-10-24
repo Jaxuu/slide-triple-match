@@ -1109,7 +1109,7 @@ html, body {
 }
 .lobby-brand-pet .pet-avatar-img,
 .lobby-brand-pet .pet-avatar-emoji {
-  width: 100%; height: 100%; object-fit: cover; font-size: 24px; line-height: 1;
+  width: 100%; height: 100%; border-radius: 50%; object-fit: contain; font-size: 24px; line-height: 1;
 }
 @keyframes pet-breathe {
   0%, 100% { transform: translateX(-50%) translateY(0); }
@@ -1280,7 +1280,7 @@ html, body {
   width: 52px; height: 52px;
   border-radius: 50%;
   border: 3px solid rgba(255, 255, 255, .88);
-  background: radial-gradient(circle at 34% 30%, #FFF 0%, var(--prism-glow) 46%, var(--prism-violet) 100%);
+  background: #FFFFFF;
   box-shadow: 0 4px 12px rgba(0, 0, 0, .40);
   cursor: pointer;
   overflow: hidden;
@@ -1289,7 +1289,7 @@ html, body {
 }
 .lobby-avatar-img { display: grid; place-items: center; width: 100%; height: 100%; }
 .lobby-avatar-img .pet-avatar-img,
-.lobby-avatar-img .pet-avatar-emoji { width: 100%; height: 100%; object-fit: cover; font-size: 24px; line-height: 1; }
+.lobby-avatar-img .pet-avatar-emoji { width: 100%; height: 100%; border-radius: 50%; object-fit: contain; font-size: 24px; line-height: 1; }
 .lobby-nick {
   padding: 5px 13px;
   border-radius: 999px;
@@ -1482,13 +1482,13 @@ html, body {
   padding: 0;
   border: 2.5px solid rgba(255, 255, 255, .78);
   border-radius: 50%;
-  background: radial-gradient(circle at 34% 30%, #FFF, var(--prism-glow) 52%, var(--prism-violet));
+  background: #FFFFFF;
   overflow: hidden;
   cursor: pointer;
   display: grid; place-items: center;
 }
 .avatar-cell .pet-avatar-img,
-.avatar-cell .pet-avatar-emoji { width: 100%; height: 100%; object-fit: cover; font-size: 17px; line-height: 1; }
+.avatar-cell .pet-avatar-emoji { width: 100%; height: 100%; border-radius: 50%; object-fit: contain; font-size: 17px; line-height: 1; }
 .avatar-cell.is-selected {
   border-color: var(--amber);
   box-shadow: 0 0 0 2px rgba(232, 163, 61, .45), 0 0 12px rgba(255, 217, 138, .90);
@@ -1682,7 +1682,7 @@ html, body {
   box-shadow: 0 4px 14px rgba(0,0,0,.46);
   display: grid; place-items: center;
 }
-.plate-pet .pet-avatar-img, .plate-pet .pet-avatar-emoji { width: 100%; height: 100%; object-fit: cover; font-size: 26px; line-height: 1; }
+.plate-pet .pet-avatar-img, .plate-pet .pet-avatar-emoji { width: 100%; height: 100%; border-radius: 50%; object-fit: contain; font-size: 26px; line-height: 1; }
 .plate-board {
   position: absolute; left: 50%; bottom: -12px;
   transform: translateX(-50%);
@@ -1932,7 +1932,7 @@ html, body {
   display: grid; place-items: center;
 }
 .fail-pet-face .pet-avatar-img,
-.fail-pet-face .pet-avatar-emoji { width: 100%; height: 100%; object-fit: cover; font-size: 40px; line-height: 1; }
+.fail-pet-face .pet-avatar-emoji { width: 100%; height: 100%; border-radius: 50%; object-fit: contain; font-size: 40px; line-height: 1; }
 /* 泪滴：生成—滑落—消散 */
 .fail-tear {
   position: absolute;

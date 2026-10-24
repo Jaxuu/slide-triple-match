@@ -23,6 +23,7 @@ require('../src/core/GameState.js');
 require('../src/core/profile.js'); /* Δ16c/T065: 玩家档案与经济态（纯数据层） */
 require('../src/render/bestiary.js'); /* Δ14: BoardRenderer 之前（装载序 D-01） */
 require('../src/render/backdrops.js'); /* Δ14/T052d: 生态背景池（BoardRenderer 消费） */
+require('../src/data/icon-bboxes.js'); /* Δ22: 离线包围盒 */
 require('../src/render/BoardRenderer.js');
 require('../src/audio/SoundManager.js'); /* Δ16c: BGM/SFX 粒度 + Δ16d 开机和弦音 */
 require('../src/ui/splash.js'); /* Δ16d/T066: HooLey Games 开机动画 */

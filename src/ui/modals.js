@@ -246,8 +246,10 @@
      *    （FR-040 §2：确认 = 保存点；关闭不落库） */
     var grid = document.createElement('div');
     grid.className = 'avatar-grid';
+    grid.style.maxHeight = '320px';
+    grid.style.overflowY = 'auto';
     var pendingAvatar = prof.avatar;
-    for (var bid = 0; bid <= 44; bid++) {
+    for (var bid = 0; bid <= 89; bid++) {
       (function (id) {
         var cell = document.createElement('button');
         cell.type = 'button';

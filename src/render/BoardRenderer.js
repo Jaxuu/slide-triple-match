@@ -206,14 +206,57 @@
      *   亮度越接近 242 → alpha 线性降（242~252 柔化带），
      *   >252 纯白 → alpha 归 0；同时羽化带做 alpha 预乘防白边
      * 切片后贴图与奶油白牌面乘性自然融合（无矩形白底残留） */
-    function whiteKeySlice(img, cellIndex) {
-      /* Δ21b/T099: 9% 内缩 + 非白包围盒质心自动居中 */
+    function whiteKeySlice(img, cellIndex, base) {
+      /* Δ21b/T099: 9% 内缩 + 非白包围盒质心自动居中
+       * Δ22: 优先使用离线预计算包围盒 STM_ICON_BBOXES（绕过 file:// getImageData 跨域限制） */
       var S = SLICE_PX;
       var cv = document.createElement('canvas');
       cv.width = S; cv.height = S;
       var c2 = cv.getContext('2d');
       c2.imageSmoothingEnabled = true;
       c2.imageSmoothingQuality = 'high';
+
+      var _bboxes = (typeof global !== 'undefined' && global.STM_ICON_BBOXES) ? global.STM_ICON_BBOXES
+        : ((typeof window !== 'undefined' && window.STM_ICON_BBOXES) ? window.STM_ICON_BBOXES : null);
+      var _suit = (base || 0) + (cellIndex || 0);
+      var _bbox = (_bboxes && _bboxes[_suit]) ? _bboxes[_suit] : null;
+      if (_bbox && _bbox.sw > 0 && _bbox.sh > 0) {
+        /* 离线包围盒分支：直接裁切真实非白像素区域并等比居中 */
+        var ttmp = document.createElement('canvas');
+        ttmp.width = S; ttmp.height = S;
+        var ttctx = ttmp.getContext('2d');
+        if (ttctx) {
+          ttctx.imageSmoothingEnabled = true;
+          ttctx.imageSmoothingQuality = 'high';
+          var scale = Math.min((S * 0.92) / _bbox.sw, (S * 0.92) / _bbox.sh);
+          if (!isFinite(scale) || scale <= 0) scale = 1;
+          var dw = Math.max(1, Math.round(_bbox.sw * scale));
+          var dh = Math.max(1, Math.round(_bbox.sh * scale));
+          var dx = Math.round((S - dw) / 2);
+          var dy = Math.round((S - dh) / 2);
+          try { ttctx.drawImage(img, _bbox.sx, _bbox.sy, _bbox.sw, _bbox.sh, dx, dy, dw, dh); } catch (eDrawB) { /* fallthrough to runtime */ }
+          /* 白键控（尽力而为——file:// 下可能失败，降级 darken） */
+          try {
+            var dd = ttctx.getImageData(0, 0, S, S);
+            var pp = dd.data;
+            for (var pi = 0; pi < pp.length; pi += 4) {
+              var aa = pp[pi + 3];
+              var rr = pp[pi], gg = pp[pi + 1], bb = pp[pi + 2];
+              if (aa > 20 && rr > 244 && gg > 244 && bb > 244) pp[pi + 3] = 0;
+            }
+            ttctx.putImageData(dd, 0, 0);
+            if (typeof keyingOk !== 'undefined') keyingOk = true;
+          } catch (errK) {
+            if (typeof keyingOk !== 'undefined') keyingOk = false;
+            try { warnOnce('IconAssets', '离线包围盒白键控不可用（' + (errK && errK.name || 'err') + '）——保留切片，绘制时改用 darken 合成'); } catch (eW) {}
+          }
+          c2.clearRect(0, 0, S, S);
+          c2.drawImage(ttmp, 0, 0);
+          maskRounded(c2, S);
+          cv.__sliceRect = { x: 0, y: 0, w: S, h: S };
+          return cv;
+        }
+      }
 
       function process(marginRatio) {
         var cellW = img.width / 4;
@@ -322,7 +365,7 @@
     function registerSheet(img, base) {
       for (var i = 0; i < 15; i++) {
         try {
-          slices[base + i] = whiteKeySlice(img, i);
+          slices[base + i] = whiteKeySlice(img, i, base);
           source[base + i] = 'sheet';
         } catch (err) { /* 单格失败不杀整张 */ }
       }
@@ -466,8 +509,8 @@
   var SHARD_COUNT_MIN = 48;
   var SHARD_COUNT_MAX = 60;  /* T084: 碎片数 MUST 落入 45~60 区间（Δ19e/FR-049） */
 /* Δ20/T093: 顶部待消槽全屏白瓷碎片瀑布（3 槽 × 45 = 135 枚） */
-var DOCK_SHARD_PER_SLOT = 70;
-var DOCK_SHARD_TOTAL = 210;
+var DOCK_SHARD_PER_SLOT = 45;
+var DOCK_SHARD_TOTAL = 135;
 var DOCK_SHARD_LIFE_MIN = 750;
 var DOCK_SHARD_LIFE_MAX = 950;
 var DOCK_SHARD_GRAVITY = 920; /* px/s² */
@@ -555,7 +598,7 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     /* 2. 温润奶油白牌面 */
     var fg = ctx.createLinearGradient(x, y, x, y + w);
     fg.addColorStop(0, '#FFFFFF');
-    fg.addColorStop(1, '#F8FAFC');
+    fg.addColorStop(1, '#FFFFFF');
     roundRect(ctx, x, y, w, w, r);
     ctx.fillStyle = fg;
     ctx.fill();
@@ -1104,9 +1147,9 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
           return verts;
         }
 
-        var total = 210;
-        var largeCount = Math.round(total * 0.25);
-        var mediumCount = Math.round(total * 0.50);
+        var total = 135;
+        var largeCount = Math.round(total * 0.15);
+        var mediumCount = Math.round(total * 0.45);
         var fineCount = total - largeCount - mediumCount;
         var kinds = [];
         for (var a = 0; a < largeCount; a++) kinds.push('large');
@@ -1116,9 +1159,9 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
         for (var ki = 0; ki < kinds.length; ki++) {
           var kind = kinds[ki];
           var n, r0;
-          if (kind === 'large') { n = 4 + Math.floor(Math.random() * 3); r0 = 10 + Math.random() * 8; }
-          else if (kind === 'medium') { n = 4 + Math.floor(Math.random() * 3); r0 = 5 + Math.random() * 5; }
-          else { n = 4; r0 = 2 + Math.random() * 2; }
+          if (kind === 'large') { n = 4 + Math.floor(Math.random() * 3); r0 = 12 + Math.random() * 6; }
+          else if (kind === 'medium') { n = 4 + Math.floor(Math.random() * 3); r0 = 6 + Math.random() * 5; }
+          else { n = 4; r0 = 3 + Math.random() * 2; }
           var verts = (kind === 'fine') ? null : makeVerts(n, r0);
           var life = DOCK_SHARD_LIFE_MIN + Math.floor(Math.random() * (DOCK_SHARD_LIFE_MAX - DOCK_SHARD_LIFE_MIN + 1));
           vfxShards.push({
@@ -1199,45 +1242,36 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
         vfxCtx.save();
         vfxCtx.translate(sh.x, sh.y);
         vfxCtx.rotate(sh.rot);
-        /* 环境投影（柔和） */
-        vfxCtx.shadowColor = 'rgba(15, 23, 42, 0.28)';
-        vfxCtx.shadowBlur = 6;
-        vfxCtx.shadowOffsetY = 3;
-        if (sh.kind === 'fine') {
-          /* 细碎白瓷粉：纯白小菱形尖点 */
-          var r = sh.size || 3;
-          vfxCtx.fillStyle = '#FFFFFF';
-          vfxCtx.beginPath();
-          vfxCtx.moveTo(0, -r);
-          vfxCtx.lineTo(r, 0);
-          vfxCtx.lineTo(0, r);
-          vfxCtx.lineTo(-r, 0);
-          vfxCtx.closePath();
-          vfxCtx.fill();
-        } else {
-          var verts = sh.verts || [];
+        /* 严禁 shadowBlur（性能）——立体感由折面明暗表达 */
+        vfxCtx.shadowBlur = 0;
+        {
+          var verts = sh.verts;
+          if (!verts || verts.length < 3) {
+            var r = (sh.size != null ? sh.size : 3);
+            verts = [{ x: 0, y: -r }, { x: r, y: 0 }, { x: 0, y: r }, { x: -r, y: 0 }];
+          }
           var n = verts.length;
-          if (n < 3) {
-            /* 兜底：三角形 */
-            n = 3;
-          }
-          for (var fi = 0; fi < n; fi++) {
-            var v0 = verts[fi];
-            var v1 = verts[(fi + 1) % n];
-            if (!v0 || !v1) continue;
-            vfxCtx.beginPath();
-            vfxCtx.moveTo(0, 0);
-            vfxCtx.lineTo(v0.x, v0.y);
-            vfxCtx.lineTo(v1.x, v1.y);
-            vfxCtx.closePath();
-            var fill = '#94A3B8';
-            if (fi === 0 || fi === 1) fill = '#FFFFFF';
-            else if (fi === 2) fill = '#E2E8F0';
-            else if (fi === 3) fill = '#CBD5E1';
-            else fill = '#94A3B8';
-            vfxCtx.fillStyle = fill;
-            vfxCtx.fill();
-          }
+          /* 侧边厚度：向下偏移 2px 的浅冷灰 */
+          vfxCtx.beginPath();
+          vfxCtx.moveTo(verts[0].x, verts[0].y + 2);
+          for (var si = 1; si < n; si++) vfxCtx.lineTo(verts[si].x, verts[si].y + 2);
+          vfxCtx.closePath();
+          vfxCtx.fillStyle = '#CBD5E1';
+          vfxCtx.fill();
+          /* 正面：纯白 */
+          vfxCtx.beginPath();
+          vfxCtx.moveTo(verts[0].x, verts[0].y);
+          for (var fi = 1; fi < n; fi++) vfxCtx.lineTo(verts[fi].x, verts[fi].y);
+          vfxCtx.closePath();
+          vfxCtx.fillStyle = '#FFFFFF';
+          vfxCtx.fill();
+          /* 一侧极淡折光边 */
+          vfxCtx.strokeStyle = '#F1F5F9';
+          vfxCtx.lineWidth = 1;
+          vfxCtx.beginPath();
+          vfxCtx.moveTo(verts[0].x, verts[0].y);
+          vfxCtx.lineTo(verts[1].x, verts[1].y);
+          vfxCtx.stroke();
         }
         vfxCtx.restore();
       }

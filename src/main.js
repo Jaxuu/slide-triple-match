@@ -725,7 +725,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     blockErrors = 0;
     totalTriples = Math.max(1, Math.round((((currentLevel && currentLevel.tiles) ? currentLevel.tiles.length : 3)) / 3));
     iqTitle = iqTitleOf(iqScore);
-    if (els.iqValue) els.iqValue.textContent = String(iqScore);
+    if (els.iqValue) els.iqValue.textContent = String(Math.round(Number(iqScore) || 50));
     if (els.iqPill) {
       els.iqPill.classList.remove('level-up');
       els.iqPill.classList.remove('iq-broken');
@@ -751,11 +751,11 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     }
     if (newScore > 200) newScore = 200;
     var delta = newScore - iqScore;
-    iqScore = newScore;
+    iqScore = Math.round(newScore);
     var next = iqTitleOf(iqScore);
     var leveled = next !== iqTitle;
     iqTitle = next;
-    if (els.iqValue) els.iqValue.textContent = String(iqScore);
+    if (els.iqValue) els.iqValue.textContent = String(Math.round(Number(iqScore) || 50));
     if (els.iqDelta) {
       els.iqDelta.textContent = '+' + (Math.round(delta * 10) / 10);
       els.iqDelta.classList.remove('show');
@@ -802,7 +802,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
       try { bal = STM.Profile ? STM.Profile.get().shards : 0; } catch (e) { bal = 0; }
       els.hudShards.innerHTML = prismHtml('prism-gem') + '<b>' + bal + '</b>';
     }
-    if (els.iqValue) els.iqValue.textContent = String(iqScore);
+    if (els.iqValue) els.iqValue.textContent = String(Math.round(Number(iqScore) || 50));
   }
 
   function renderDock() {
