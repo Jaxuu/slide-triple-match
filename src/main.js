@@ -274,6 +274,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
   var splashProgressCurrent = 0;
   var splashProgressTarget = 0;
   var splashProgressRaf = 0;
+  var progressAnimationDone = false;
 
   function splashProgressTick() {
     splashProgressRaf = 0;
@@ -357,7 +358,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
   }
 
   function tryFinishSplashTransition() {
-    if (!preloadDone || !splashStageReached) return;
+    if (!preloadDone || !splashStageReached || !progressAnimationDone) return;
     global.setTimeout(function () {
       var splash = global.document.getElementById('splash-screen');
       if (!splash) return;
@@ -365,7 +366,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
       global.setTimeout(function () {
         try { splash.parentNode && splash.parentNode.removeChild(splash); } catch (e) { /* 已移除 */ }
       }, 500);
-    }, 120);
+    }, 150);
   }
 
   var deepIdGlobal = 1;
@@ -452,12 +453,31 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
           if (quote) quote.classList.add('stage-loading');
           var wrap = global.document.getElementById('splash-progress-wrap');
           if (wrap) wrap.classList.add('stage-loading');
+          /* 2.0s 严格进度补间（cubic-bezier(0.25, 1, 0.5, 1)） */
+          var fill = global.document.getElementById('splash-progress-fill');
+          if (fill) {
+            fill.style.transition = 'width 2000ms cubic-bezier(0.25, 1, 0.5, 1)';
+            fill.style.width = '100%';
+          }
+          global.setTimeout(function () {
+            progressAnimationDone = true;
+            tryFinishSplashTransition();
+          }, 2000);
           tryFinishSplashTransition();
         }
       });
     } else {
       splashStageReached = true;
       renderSplashQuote();
+      var fill2 = global.document.getElementById('splash-progress-fill');
+      if (fill2) {
+        fill2.style.transition = 'width 2000ms cubic-bezier(0.25, 1, 0.5, 1)';
+        fill2.style.width = '100%';
+      }
+      global.setTimeout(function () {
+        progressAnimationDone = true;
+        tryFinishSplashTransition();
+      }, 2000);
       tryFinishSplashTransition();
     }
   }
