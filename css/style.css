@@ -425,7 +425,7 @@ html, body {
   margin: 0;
   border-radius: 8px;
   background: #FFFFFF !important;
-  box-shadow: 0 3px 0 #CBD5E1, 0 2px 5px rgba(0, 0, 0, 0.15) !important;
+  box-shadow: 0 3px 0 #CBD5E1, 0 2px 4px rgba(0, 0, 0, 0.15) !important;
   border: 1px solid #E2E8F0 !important;
   display: flex;
   align-items: center;
@@ -434,8 +434,36 @@ html, body {
   box-sizing: border-box;
   padding: 0;
 }
-.slot .dock-icon {
-  width: 78%;
+
+/* Bug fix (flight-frame-redraw-dock-inset): .dock-chip 作为唯一 3D 奶油白卡片，
+   子元素一律无内框描边 —— 彻底消灭内嵌小方框 */
+.slot .dock-chip {
+  width: 100% !important;
+  height: 100% !important;
+  background: #FFFFFF !important;
+  border-radius: 8px !important;
+  border: 1px solid #E2E8F0 !important;
+  box-shadow: 0 3px 0 #CBD5E1, 0 2px 4px rgba(0, 0, 0, 0.15) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 子节点（图标/画布/图片/Emoji）一律去除内框与背景，仅保留居中贴图 */
+.slot .dock-chip > *,
+.slot .dock-icon,
+.slot .chip-icon-canvas,
+.slot .chip-icon-emoji,
+.slot img.dock-icon,
+.slot canvas.dock-icon {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+.slot .dock-icon {  width: 78%;
   height: 78%;
   margin: 0;
   border-radius: 8px;
@@ -447,6 +475,7 @@ html, body {
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
+  background: transparent !important;
 }
 /* Δ15b/T052i: Dock 贴图切片 chip（精灵图集切片 DataURL）——历史类名保留 */
 .tile-chip .chip-icon-canvas,
@@ -459,12 +488,20 @@ html, body {
   border-radius: 18%;
   pointer-events: none;
   user-select: none;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
 }
 /* Δ15b: Emoji 兜底 chip（原生全彩 Emoji 直渲染） */
 .slot .chip-icon-emoji {
   font-size: clamp(22px, 7cqw, 34px);
   line-height: 1;
   user-select: none;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
 }
 .tile-chip.pop { animation: chip-pop .25s ease-out; }
 @keyframes chip-pop {

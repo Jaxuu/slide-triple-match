@@ -1321,7 +1321,8 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       for (i = 0; i < anims.length; i++) if (anims[i].kind === 'fly') { flyingIds[anims[i].tileId] = true; flyingTiles.push(anims[i]); }
       /* 非飞行滑块：严格按物理层高升序排序（z → r → c），全量重绘 */
       /* state.tiles.filter(t => !t.flying) —— 全量非飞行滑块（每帧重绘） */
-      var renderList = tiles.filter(function (t) { return !flyingIds[t.id]; });
+      /* 飞行期间严禁局部重绘/隐藏静止滑块：全盘 activeTiles 全量重绘 */
+      var renderList = tiles.filter(function (t) { return !t.removed && !flyingIds[t.id]; });
       renderList.sort(function (a, b) {
         return a.z - b.z || a.r - b.r || a.c - b.c;
       });
