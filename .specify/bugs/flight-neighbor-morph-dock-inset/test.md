@@ -132,7 +132,7 @@ marginNonWhite = 973 / 4746   minChannel = 205   maxDeviation = 50   bbox = [37,
 
 ### 8x 放大截图（人工可复核）
 
-- `frames/profile-dock-chip-8x-fixed.png`（修复后）：白卡内**只有居中狐狸**，无任何框线
+- `frames/profile-dock-chip-8x.png`（修复后）：白卡内**只有居中狐狸**，无任何框线
 - `frames/profile-dock-chip-8x-filterback.png`（A/B 加回投影）：可见一圈清晰的灰色矩形描边
 - `frames/verify-dock-chip-4x.png` / `verify-dock-chip-filterback-4x.png`：4x 同款对照
 - `frames/verify-dock-full-5x.png`：`#dock` 整体 5x，托盘仍为深色半透明磨砂
