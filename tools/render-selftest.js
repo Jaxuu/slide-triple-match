@@ -1148,9 +1148,9 @@ function scenarioDelta19() {
     /#board\s*\{[\s\S]*?border:\s*none/.test(css));
   check('T085: 待消槽为简约托盘（无木纹 / 无槽内横线）',
     css.indexOf('#dock::before') === -1 &&
-    /#dock\s*\{[\s\S]*?rgba\(30, 41, 59, \.45\)/.test(css) &&
+    css.indexOf('rgba(30, 41, 59, 0.55)') !== -1 &&
     /\.slot\.empty::after\s*\{\s*content:\s*none/.test(css) &&
-    /\.slot\s*\{[\s\S]*?rgba\(15, 23, 42, \.42\)/.test(css));
+    css.indexOf('rgba(15, 23, 42, 0.45)') !== -1);
   /* file:// 下 getImageData 被跨源污染阻断，白键控失败 → 切片保留不透明白底。
    * 若不处理，0.84×tile 的白底会在奶油白卡面上露出「内嵌白方框」。
    * 修法: keyingAvailable() 为 false 时该图标绘制改用 darken 合成（白→卡面本色）。 */

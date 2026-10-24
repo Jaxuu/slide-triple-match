@@ -1333,11 +1333,19 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
         drawBoardTile(renderList[i], now);
       }
 
-      /* 动画层（飞出/弹回/爆闪；reveal 由 drawBoardTile 上浮插值处理——不再跳过绘制） */
+      /* 动画层（飞出/弹回/爆闪；reveal 由 drawBoardTile 上浮插值处理——不再跳过绘制）
+       * 图层纪律：飞行卡牌 MUST 作为最高图层最后绘制，避免静止卡牌覆盖飞行卡牌 */
+      /* 先绘制非飞行动画（block/gear/unlock/ice/prism/match） */
       for (i = 0; i < anims.length; i++) {
-        var a = anims[i];
-        if (a.kind === 'reveal') continue;
-        drawAnim(a, Math.min(1, (now - a.t0) / a.dur), now);
+        var a2 = anims[i];
+        if (a2.kind === 'reveal' || a2.kind === 'fly') continue;
+        drawAnim(a2, Math.min(1, (now - a2.t0) / a2.dur), now);
+      }
+      /* 最后绘制飞行卡牌（最高图层） */
+      for (i = 0; i < anims.length; i++) {
+        var af = anims[i];
+        if (af.kind !== 'fly') continue;
+        drawAnim(af, Math.min(1, (now - af.t0) / af.dur), now);
       }
 
       /* 粒子 */
@@ -1601,12 +1609,20 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
        * 读 t.c/t.r 曾为 undefined → NaN → createLinearGradient 抛错杀死 rAF 循环
        * （受阻滑块贴图永久消失根因）；m/ice 补全已移除滑块飞出动画的机制角标 */
       if (lastProbe) {
+        var currentIds = {};
+        var flyingIdsNow = {};
+        for (var fi = 0; fi < anims.length; fi++) if (anims[fi].kind === 'fly') flyingIdsNow[anims[fi].tileId] = true;
         for (var i = 0; i < lastProbe.tiles.length; i++) {
           var t = lastProbe.tiles[i];
           tileInfo[t.id] = {
             id: t.id, r: t.r, c: t.c, s: t.s, d: t.d, z: t.z || 0, stackDepth: t.stackDepth || 1,
             m: t.m || null, ice: t.ice != null ? t.ice : null
           };
+          currentIds[t.id] = true;
+        }
+        /* 清理过期 tileInfo（已移除且非飞行的卡牌），避免动画层读取过期 z/r/c */
+        for (var k in tileInfo) {
+          if (!currentIds[k] && !flyingIdsNow[k]) delete tileInfo[k];
         }
       }
       resize();

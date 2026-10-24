@@ -352,13 +352,13 @@ html, body {
   max-height: clamp(58px, 9.2%, 76px);
   margin: 1px auto 3px;
   padding: 6px clamp(8px, 2.4%, 13px);
-  border-radius: 16px;
+  border-radius: 14px;
   container-type: inline-size;
-  background: rgba(30, 41, 59, .45);
-  border: 2px solid rgba(226, 238, 248, .82);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .22),
-    0 6px 18px rgba(8, 15, 24, .22);
+  background: rgba(30, 41, 59, 0.55) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1.5px solid rgba(255, 255, 255, 0.22) !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.25);
 }
 /* 7 个干净的深色半透明圆角空槽（无内部横线） */
 .slot {
@@ -368,15 +368,15 @@ html, body {
   width: clamp(32px, 10.4cqw, 44px);
   height: clamp(32px, 10.4cqw, 44px);
   flex: none;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, .10);
-  background: rgba(15, 23, 42, .42);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(15, 23, 42, 0.45) !important;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   transition: border-color .2s, box-shadow .2s, background .2s;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.35);
 }
 /* 有 chip = 凹坑内亮起，卡牌稳稳镶嵌 */
 .slot.has-tile,
@@ -423,26 +423,30 @@ html, body {
   width: 100%;
   height: 100%;
   margin: 0;
-  border-radius: 10px;
-  background: #FFFFFF;
-  box-shadow: 0 3px 0 #CBD5E1, 0 4px 8px rgba(15, 23, 42, 0.25);
-  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  background: #FFFFFF !important;
+  box-shadow: 0 3px 0 #CBD5E1, 0 2px 5px rgba(0, 0, 0, 0.15) !important;
+  border: 1px solid #E2E8F0 !important;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   box-sizing: border-box;
+  padding: 0;
 }
 .slot .dock-icon {
-  width: 86%;
-  height: 86%;
+  width: 78%;
+  height: 78%;
   margin: 0;
-  border-radius: 10px;
+  border-radius: 8px;
   display: block;
   object-fit: contain;
   filter: drop-shadow(0 2px 3px rgba(15, 23, 42, .38));
   pointer-events: none;
   user-select: none;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 /* Δ15b/T052i: Dock 贴图切片 chip（精灵图集切片 DataURL）——历史类名保留 */
 .tile-chip .chip-icon-canvas,
