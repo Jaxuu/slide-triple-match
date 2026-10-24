@@ -75,7 +75,7 @@
   /* Δ21: 扩容至 90 种——复用前 45 种绘制/Emoji 作为占位（sheet{4..6} 贴图优先） */
   (function extendBestiary90() {
     var baseLen = BESTIARY.length;
-    while (BESTIARY.length < 90) {
+    while (BESTIARY.length < 96) {
       var b = BESTIARY[BESTIARY.length % baseLen];
       BESTIARY.push({ id: BESTIARY.length, name: b.name, theme: b.theme, draw: b.draw });
     }
@@ -87,7 +87,7 @@
     { stage: 3, from: 25, to: 36, poolMax: 45 },
     { stage: 4, from: 37, to: 48, poolMax: 60 },
     { stage: 5, from: 49, to: 60, poolMax: 75 },
-    { stage: 6, from: 61, to: 72, poolMax: 90 }
+    { stage: 6, from: 61, to: 72, poolMax: 96 }
   ];
 
   /* =========================================================

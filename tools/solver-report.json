@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "generatedAt": "2026-10-24T08:11:58.155Z",
+  "generatedAt": "2026-10-24T10:28:08.082Z",
   "seed": null,
   "nodeBudget": {
     "nodes": 2000000,
@@ -14,7 +14,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 435,
+      "elapsedMs": 169,
       "mechCount": 0,
       "difficultyScore": 0,
       "dispersion": {
@@ -49,7 +49,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 356,
+      "elapsedMs": 178,
       "mechCount": 0,
       "difficultyScore": 10,
       "dispersion": {
@@ -84,7 +84,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 356,
+      "elapsedMs": 183,
       "mechCount": 0,
       "difficultyScore": 16,
       "dispersion": {
@@ -119,7 +119,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 4,
       "openSuitsMax": 1,
-      "elapsedMs": 336,
+      "elapsedMs": 167,
       "mechCount": 0,
       "difficultyScore": 17,
       "dispersion": {
@@ -154,7 +154,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 343,
+      "elapsedMs": 171,
       "mechCount": 0,
       "difficultyScore": 17,
       "dispersion": {
@@ -189,7 +189,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 352,
+      "elapsedMs": 177,
       "mechCount": 0,
       "difficultyScore": 30,
       "dispersion": {
@@ -224,7 +224,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 489,
+      "elapsedMs": 237,
       "mechCount": 1,
       "difficultyScore": 31,
       "dispersion": {
@@ -259,7 +259,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 547,
+      "elapsedMs": 192,
       "mechCount": 1,
       "difficultyScore": 33,
       "dispersion": {
@@ -294,7 +294,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 478,
+      "elapsedMs": 233,
       "mechCount": 1,
       "difficultyScore": 43,
       "dispersion": {
@@ -329,7 +329,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 376,
+      "elapsedMs": 190,
       "mechCount": 1,
       "difficultyScore": 34,
       "dispersion": {
@@ -364,7 +364,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 490,
+      "elapsedMs": 224,
       "mechCount": 1,
       "difficultyScore": 33,
       "dispersion": {
@@ -399,7 +399,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 1,
-      "elapsedMs": 776,
+      "elapsedMs": 369,
       "mechCount": 2,
       "difficultyScore": 60,
       "dispersion": {
@@ -434,7 +434,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 407,
+      "elapsedMs": 205,
       "mechCount": 2,
       "difficultyScore": 48,
       "dispersion": {
@@ -469,7 +469,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 406,
+      "elapsedMs": 215,
       "mechCount": 2,
       "difficultyScore": 47,
       "dispersion": {
@@ -504,7 +504,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 597,
+      "elapsedMs": 264,
       "mechCount": 2,
       "difficultyScore": 67,
       "dispersion": {
@@ -539,7 +539,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 410,
+      "elapsedMs": 186,
       "mechCount": 2,
       "difficultyScore": 47,
       "dispersion": {
@@ -574,7 +574,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 656,
+      "elapsedMs": 235,
       "mechCount": 2,
       "difficultyScore": 49,
       "dispersion": {
@@ -609,7 +609,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 528,
+      "elapsedMs": 260,
       "mechCount": 2,
       "difficultyScore": 65,
       "dispersion": {
@@ -644,7 +644,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 435,
+      "elapsedMs": 212,
       "mechCount": 2,
       "difficultyScore": 50,
       "dispersion": {
@@ -679,7 +679,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 418,
+      "elapsedMs": 189,
       "mechCount": 2,
       "difficultyScore": 48,
       "dispersion": {
@@ -714,7 +714,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 4,
       "openSuitsMax": 1,
-      "elapsedMs": 518,
+      "elapsedMs": 237,
       "mechCount": 2,
       "difficultyScore": 62,
       "dispersion": {
@@ -749,7 +749,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 437,
+      "elapsedMs": 219,
       "mechCount": 3,
       "difficultyScore": 65,
       "dispersion": {
@@ -784,7 +784,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 580,
+      "elapsedMs": 241,
       "mechCount": 3,
       "difficultyScore": 66,
       "dispersion": {
@@ -819,7 +819,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 697,
+      "elapsedMs": 271,
       "mechCount": 3,
       "difficultyScore": 78,
       "dispersion": {
@@ -854,7 +854,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 847,
+      "elapsedMs": 208,
       "mechCount": 3,
       "difficultyScore": 66,
       "dispersion": {
@@ -889,7 +889,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 458,
+      "elapsedMs": 213,
       "mechCount": 3,
       "difficultyScore": 65,
       "dispersion": {
@@ -924,7 +924,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 528,
+      "elapsedMs": 260,
       "mechCount": 3,
       "difficultyScore": 78,
       "dispersion": {
@@ -959,7 +959,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 511,
+      "elapsedMs": 229,
       "mechCount": 3,
       "difficultyScore": 66,
       "dispersion": {
@@ -994,7 +994,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 446,
+      "elapsedMs": 220,
       "mechCount": 3,
       "difficultyScore": 66,
       "dispersion": {
@@ -1029,7 +1029,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 532,
+      "elapsedMs": 351,
       "mechCount": 3,
       "difficultyScore": 82,
       "dispersion": {
@@ -1064,7 +1064,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 471,
+      "elapsedMs": 241,
       "mechCount": 3,
       "difficultyScore": 71,
       "dispersion": {
@@ -1099,7 +1099,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 435,
+      "elapsedMs": 236,
       "mechCount": 3,
       "difficultyScore": 68,
       "dispersion": {
@@ -1134,7 +1134,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 754,
+      "elapsedMs": 314,
       "mechCount": 3,
       "difficultyScore": 88,
       "dispersion": {
@@ -1169,7 +1169,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 442,
+      "elapsedMs": 235,
       "mechCount": 3,
       "difficultyScore": 72,
       "dispersion": {
@@ -1204,7 +1204,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 580,
+      "elapsedMs": 242,
       "mechCount": 3,
       "difficultyScore": 72,
       "dispersion": {
@@ -1239,7 +1239,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 582,
+      "elapsedMs": 283,
       "mechCount": 3,
       "difficultyScore": 86,
       "dispersion": {
@@ -1274,7 +1274,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 448,
+      "elapsedMs": 241,
       "mechCount": 3,
       "difficultyScore": 72,
       "dispersion": {
@@ -1309,7 +1309,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 501,
+      "elapsedMs": 223,
       "mechCount": 3,
       "difficultyScore": 71,
       "dispersion": {
@@ -1344,7 +1344,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 534,
+      "elapsedMs": 284,
       "mechCount": 4,
       "difficultyScore": 103,
       "dispersion": {
@@ -1379,7 +1379,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 445,
+      "elapsedMs": 225,
       "mechCount": 3,
       "difficultyScore": 72,
       "dispersion": {
@@ -1414,7 +1414,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 494,
+      "elapsedMs": 218,
       "mechCount": 3,
       "difficultyScore": 71,
       "dispersion": {
@@ -1449,7 +1449,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 709,
+      "elapsedMs": 298,
       "mechCount": 3,
       "difficultyScore": 86,
       "dispersion": {
@@ -1484,7 +1484,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 542,
+      "elapsedMs": 227,
       "mechCount": 3,
       "difficultyScore": 72,
       "dispersion": {
@@ -1519,7 +1519,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 465,
+      "elapsedMs": 230,
       "mechCount": 3,
       "difficultyScore": 73,
       "dispersion": {
@@ -1554,7 +1554,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 7,
       "openSuitsMax": 1,
-      "elapsedMs": 1052,
+      "elapsedMs": 387,
       "mechCount": 4,
       "difficultyScore": 103,
       "dispersion": {
@@ -1589,7 +1589,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 558,
+      "elapsedMs": 237,
       "mechCount": 3,
       "difficultyScore": 73,
       "dispersion": {
@@ -1624,7 +1624,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 515,
+      "elapsedMs": 220,
       "mechCount": 3,
       "difficultyScore": 73,
       "dispersion": {
@@ -1659,7 +1659,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 793,
+      "elapsedMs": 308,
       "mechCount": 3,
       "difficultyScore": 87,
       "dispersion": {
@@ -1694,7 +1694,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 569,
+      "elapsedMs": 251,
       "mechCount": 3,
       "difficultyScore": 74,
       "dispersion": {
@@ -1729,7 +1729,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 466,
+      "elapsedMs": 243,
       "mechCount": 3,
       "difficultyScore": 72,
       "dispersion": {
@@ -1764,7 +1764,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 535,
+      "elapsedMs": 280,
       "mechCount": 3,
       "difficultyScore": 91,
       "dispersion": {
@@ -1799,7 +1799,7 @@
       "solutionCount": 120,
       "dockPeak": 7,
       "openSuitsMax": 1,
-      "elapsedMs": 21508,
+      "elapsedMs": 9886,
       "mechCount": 3,
       "difficultyScore": 79,
       "dispersion": {
@@ -1834,7 +1834,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 575,
+      "elapsedMs": 256,
       "mechCount": 3,
       "difficultyScore": 72,
       "dispersion": {
@@ -1869,7 +1869,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 639,
+      "elapsedMs": 267,
       "mechCount": 3,
       "difficultyScore": 90,
       "dispersion": {
@@ -1904,7 +1904,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 560,
+      "elapsedMs": 233,
       "mechCount": 3,
       "difficultyScore": 75,
       "dispersion": {
@@ -1939,7 +1939,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 567,
+      "elapsedMs": 239,
       "mechCount": 4,
       "difficultyScore": 87,
       "dispersion": {
@@ -1974,7 +1974,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 838,
+      "elapsedMs": 325,
       "mechCount": 3,
       "difficultyScore": 90,
       "dispersion": {
@@ -2009,7 +2009,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 546,
+      "elapsedMs": 246,
       "mechCount": 3,
       "difficultyScore": 74,
       "dispersion": {
@@ -2044,7 +2044,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 537,
+      "elapsedMs": 267,
       "mechCount": 3,
       "difficultyScore": 74,
       "dispersion": {
@@ -2079,7 +2079,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 556,
+      "elapsedMs": 279,
       "mechCount": 3,
       "difficultyScore": 91,
       "dispersion": {
@@ -2114,7 +2114,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 481,
+      "elapsedMs": 229,
       "mechCount": 3,
       "difficultyScore": 75,
       "dispersion": {
@@ -2149,7 +2149,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 425,
+      "elapsedMs": 215,
       "mechCount": 3,
       "difficultyScore": 73,
       "dispersion": {
@@ -2184,7 +2184,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 685,
+      "elapsedMs": 296,
       "mechCount": 4,
       "difficultyScore": 104,
       "dispersion": {
@@ -2219,7 +2219,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 435,
+      "elapsedMs": 219,
       "mechCount": 3,
       "difficultyScore": 75,
       "dispersion": {
@@ -2254,7 +2254,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 647,
+      "elapsedMs": 229,
       "mechCount": 3,
       "difficultyScore": 75,
       "dispersion": {
@@ -2289,7 +2289,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 694,
+      "elapsedMs": 275,
       "mechCount": 3,
       "difficultyScore": 89,
       "dispersion": {
@@ -2324,7 +2324,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 502,
+      "elapsedMs": 235,
       "mechCount": 3,
       "difficultyScore": 77,
       "dispersion": {
@@ -2359,7 +2359,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 524,
+      "elapsedMs": 215,
       "mechCount": 3,
       "difficultyScore": 73,
       "dispersion": {
@@ -2394,7 +2394,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 756,
+      "elapsedMs": 266,
       "mechCount": 4,
       "difficultyScore": 104,
       "dispersion": {
@@ -2429,7 +2429,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 584,
+      "elapsedMs": 221,
       "mechCount": 3,
       "difficultyScore": 74,
       "dispersion": {
@@ -2464,7 +2464,7 @@
       "solutionCount": ">=10000",
       "dockPeak": 6,
       "openSuitsMax": 1,
-      "elapsedMs": 622,
+      "elapsedMs": 238,
       "mechCount": 3,
       "difficultyScore": 77,
       "dispersion": {
@@ -2499,7 +2499,7 @@
       "solutionCount": 720,
       "dockPeak": 7,
       "openSuitsMax": 1,
-      "elapsedMs": 26189,
+      "elapsedMs": 11616,
       "mechCount": 3,
       "difficultyScore": 95,
       "dispersion": {

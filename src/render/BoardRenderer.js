@@ -150,10 +150,7 @@
     c2.beginPath(); c2.arc(w / 2, w / 2, R * 1.3, 0, Math.PI * 2); c2.fill();
     /* 2. 浮雕 Drop Shadow（下右偏移柔和投影） */
     c2.save();
-    c2.shadowColor = 'rgba(80, 96, 115, 0.38)';
-    c2.shadowBlur = R * 0.22;
-    c2.shadowOffsetX = R * 0.07;
-    c2.shadowOffsetY = R * 0.1;
+    c2.shadowBlur = 0;
     /* 3. 图鉴图案主体 */
     try { Bestiary.DRAW[e.draw](c2, w / 2, w / 2, R * 0.88); } catch (err) { /* 图案异常不杀渲染 */ }
     c2.restore();
@@ -191,12 +188,12 @@
      * 融进卡面（见该函数注释），避免「内嵌白方框」露出。 */
     var keyingOk = true;
     var SHEETS = [
-      { file: 'assets/icons/sheet1.png', base: 0,  count: 15 },
-      { file: 'assets/icons/sheet2.png', base: 15, count: 15 },
-      { file: 'assets/icons/sheet3.png', base: 30, count: 15 },
-      { file: 'assets/icons/sheet4.png', base: 45, count: 15 },
-      { file: 'assets/icons/sheet5.png', base: 60, count: 15 },
-      { file: 'assets/icons/sheet6.png', base: 75, count: 15 }
+      { file: 'assets/icons/sheet1.png', base: 0,  count: 16 },
+      { file: 'assets/icons/sheet2.png', base: 15, count: 16 },
+      { file: 'assets/icons/sheet3.png', base: 30, count: 16 },
+      { file: 'assets/icons/sheet4.png', base: 45, count: 16 },
+      { file: 'assets/icons/sheet5.png', base: 60, count: 16 },
+      { file: 'assets/icons/sheet6.png', base: 75, count: 16 }
     ];
 
     function hasDOM() { return typeof document !== 'undefined' && typeof Image !== 'undefined'; }
@@ -363,7 +360,7 @@
 
     /* sheet 加载成功 → 逐格切片 15 枚 + 注册来源 */
     function registerSheet(img, base) {
-      for (var i = 0; i < 15; i++) {
+      for (var i = 0; i < 16; i++) {
         try {
           slices[base + i] = whiteKeySlice(img, i, base);
           source[base + i] = 'sheet';
@@ -509,10 +506,10 @@
   var SHARD_COUNT_MIN = 48;
   var SHARD_COUNT_MAX = 60;  /* T084: 碎片数 MUST 落入 45~60 区间（Δ19e/FR-049） */
 /* Δ20/T093: 顶部待消槽全屏白瓷碎片瀑布（3 槽 × 45 = 135 枚） */
-var DOCK_SHARD_PER_SLOT = 45;
-var DOCK_SHARD_TOTAL = 135;
-var DOCK_SHARD_LIFE_MIN = 750;
-var DOCK_SHARD_LIFE_MAX = 950;
+var DOCK_SHARD_PER_SLOT = 30;
+var DOCK_SHARD_TOTAL = 90;
+var DOCK_SHARD_LIFE_MIN = 480;
+var DOCK_SHARD_LIFE_MAX = 480;
 var DOCK_SHARD_GRAVITY = 920; /* px/s² */
 
   /* ---------- 通用工具 ---------- */
@@ -586,7 +583,7 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     /* 1. 底部 4px 立体厚度层 */
     ctx.save();
     ctx.shadowColor = 'rgba(15, 23, 42, 0.25)';
-    ctx.shadowBlur = 6;
+    ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 3;
     roundRect(ctx, x, y + 4, w, w, r);
     ctx.fillStyle = '#CBD5E1';
@@ -870,7 +867,8 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     var anims = [];        /* {kind:'fly'|'block'|'match'|'reveal', tileId, ...} */
     var particles = [];
     var shards = [];        /* T082: 白瓷多边形碎片池 */
-    var vfxShards = [];     /* Δ20/T093: 全屏 #vfx-canvas 白瓷碎片瀑布池 */
+    var vfxShards = [];
+    var lastTickTime = null;     /* Δ20/T093: 全屏 #vfx-canvas 白瓷碎片瀑布池 */
     var vfxCanvas = null, vfxCtx = null;
     try {
       if (typeof document !== 'undefined') {
@@ -1147,7 +1145,7 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
           return verts;
         }
 
-        var total = 135;
+        var total = 90;
         var largeCount = Math.round(total * 0.15);
         var mediumCount = Math.round(total * 0.45);
         var fineCount = total - largeCount - mediumCount;

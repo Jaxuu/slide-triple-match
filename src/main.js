@@ -1577,6 +1577,21 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
       stopAutoBot('终态');
       return;
     }
+    if (typeof session.autoPlayStep === "function") {
+      var ar = session.autoPlayStep();
+      if (!ar || ar.type === "locked" || ar.type === "none") { stopAutoBot("no-solution"); return; }
+      if (ar.type === "magnet") { sound.play("botTick"); scheduleNextBotStep(); return; }
+      if (ar.type === "tap" && ar.tileId != null) {
+        autoBot.stepIndex++;
+        currentHintIndex = autoBot.stepIndex;
+        sound.play("botTick");
+        try { highlightTile(ar.tileId, 220); } catch (eHl) {}
+        scheduleNextBotStep();
+        return;
+      }
+      stopAutoBot("no-solution");
+      return;
+    }
     var sol = currentLevel.solutionMoves || [];
     var RE = STM.RulesEngine;
     var tileId = null;

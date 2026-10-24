@@ -338,6 +338,71 @@
     return RE.findBestMove(engine);
   }
 
+    function autoPlayStep() {
+      if (phase !== PHASE.READY) return { type: 'locked' };
+      var eng = engine;
+      function emitMagnetResult(r) {
+        var i;
+        for (i = 0; i < r.events.length; i++) emit(r.events[i]);
+        for (i = 0; i < r.events.length; i++) {
+          if (r.events[i].e === 'match') windowCombo();
+        }
+        emit({ e: 'item', item: 'magnet' });
+        judgeTerminal();
+      }
+      if (eng.dock.length >= 5) {
+        var snap = RE.snapshot(eng);
+        history.push(snap);
+        if (history.length > 200) history.shift();
+        var r = RE.applyItem(eng, 'magnet', null);
+        if (r && r.type !== 'invalid') {
+          emitMagnetResult(r);
+          return { type: 'magnet', result: r };
+        }
+        history.pop();
+        RE.restore(eng, snap);
+      }
+      var taps = RE.enumerateTaps(eng);
+      var anySafe = false;
+      if (taps && taps.length) {
+        for (var ti = 0; ti < taps.length; ti++) {
+          var sn = RE.snapshot(eng);
+          RE.applyTap(eng, taps[ti]);
+          var term = RE.terminal(eng);
+          RE.restore(eng, sn);
+          if (term !== 'lost_burst') { anySafe = true; break; }
+        }
+      }
+      if (!taps || !taps.length || !anySafe) {
+        var snap2 = RE.snapshot(eng);
+        history.push(snap2);
+        if (history.length > 200) history.shift();
+        var r2 = RE.applyItem(eng, 'magnet', null);
+        if (r2 && r2.type !== 'invalid') {
+          emitMagnetResult(r2);
+          return { type: 'magnet', result: r2 };
+        }
+        history.pop();
+        RE.restore(eng, snap2);
+      }
+      var tileId = findBestNextMove();
+      if (tileId == null || tileId < 0) {
+        var snap3 = RE.snapshot(eng);
+        history.push(snap3);
+        if (history.length > 200) history.shift();
+        var r3 = RE.applyItem(eng, 'magnet', null);
+        if (r3 && r3.type !== 'invalid') {
+          emitMagnetResult(r3);
+          return { type: 'magnet', result: r3 };
+        }
+        history.pop();
+        RE.restore(eng, snap3);
+        return { type: 'none' };
+      }
+      var tapRes = tap(tileId);
+      return { type: 'tap', tileId: tileId, result: tapRes };
+    }
+
   ready = true; /* 构造完毕：此后事件可正常下发（首 phase 事件于返回后异步发） */
     var api = {
       tap: tap,
@@ -350,6 +415,7 @@
       onRail: onRailCheck,
       findBestNextMove: findBestNextMove,
       findBestMove: findBestNextMove,
+      autoPlayStep: autoPlayStep,
       engineState: engineState,
       PHASE: PHASE
     };
