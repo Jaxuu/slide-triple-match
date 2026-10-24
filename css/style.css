@@ -817,21 +817,21 @@ html, body {
 }
 #splash-screen.stage-loading #splash-branding,
 #splash-branding.stage-loading {
-  margin-top: 14vh;
-  margin-bottom: 28px;
+  margin-top: 28vh;
+  margin-bottom: 36px;
   transform: scale(1);
   transform-origin: top center;
 }
 #splash-screen.stage-loading #splash-branding .splash-title,
 #splash-branding.stage-loading .splash-title {
-  font-size: 54px;
+  font-size: 100px;
   line-height: 1.05;
   font-weight: 800;
 }
 #splash-screen.stage-loading #splash-branding .splash-sub,
 #splash-branding.stage-loading .splash-sub {
-  font-size: 14px;
-  letter-spacing: 0.35em;
+  font-size: 23px;
+  letter-spacing: 0.4em;
   margin-top: 0.4em;
 }
 #splash-quote {
@@ -848,8 +848,8 @@ html, body {
 }
 .splash-quote-text {
   color: #F8FAFC;
-  font-size: 20px;
-  line-height: 1.6;
+  font-size: 33px;
+  line-height: 1.5;
   font-weight: 400;
   letter-spacing: 0.02em;
   white-space: pre-wrap;
@@ -858,7 +858,7 @@ html, body {
 .splash-quote-author {
   margin-top: 10px;
   text-align: right;
-  font-size: 14px;
+  font-size: 20px;
   color: #A7F3D0;
   letter-spacing: 0.08em;
 }
@@ -866,21 +866,21 @@ html, body {
   opacity: 0;
   transition: opacity 0.8s ease;
   position: absolute;
-  top: 85%;
+  top: 78%;
   left: 50%;
   transform: translateX(-50%);
-  width: 280px;
+  width: 300px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
 }
 #splash-screen.stage-loading #splash-progress-wrap,
 #splash-progress-wrap.stage-loading {
   opacity: 1;
 }
 .splash-progress {
-  width: 280px;
+  width: 300px;
   height: 5px;
   background: rgba(255,255,255,0.16);
   border-radius: 3px;
@@ -907,15 +907,15 @@ html, body {
   box-shadow: 0 0 10px rgba(255,255,255,0.9);
 }
 .splash-glide-mark {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 800;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.2em;
   background: linear-gradient(180deg, #FFFFFF 0%, #F1F5F9 50%, #CBD5E1 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   filter: drop-shadow(0 2px 6px rgba(56,189,248,0.35));
-  margin-top: 0;
+  margin-top: 16px;
 }
 
 .splash-brand {
