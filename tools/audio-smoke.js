@@ -9,12 +9,13 @@
  *      createMediaElementSource（file:// 下必 CORS）
  *   ③ 外部资产轨——new Audio + preload="auto" + 每音效独立实例池
  *      （shatter pool=4 连续触发不掐头；win/lose 单实例）
- *   ④ BGM 双轨——loop、0.26/0.20 目标音量、350ms 淡变（非硬切）、
- *      切换后反向轨归零并暂停（无叠音）、通关压低至 0.08
+ *   ④ BGM 双轨——loop、0.45/0.38 目标音量、350ms 淡变（非硬切）、
+ *      切换后反向轨归零并暂停（无叠音）、通关压低至 0.08、
+ *      Δ23/Bug1 常驻手势兜底（被策略暂停后任意点击自动恢复）
  *   ⑤ 事件时序——sfx_win 延迟 250ms 且同时压低 BGM；sfx_lose 瞬发
  *   ⑥ 合成轨参数——ber~ 260→680Hz/65ms + 120ms 落槽轻叩；
- *      deng~ 210→135Hz/150ms + 2 次阻尼泛音；落牌涟漪 380→760Hz、
- *      28ms、0.12 音量、>= 22ms 节流
+ *      deng~ 210→135Hz/150ms + 2 次阻尼泛音；落牌涟漪 320→180Hz、
+ *      22ms 总时长、单振荡器零泛音、>= 45ms 节流
  *   ⑦ 降级——单文件 error 后 playSfx 不抛错且走合成兜底
  *
  * 零依赖（宪章 II）：全部为浏览器契约级桩，不引任何 npm 包。
@@ -171,8 +172,8 @@ for (var i = 0; i < keys.length; i++) {
 }
 ok(CFG.dir === 'assets/audio/', '音频目录白名单 = assets/audio/');
 ok(CFG.fadeMs === 350, 'BGM 交叉淡变 = 350ms');
-ok(near(CFG.bgmVolume.lobby, 0.26) && near(CFG.bgmVolume.game, 0.20), 'BGM 目标音量 0.26 / 0.20');
-ok(CFG.dealTickMinMs === 22, '落牌涟漪节流 = 22ms');
+ok(near(CFG.bgmVolume.lobby, 0.45) && near(CFG.bgmVolume.game, 0.38), 'BGM 目标音量 0.45 / 0.38');
+ok(CFG.dealTickMinMs === 45, '落牌涟漪节流 = 45ms');
 
 /* =========================================================
  * ② 加载方式红线（源码静态断言）
@@ -241,13 +242,26 @@ ok(bgmLobby._playCount === 1, '首次交互后 bgm_lobby 起播');
 ok((winHandlers.pointerdown || []).length === 0, '解锁监听为一次性（已自我移除）');
 
 await sleep(460);
-ok(near(bgmLobby.volume, 0.26, 0.02), 'bgm_lobby 淡变至 0.26', '实测 ' + bgmLobby.volume.toFixed(3));
-ok(bgmLobby.volume > 0 && bgmLobby.volume < 0.26 + 0.001, '淡变为渐进而非硬切');
+ok(near(bgmLobby.volume, 0.45, 0.02), 'bgm_lobby 淡变至 0.45', '实测 ' + bgmLobby.volume.toFixed(3));
+ok(bgmLobby.volume > 0 && bgmLobby.volume < 0.45 + 0.001, '淡变为渐进而非硬切');
 
 sm.playBgm('game');
 await sleep(460);
-ok(near(bgmGame.volume, 0.20, 0.02), 'bgm_game 淡入至 0.20', '实测 ' + bgmGame.volume.toFixed(3));
+ok(near(bgmGame.volume, 0.38, 0.02), 'bgm_game 淡入至 0.38', '实测 ' + bgmGame.volume.toFixed(3));
 ok(bgmLobby.volume <= 0.002 && bgmLobby.paused === true, 'bgm_lobby 淡出归零并暂停（无叠音）');
+
+/* Δ23/Bug1：常驻手势兜底 —— 目标轨被策略性暂停后，任意一次点击都必须拉回播放 */
+var kickFire = (docHandlers.pointerdown || [])[0];
+ok(typeof kickFire === 'function', 'document 已绑定常驻 pointerdown 兜底（非一次性）');
+ok((docHandlers.pointerdown || []).length === 1, '常驻兜底只绑一次（不随点击累加）');
+var kickBefore = bgmGame._playCount;
+bgmGame.pause();                       /* 模拟浏览器/系统策略性暂停 */
+if (kickFire) kickFire();
+ok(bgmGame.paused === false && bgmGame._playCount === kickBefore + 1,
+  '暂停后任意手势 → bgm_game 立即恢复播放', 'playCount ' + kickBefore + '→' + bgmGame._playCount);
+var kickAgain = bgmGame._playCount;
+if (kickFire) kickFire();
+ok(bgmGame._playCount === kickAgain, '正在播放时手势兜底为幂等空操作（不重播）');
 
 /* 通关：延迟 250ms + 压低 BGM */
 var winEl = audioInstances.filter(function (a) { return /sfx_win/.test(a.src); })[0];
@@ -268,7 +282,7 @@ ok(loseEl._playCount === 1, 'sfx_lose 瞬发（槽满 7 格弹窗瞬间）');
 /* 返回大厅 → 回切且解除压低 */
 sm.playBgm('lobby');
 await sleep(460);
-ok(near(bgmLobby.volume, 0.26, 0.02), '返回大厅回切 bgm_lobby 0.26');
+ok(near(bgmLobby.volume, 0.45, 0.02), '返回大厅回切 bgm_lobby 0.45');
 ok(bgmGame.paused === true, 'bgm_game 已暂停');
 
 /* =========================================================
@@ -334,18 +348,29 @@ ok(bounces.length >= 2, 'deng~ 叠加 2 次弹性阻尼泛音', '实测 ' + boun
 
 mark = oscLog.length;
 var tickLow = sm.playDealTick(0);
-var tickLowOsc = oscSince(mark).filter(function (r) { return r.type === 'sine'; })[0];
-ok(tickLow === true && tickLowOsc && findFreq(tickLowOsc, 380), '落牌涟漪 progress=0 → 380Hz');
+var tickLowOscs = oscSince(mark);
+var tickLowOsc = tickLowOscs.filter(function (r) { return r.type === 'sine'; })[0];
+ok(tickLow === true && tickLowOsc && findFreq(tickLowOsc, 320), '落牌涟漪 progress=0 → 320Hz 起音');
+ok(tickLowOscs.length === 1, '单次只建 1 个振荡器（Δ23 去掉了 2.4× 三角泛音）', '实测 ' + tickLowOscs.length);
+if (tickLowOsc) {
+  var tickSink = (tickLowOsc.frequency._events || []).filter(function (e) { return e.k === 'exp' && near(e.v, 180, 0.6); })[0];
+  ok(!!tickSink, '落牌涟漪 320Hz → 180Hz 极速下沉');
+  var tickLen = tickLowOsc.stopped - tickLowOsc.started;
+  ok(near(tickLen, 0.022, 0.002) && tickLen <= 0.0225,
+    '单次发声总时长 22ms（严格 ≤ 22ms，零拖尾）', '实测 ' + tickLen.toFixed(4));
+  ok(tickLowOscs.every(function (r) { return r.type !== 'triangle'; }),
+    '零三角/锯齿泛音（旧版「塑料感」来源已移除）');
+}
 var throttled = sm.playDealTick(0.5);
-ok(throttled === false, '同帧第二次触发被 22ms 节流拦截');
-await sleep(30);
+ok(throttled === false, '同帧第二次触发被 45ms 节流拦截');
+await sleep(60);
 mark = oscLog.length;
 var tickHigh = sm.playDealTick(1);
 var tickHighOsc = oscSince(mark).filter(function (r) { return r.type === 'sine'; })[0];
-ok(tickHigh === true && tickHighOsc && findFreq(tickHighOsc, 760), 'progress=1 → 760Hz（音高上扬）');
+ok(tickHigh === true && tickHighOsc && findFreq(tickHighOsc, 250), 'progress=1 → 250Hz（越靠后越低沉）');
 if (tickHighOsc) {
-  var tickGain = (tickHighOsc.frequency._events || []).length > 0;
-  ok(tickGain && near(tickHighOsc.stopped - tickHighOsc.started, 0.04, 0.005), '落牌涟漪时长 ~28ms 包络');
+  var hiSink = (tickHighOsc.frequency._events || []).filter(function (e) { return e.k === 'exp' && near(e.v, 140, 0.6); })[0];
+  ok(!!hiSink, 'progress=1 下沉至 140Hz');
 }
 
 /* =========================================================
@@ -366,9 +391,13 @@ sm.setBgmMute(true);
 await sleep(420);
 ok(bgmLobby.volume <= 0.002, 'BGM 静音时外部轨淡出归零');
 ok(sm.isBgmPlaying() === false, 'BGM 静音后无活跃 BGM');
+/* Δ23/Bug1：静音态下手势兜底 MUST NOT 发声（否则「关了还响」） */
+var muteKickBefore = bgmLobby._playCount;
+if (kickFire) kickFire();
+ok(bgmLobby._playCount === muteKickBefore, 'BGM 静音时手势兜底不发声');
 sm.setBgmMute(false);
 await sleep(460);
-ok(near(bgmLobby.volume, 0.26, 0.02), '解除静音后按目标轨道续播');
+ok(near(bgmLobby.volume, 0.45, 0.02), '解除静音后按目标轨道续播');
 
 /* 单文件失败 → 静默降级 + 合成兜底（不抛错） */
 var sm2 = globalThis.STM.createSoundManager({});

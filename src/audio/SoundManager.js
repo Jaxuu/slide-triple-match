@@ -4,7 +4,7 @@
  *
  * 【双轨分工】
  *  ① 外部资产轨（assets/audio/ 8 个 mp3，`HTMLAudioElement`）
- *     · BGM：bgm_lobby（0.26 循环）/ bgm_game（0.20 循环）+ 350ms 交叉淡变
+ *     · BGM：bgm_lobby（0.45 循环）/ bgm_game（0.38 循环）+ 350ms 交叉淡变
  *     · 事件音效：sfx_win（延迟 250ms + 压低 BGM）/ sfx_lose
  *     · 语音夸赞：sfx_voice_good / great / unbelievable（T109 消费）
  *     · 多声道实例池（碎裂音效 pool=4，连续三消不掐头）+ playbackRate 变调
@@ -35,9 +35,9 @@
   var AUDIO_DIR = 'assets/audio/';
 
   var ASSETS = {
-    bgm_lobby:  { file: 'bgm_lobby.mp3',            kind: 'bgm', volume: 0.26 },
-    bgm_game:   { file: 'bgm_game.mp3',             kind: 'bgm', volume: 0.20 },
-    shatter:    { file: 'sfx_shatter.mp3',          kind: 'sfx', pool: 4, volume: 0.55 },
+    bgm_lobby:  { file: 'bgm_lobby.mp3',            kind: 'bgm', volume: 0.45 },
+    bgm_game:   { file: 'bgm_game.mp3',             kind: 'bgm', volume: 0.38 },
+    shatter:    { file: 'sfx_shatter.mp3',          kind: 'sfx', pool: 4, volume: 0.85 },
     win:        { file: 'sfx_win.mp3',              kind: 'sfx', pool: 1, volume: 0.70 },
     lose:       { file: 'sfx_lose.mp3',             kind: 'sfx', pool: 1, volume: 0.62 },
     voice_good: { file: 'sfx_voice_good.mp3',       kind: 'sfx', pool: 2, volume: 0.85 },
@@ -51,7 +51,7 @@
   var FADE_MS = 350;        /* BGM 交叉淡变时长（Δ22：350ms 平滑过渡） */
   var DUCK_VOL = 0.08;      /* 通关时 bgm_game 压低到的绝对音量 */
   var DUCK_FADE_MS = 240;   /* 压低/恢复的过渡时长 */
-  var DEAL_TICK_MIN_MS = 22;/* 落牌涟漪最小触发间隔（节流防爆音） */
+  var DEAL_TICK_MIN_MS = 45;/* 落牌涟漪最小触发间隔（Δ23：22→45ms，满载只余 8~12 声） */
 
   /* 供自测/调试读取的只读配置快照（tools/audio-smoke.js 消费） */
   STM.AUDIO_CONFIG = {
@@ -289,6 +289,7 @@
       if (bgmMuted) return;   /* 只记录意图——解除静音后补播 */
       if (!unlocked) return;  /* 首次交互前 MUST NOT 发声（FR-050 §3） */
       startBgmKey(key);
+      kickBgm();              /* 起播被 autoplay 策略拦下 → 就地重试一次 */
     }
 
     /* 通关压低（FR-050 §4：sfx_win 触发同时压低 BGM） */
@@ -424,13 +425,15 @@
       try {
         ctx = new AC();
       } catch (e) { ctx = null; return false; }
-      /* 压缩总线（SFX 防爆音） */
+      /* 压缩总线（SFX 防爆音）
+       * Δ23/Bug4：-18dB / 8:1 会把峰值 0.65 的点击音再压掉 ~12dB，
+       * 增益提升全被吃掉 → 放宽到 -12dB / 5:1，只削真正的叠加过载。 */
       master = ctx.createDynamicsCompressor();
-      master.threshold.value = -18;
-      master.knee.value = 20;
-      master.ratio.value = 8;
-      master.attack.value = 0.003;
-      master.release.value = 0.2;
+      master.threshold.value = -12;
+      master.knee.value = 16;
+      master.ratio.value = 5;
+      master.attack.value = 0.002;
+      master.release.value = 0.18;
       master.connect(ctx.destination);
       /* BGM 专用 gain（与 SFX 压缩总线隔离） */
       bgmGain = ctx.createGain();
@@ -452,12 +455,12 @@
       }
       if (!ctx) ensureCtx();
       if (unlocked) {
-        if (bgmWant && !bgmMuted && bgmPlayingKey !== bgmWant) startBgmKey(bgmWant);
+        if (bgmWant && !bgmMuted) kickBgm();
         return;
       }
       unlocked = true;
       /* 首次交互后自动起播目标 BGM（未静音时——FR-050 §3） */
-      if (bgmWant && !bgmMuted) startBgmKey(bgmWant);
+      if (bgmWant && !bgmMuted) { startBgmKey(bgmWant); kickBgm(); }
     }
 
     /* window 级一次性 pointerdown / keydown 解锁（用户首次交互即唤醒） */
@@ -471,6 +474,47 @@
       try {
         global.addEventListener('pointerdown', fire, true);
         global.addEventListener('keydown', fire, true);
+      } catch (e) { /* 忽略 */ }
+    }
+
+    /* Δ23/Bug1: BGM 播放态兜底自愈（幂等，正在播时零开销）
+     *
+     * 覆盖三类「接线正确但仍无声」的真实场景：
+     *   ① 首次 play() 被 autoplay 策略 reject（unlock 时 play 的 Promise 已 catch 掉，
+     *      但没有第二次尝试的机会）；
+     *   ② 切后台回来被浏览器/系统策略性 pause，而 bgmPlayingKey 仍是该轨；
+     *   ③ 设置里刚把「背景音乐」拨回开（bgmMuted=false 但目标轨仍 paused）。
+     * 只要 !bgmMuted && 当前场景轨 paused → 立刻 .play() 并复位到目标音量。 */
+    function kickBgm() {
+      if (!unlocked || bgmMuted || !bgmWant) return false;
+      var st = ext[bgmWant];
+      if (!st) return false;
+      if (st.status === 'failed') { startBgmKey(bgmWant); return false; }
+      if (st.status !== 'ready' || !st.el) return false;
+      if (bgmPlayingKey !== bgmWant) { startBgmKey(bgmWant); return true; }
+      var el = st.el;
+      var wasPaused = !!el.paused;
+      if (wasPaused) {
+        try {
+          el.loop = true;
+          var p = el.play();
+          if (p && typeof p.catch === 'function') p.catch(function () { });
+        } catch (e) { return false; }
+      }
+      fadeVolume(bgmWant, bgmTarget(bgmWant), FADE_MS, false);
+      return wasPaused;
+    }
+
+    /* document 级【常驻】手势监听（刻意不做一次性移除）：
+     * 用户每一次点击都顺手把 BGM 拉回播放态——这是大厅 100% 立刻响起的最终保险。 */
+    function bindBgmKick() {
+      var doc = global.document;
+      if (!doc || !doc.addEventListener) return;
+      function onGesture() { kickBgm(); }
+      try {
+        doc.addEventListener('pointerdown', onGesture, true);
+        doc.addEventListener('click', onGesture, true);
+        doc.addEventListener('keydown', onGesture, true);
       } catch (e) { /* 忽略 */ }
     }
 
@@ -494,7 +538,10 @@
       osc.start(t0); osc.stop(t0 + dur + 0.05);
     }
 
-    /* 噪声冲击（时长, 峰值, 延迟, 高通频率） */
+    /* 噪声冲击（时长, 峰值, 延迟, 高通频率）
+     * Δ23/Bug4：原实现 setValueAtTime(vol) 是**零起音硬起**，波形在 t0 处
+     * 从 0 瞬跳到 vol，产生宽带爆裂 click —— 这是「刺耳」的物理来源之一。
+     * 现补 6ms（或 dur 的 1/4）线性起音，任何调用点都不会再有硬边。 */
     function noise(dur, vol, delay, highpass) {
       if (!ctx || sfxMuted || !noiseBuf) return;
       var t0 = ctx.currentTime + (delay || 0);
@@ -504,7 +551,9 @@
       var f = ctx.createBiquadFilter();
       f.type = 'highpass';
       f.frequency.value = highpass || 400;
-      g.gain.setValueAtTime(vol, t0);
+      var atk = Math.min(0.006, dur * 0.25);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(vol, t0 + atk);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
       src.connect(f); f.connect(g); g.connect(master);
       src.start(t0); src.stop(t0 + dur + 0.05);
@@ -517,7 +566,8 @@
     /* §6 点击飞入 ber~（Tile Tap Pop）
      *   0~65ms 260Hz → 680Hz 指数上滑（圆润正弦「拔塞气泡」）
      *   8ms 起音 / 75ms 衰减归零
-     *   +120ms 软木入槽轻叩（180→90Hz / 40ms 正弦）—— 卡牌落入 #dock 瞬间 */
+     *   +120ms 软木入槽轻叩（180→90Hz / 40ms 正弦）—— 卡牌落入 #dock 瞬间
+     *   Δ23/Bug4：峰值 0.30 → 0.65（配合压缩总线放宽，实测感知响度 +7dB） */
     function playTap() {
       if (!ctx) unlock();
       if (!ctx || sfxMuted) return false;
@@ -530,7 +580,7 @@
         osc.frequency.setValueAtTime(260, t0);
         osc.frequency.exponentialRampToValueAtTime(680, t0 + 0.065);
         g.gain.setValueAtTime(0.0001, t0);
-        g.gain.exponentialRampToValueAtTime(0.30, t0 + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.65, t0 + 0.008);
         g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.075);
         osc.connect(g); g.connect(master);
         osc.start(t0); osc.stop(t0 + 0.09);
@@ -542,7 +592,7 @@
         osc2.frequency.setValueAtTime(520, t0);
         osc2.frequency.exponentialRampToValueAtTime(1360, t0 + 0.065);
         g2.gain.setValueAtTime(0.0001, t0);
-        g2.gain.exponentialRampToValueAtTime(0.055, t0 + 0.010);
+        g2.gain.exponentialRampToValueAtTime(0.11, t0 + 0.010);
         g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.060);
         osc2.connect(g2); g2.connect(master);
         osc2.start(t0); osc2.stop(t0 + 0.075);
@@ -555,7 +605,7 @@
         o3.frequency.setValueAtTime(180, t1);
         o3.frequency.exponentialRampToValueAtTime(90, t1 + 0.040);
         g3.gain.setValueAtTime(0.0001, t1);
-        g3.gain.exponentialRampToValueAtTime(0.15, t1 + 0.005);
+        g3.gain.exponentialRampToValueAtTime(0.30, t1 + 0.005);
         g3.gain.exponentialRampToValueAtTime(0.0001, t1 + 0.042);
         o3.connect(g3); g3.connect(master);
         o3.start(t1); o3.stop(t1 + 0.06);
@@ -580,7 +630,8 @@
 
     /* §7 受阻反弹 deng~（Blocked Bounce）
      *   三角波 210Hz → 135Hz（150ms 下沉）+ 24Hz 轻频偏
-     *   + 2 次弹性阻尼泛音（一「开」一「合」，与 ber~ 盲听可区分） */
+     *   + 2 次弹性阻尼泛音（一「开」一「合」，与 ber~ 盲听可区分）
+     *   Δ23/Bug4：峰值 0.26 → 0.65；泛音 0.075/0.055 → 0.19/0.14 */
     function playBlock() {
       if (!ctx) unlock();
       if (!ctx || sfxMuted) return false;
@@ -603,22 +654,31 @@
         lfoGain.connect(osc.frequency);
 
         g.gain.setValueAtTime(0.0001, t0);
-        g.gain.exponentialRampToValueAtTime(0.26, t0 + 0.006);
+        g.gain.exponentialRampToValueAtTime(0.65, t0 + 0.006);
         g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.155);
         osc.connect(g); g.connect(master);
         osc.start(t0); osc.stop(t0 + 0.17);
         lfo.start(t0); lfo.stop(t0 + 0.17);
 
         /* 2 次阻尼泛音（木鱼/木琴低音回弹） */
-        bounce(t0 + 0.052, 152, 0.075, 0.045);
-        bounce(t0 + 0.100, 138, 0.055, 0.040);
+        bounce(t0 + 0.052, 152, 0.19, 0.045);
+        bounce(t0 + 0.100, 138, 0.14, 0.040);
         return true;
       } catch (e) { return false; }
     }
 
     /* §8 开局落牌涟漪（Deal Domino Ticks）
-     *   progress ∈ [0,1] → 380Hz 平滑爬升至 760Hz；28ms 温润木琴/白玉轻叩
-     *   音量 0.12 极轻；>= 22ms 最小间隔节流（8×8×5 满载不糊成噪音） */
+     *   Δ23/Bug3 彻底重写——旧版「28ms 正弦 + 2.4× 三角泛音 + 380→760Hz 大跨度
+     *   上滑 + 22ms 节流」的问题不是单声太长，而是**声数太多**：满载 141 张牌时
+     *   0.8s 内约 37 声首尾相接，叠成一条连续电子扫频，听起来像刻意配音。
+     *
+     *   新口径：极短促、干脆、自然的「木质/骨牌微触声」（Soft Dry Wood Tap）
+     *     · 单次总时长 22ms，快速指数衰减，**零拖尾延音**
+     *     · 正弦 320→180Hz 极速下沉（木头/骨牌被轻叩的实心感），
+     *       越靠后越低沉：f0 = 320-70p、f1 = 180-40p
+     *     · 800Hz 低通削掉一切高频毛刺，只留「叩」的木头质感
+     *     · 去掉全部 2.4× 三角泛音（旧版「塑料感」来源）
+     *     · 全局节流 45ms → 满载一场只余 8~12 声，密度回到「点缀」而非「音阶」 */
     var lastDealTickAt = -1e9;
     function playDealTick(progress) {
       var t = nowMs();
@@ -629,31 +689,28 @@
       var p = progress;
       if (typeof p !== 'number' || !isFinite(p)) p = 0;
       p = p < 0 ? 0 : (p > 1 ? 1 : p);
-      var f = 380 + (760 - 380) * p;
+      var f0 = 320 - 70 * p;   /* 320 → 250Hz */
+      var f1 = 180 - 40 * p;   /* 180 → 140Hz */
       try {
         var t0 = ctx.currentTime + 0.001;
 
         var o = ctx.createOscillator();
         var g = ctx.createGain();
-        o.type = 'sine';
-        o.frequency.setValueAtTime(f, t0);
-        o.frequency.exponentialRampToValueAtTime(f * 1.06, t0 + 0.028);
-        g.gain.setValueAtTime(0.0001, t0);
-        g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.004);
-        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.028);
-        o.connect(g); g.connect(master);
-        o.start(t0); o.stop(t0 + 0.04);
+        var lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 800;   /* 木质低通：高频毛刺一律不留 */
+        lp.Q.value = 0.7;
 
-        /* 泛音层（2.4× 三角，极轻——白玉/木琴的木质光泽） */
-        var o2 = ctx.createOscillator();
-        var g2 = ctx.createGain();
-        o2.type = 'triangle';
-        o2.frequency.setValueAtTime(f * 2.4, t0);
-        g2.gain.setValueAtTime(0.0001, t0);
-        g2.gain.exponentialRampToValueAtTime(0.030, t0 + 0.003);
-        g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.020);
-        o2.connect(g2); g2.connect(master);
-        o2.start(t0); o2.stop(t0 + 0.03);
+        o.type = 'sine';
+        o.frequency.setValueAtTime(f0, t0);
+        o.frequency.exponentialRampToValueAtTime(f1, t0 + 0.020); /* 20ms 极速下沉 */
+
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.14, t0 + 0.003);    /* 3ms 起音——干脆 */
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.022);  /* 22ms 归零——无拖尾 */
+
+        o.connect(lp); lp.connect(g); g.connect(master);
+        o.start(t0); o.stop(t0 + 0.022);
         return true;
       } catch (e) { return false; }
     }
@@ -830,7 +887,17 @@
       /* M2 机制音效 */
       gear: function () { tone('square', 300, 420, 0.16, 0.12); },
       unlock: function () { tone('sine', 700, 1050, 0.2, 0.13); },
-      iceBreak: function () { noise(0.2, 0.16, 0, 1800); tone('sine', 1400, 900, 0.16, 0.08); },
+      /* 冰封解冻：正弦水滴气泡融化声（Δ23/Bug4 彻底重写）
+       * 旧版 noise(0.2, 0.16, 0, 1800) + tone('sine', 1400, 900, ...)：
+       *   1800Hz 高通噪声 + 1400Hz 正弦正踩在 2~5kHz 等响曲线最敏感区，
+       *   感知响度比点击音高 20~25dB，所以「刺耳且过大」。
+       * 现改为两声低域正弦气泡（480→620Hz / 70ms / 0.22，
+       * 再叠一声 320→380Hz / 50ms / 0.10 的「水膜破裂」）——
+       * 零 sawtooth、零 square、零 >1000Hz 成分。 */
+      iceBreak: function () {
+        tone('sine', 480, 620, 0.07, 0.22, 0.000);
+        tone('sine', 320, 380, 0.05, 0.10, 0.035);
+      },
       prism: function () { tone('sine', 900, 1350, 0.14, 0.11); },
       undo: function () { tone('sine', 700, 300, 0.3, 0.13); },
       item: function () { tone('square', 520, 660, 0.1, 0.1); },
@@ -891,7 +958,9 @@
         stopProceduralBgm();
         bgmPlayingKey = null;
       } else if (unlocked && bgmWant) {
+        /* Δ23/Bug1：开关拨回「开」→ 立刻按当前场景起播（不等下一次手势） */
         startBgmKey(bgmWant);
+        kickBgm();
       }
       applyProceduralGain();
     }
@@ -913,6 +982,7 @@
         bgmPlayingKey = null;
       } else if (unlocked && bgmWant) {
         startBgmKey(bgmWant);
+        kickBgm();
       }
       if (sfxMuted) cancelPending();
       applyProceduralGain();
@@ -937,6 +1007,7 @@
     /* ---------- 初始化 ---------- */
     initExternal();          /* 8 个文件即刻 preload（file:// 亦有效） */
     bindUnlockOnce();
+    bindBgmKick();           /* Δ23/Bug1：常驻手势自愈（每一次点击都兜底一次） */
     if (global.document && global.document.addEventListener) {
       global.document.addEventListener('visibilitychange', handleVisibility);
     }
@@ -950,6 +1021,7 @@
       playShatter: playShatter,
       playVoice: playVoice,
       playBgm: playBgm,
+      kickBgm: kickBgm,        /* Δ23/Bug1：手动兜底一次（设置面板/调试面板切开关时用） */
       duckBgm: duckBgm,
       /* 交互级合成音效（T107 / 供 T111 逐牌消费） */
       playTap: playTap,

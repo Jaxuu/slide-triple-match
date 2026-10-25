@@ -93,7 +93,7 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 | `skipDeal()` | 立即快进至 `100%`（全部卡牌归位、`alpha = 1`、压制锁定按 FR-044 §4 生效），返回后棋盘立即可交互 |
 | `isDealing()` | 返回 `boolean`；`main.js` 的 `pointerdown` 前置检查据此决定是否先 `skipDeal()` 再走正常命中判定（**MUST NOT 吞掉该次点击**） |
 | 时序 | `0 ~ 180ms`：全部卡牌 `alpha = 0`，仅绘制风景底图；`180 ~ 1000ms`：逐牌落定（动画总时长 `<= 1000ms`） |
-| 逐牌回调 | 每张卡牌落定触发 `onDealTick(tile)` → `SoundManager.playSynth('dealTick')`（节流 `>= 22ms`，音高随进度上扬） |
+| 逐牌回调 | 每张卡牌落定触发 `onDealTick(tile)` → `SoundManager.playDealTick(progress)`（节流 `>= 45ms`，单声 `15~22ms` 木质微触，音高随进度**由高到低**收敛 `320→180Hz`） |
 | **绘制排序（MUST）** | 动画期间 MUST 复用静态渲染**同一比较器** `(a.z - b.z) \|\| (a.r - b.r) \|\| (a.c - b.c)` 升序；MUST NOT 为动画另建排序 |
 | **层级延迟（MUST）** | 同一渲染坐标下高层 `z` 的落定时刻恒比低层晚 `+55ms * z`——**先落底层、后落顶层，零穿模** |
 | 坐标口径 | 起落坐标 MUST 复用 `getTileCssRect()`（含奇偶层半格偏移），MUST NOT 用逻辑坐标 `(c+0.5)*cell` 直算 |
@@ -118,10 +118,11 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 | 方法 | 参数 | 行为与约束 |
 |---|---|---|
 | `preload()` | — | 预载 8 个外部资产，返回 `Promise<{ready: string[], failed: string[]}>`；失败不抛错 |
-| `playBgm(which)` | `'lobby' \| 'game' \| null` | `lobby` → 音量 `0.26`；`game` → `0.20`；切换时 **`350ms` 交叉淡变**（音量渐变，非硬切）；`null` = 全部淡出。快速回切 MUST 平滑、**MUST NOT 叠音** |
+| `playBgm(which)` | `'lobby' \| 'game' \| null` | `lobby` → 音量 `0.45`；`game` → `0.38`（**Δ23 由 `0.26` / `0.20` 修订**，配套 `assets/audio/` 8 文件 loudnorm 归一至 BGM `−18 LUFS` / 音效 `−14 LUFS` / 语音 `−13 LUFS`）；切换时 **`350ms` 交叉淡变**（音量渐变，非硬切）；`null` = 全部淡出。快速回切 MUST 平滑、**MUST NOT 叠音** |
+| `kickBgm()` | — | **Δ23 新增**。幂等兜底：`!bgmMuted && unlocked` 且当前场景轨 `paused` 时立即 `play()` 并复位到目标音量；正在播放时为零开销空操作（MUST NOT 重播/叠音）。由 `document` 级**常驻** `pointerdown` / `click` / `keydown` 自动调用，覆盖「`play()` 被 autoplay 策略 reject」「切后台回来被系统暂停」「设置里刚打开开关」三类场景 |
 | `playSfx(name, opts)` | `name`（外部轨音效名）, `opts = {rate = 1.0, delay = 0}` | 瞬发（`sfx_shatter` 为 0ms）；`rate` 写入 `playbackRate` 并设 `preservesPitch = false`；`delay` 为毫秒延迟（**静音时 MUST 一并取消**） |
 | `playVoice(tier)` | `'good' \| 'great' \| 'unbelievable'` | 内部固定延迟 **`120ms`** 播放；连击升级时**取消上一档未播语音**（只播最终档） |
-| `playSynth(name, opts)` | `name` = `'tap' \| 'blocked' \| 'dealTick' \| 'splashChord'`, `opts` | **同帧起音**（`pointerdown` 判合法后立即，不等动画）；`dealTick` 受 `>= 22ms` 节流 |
+| `playSynth(name, opts)` | `name` = `'tap' \| 'blocked' \| 'dealTick' \| 'splashChord'`, `opts` | **同帧起音**（`pointerdown` 判合法后立即，不等动画）；`dealTick` 受 `>= 45ms` 节流（**Δ23 由 `>= 22ms` 修订**），单声总时长 `15~22ms`、`320→180Hz`、`800Hz` 低通、单振荡器零泛音 |
 | `duckGameBgm(ratio)` | `ratio = 0.5` | `sfx_win` 触发时压低 `bgm_game` 至 50% |
 | `setMuted(bool)` | — | **两轨同静默** + 取消所有已排定延迟触发；持久于 Progress / Profile |
 | `setSfxMuted(bool)` / `setBgmMuted(bool)` | — | 分轨开关（FR-040 三项开关粒度）；**`settings.sfx` MUST 与复选框 `checked` 严格同向**（Δ21 修布尔反转） |

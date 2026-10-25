@@ -209,11 +209,11 @@ check('逐牌落定各触发一次（8×8 层叠关卡全部发声）', dealTick
   dealTicks.length + '/' + lv.tiles.length);
 var monoTick = true;
 for (var ti = 1; ti < dealTicks.length; ti++) if (dealTicks[ti] < dealTicks[ti - 1]) monoTick = false;
-check('progress 单调不减（音高渐次上扬）', monoTick);
-check('SoundManager 落牌节流口径 = 22ms', (function () {
+check('progress 单调不减（落牌时间轴顺序）', monoTick);
+check('SoundManager 落牌节流口径 = 45ms（Δ23 收紧声数）', (function () {
   var SM = require('../src/audio/SoundManager.js');
   var sm = STM.createSoundManager({});
-  return !!(globalThis.STM.AUDIO_CONFIG && globalThis.STM.AUDIO_CONFIG.dealTickMinMs === 22);
+  return !!(globalThis.STM.AUDIO_CONFIG && globalThis.STM.AUDIO_CONFIG.dealTickMinMs === 45);
 })());
 
 console.log('\n⑥ 点击快进（零迟滞）');

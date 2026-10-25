@@ -194,11 +194,11 @@
     var keyingOk = true;
     var SHEETS = [
       { file: 'assets/icons/sheet1.png', base: 0,  count: 16 },
-      { file: 'assets/icons/sheet2.png', base: 15, count: 16 },
-      { file: 'assets/icons/sheet3.png', base: 30, count: 16 },
-      { file: 'assets/icons/sheet4.png', base: 45, count: 16 },
-      { file: 'assets/icons/sheet5.png', base: 60, count: 16 },
-      { file: 'assets/icons/sheet6.png', base: 75, count: 16 }
+      { file: 'assets/icons/sheet2.png', base: 16, count: 16 },
+      { file: 'assets/icons/sheet3.png', base: 32, count: 16 },
+      { file: 'assets/icons/sheet4.png', base: 48, count: 16 },
+      { file: 'assets/icons/sheet5.png', base: 64, count: 16 },
+      { file: 'assets/icons/sheet6.png', base: 80, count: 16 }
     ];
 
     function hasDOM() { return typeof document !== 'undefined' && typeof Image !== 'undefined'; }
@@ -209,8 +209,11 @@
      *   >252 纯白 → alpha 归 0；同时羽化带做 alpha 预乘防白边
      * 切片后贴图与奶油白牌面乘性自然融合（无矩形白底残留） */
     function whiteKeySlice(img, cellIndex, base) {
-      /* Δ21b/T099: 9% 内缩 + 非白包围盒质心自动居中
-       * Δ22: 优先使用离线预计算包围盒 STM_ICON_BBOXES（绕过 file:// getImageData 跨域限制） */
+      /* Δ21b/T099: 非白包围盒质心自动居中
+       * Δ22: 优先使用离线预计算包围盒 STM_ICON_BBOXES（绕过 file:// getImageData 跨域限制）
+       * Δ23/Bug2: 离线包围盒口径改为「只忽略最外圈 2px + 阈值 246 + 外扩 8px + 正方形」，
+       *   兜底路径的运行时内缩同步从 9% 降到 0.4%（≈2px）——5%/9% 内缩会把
+       *   贴边的耳朵/尾鳍/角直接切掉。 */
       var S = SLICE_PX;
       var cv = document.createElement('canvas');
       cv.width = S; cv.height = S;
@@ -316,7 +319,7 @@
         return { tmp: tmp, bbox: bbox, edge: edge };
       }
 
-      var res = process(0.09);
+      var res = process(0.004);
       if (res && res.edge) {
         var res2 = process(0);
         if (res2) res = res2;
@@ -363,7 +366,11 @@
       c2.globalCompositeOperation = 'source-over';
     }
 
-    /* sheet 加载成功 → 逐格切片 15 枚 + 注册来源 */
+    /* Δ23/Bug2: sheet 加载成功 → 逐格切片 16 枚 + 注册来源
+     * 【铁律】base MUST 按 16 步进（0/16/32/48/64/80）——6×16 = 96 个花色。
+     * 旧实现 base 按 15 步进，每张第 16 格与下一张第 1 格索引撞车
+     * （谁最后 onload 谁赢），导致 75/90 个花色取到错格包围盒 →
+     * 白兔左脸/红鲸鱼头部/白牦牛左侧身体被裁切。 */
     function registerSheet(img, base) {
       for (var i = 0; i < 16; i++) {
         try {
@@ -407,7 +414,7 @@
           }
         };
         img.onerror = tryNext;
-        img.src = baseFile + '.' + ext + '?v=21';
+        img.src = baseFile + '.' + ext + '?v=22';
       }
       tryNext();
     }

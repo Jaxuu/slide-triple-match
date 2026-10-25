@@ -129,7 +129,13 @@ async function main() {
     return {
       hidden: L.hidden,
       settings: !!L.querySelector('.lobby-btn-settings'),
+      /* 测试口径修正：大厅顶部左区的 🛠 已于 a29bd26 下线（原「lobby wrench」
+       * 缺陷根因是它与局内面板抢同一开关态，且挤压设置按钮命中区）。
+       * 调试面板现行入口 = main.js ensureDebugToggle() 注入的全局
+       * #debug-toggle（移动端显示，PC 端面板默认展开）。
+       * 故此处改为**双向护栏**：大厅内不得再出现 🛠，且全局入口必须存在。 */
       debug: !!L.querySelector('.lobby-btn-debug'),
+      debugToggle: !!document.getElementById('debug-toggle'),
       shards: (L.querySelector('.lobby-shards-value')||{}).textContent,
       brand: (L.querySelector('.lobby-brand-name')||{}).textContent,
       portal: !!L.querySelector('.portal'),
@@ -147,7 +153,9 @@ async function main() {
   })()`);
   check('B1 大厅根节点可见', zones && !zones.missing && zones.hidden === false);
   check('B2 顶部左: 设置⚙️', !!zones.settings);
-  check('B3 顶部左: 调试🛠', !!zones.debug);
+  check('B3 顶部左仅设置⚙️（🛠 已迁至全局 #debug-toggle）',
+    zones.debug === false && zones.debugToggle === true,
+    'lobbyDebug=' + zones.debug + ' globalToggle=' + zones.debugToggle);
   check('B4 顶部右: 棱晶货币栏有数值', zones.shards !== undefined && zones.shards !== '');
   check('B5 中上: Glide Critters 徽标', zones.brand === 'Glide Critters', zones.brand);
   check('B6 中心: 棱晶星盘传送门', !!zones.portal);
@@ -305,7 +313,9 @@ async function main() {
     return { cells: cells.length, input: !!document.querySelector('.jelly-input'),
              selected: document.querySelectorAll('.avatar-cell.is-selected').length };
   })()`);
-  check('G1 头像网格 45 选 1', prof.cells === 45, '实际 ' + prof.cells);
+  /* 测试口径修正：45 → 90。头像网格取 `bid <= 89`（见 src/ui/modals.js），
+   * 与 spec FR-040 §2「90 选 1」一致；45 是 Δ14 前的旧图鉴基数。 */
+  check('G1 头像网格 90 选 1', prof.cells === 90, '实际 ' + prof.cells);
   check('G2 昵称输入框', prof.input);
   check('G3 选中项打勾高亮', prof.selected === 1, 'selected=' + prof.selected);
   /* 改昵称 → 持久化 */
@@ -363,7 +373,11 @@ async function main() {
   check('H6 萌宠乘发光滑板跃起', res.rider && res.board);
   check('H7 棱晶星芒与光点粒子', res.spark >= 8, 'sparks=' + res.spark);
   check('H8 棱晶飞入动效金额 +60', res.amt === '+60', res.amt);
-  check('H9 非满充能 → 按钮为返回大厅', res.btn === '返回主大厅', res.btn);
+  /* 测试口径修正：非满充能时底部按钮文案已改为**下一关号**（`关卡 N+1`），
+   * 点击即 `enterGame(nextLevelId)` 直进下一关（src/ui/result.js:197 /
+   * src/main.js:1496），不再是旧文案「返回主大厅」。
+   * 满充能分支 → `继续` 由下方「传送门开启展板」组覆盖。 */
+  check('H9 非满充能 → 按钮指向下一关', res.btn === '关卡 4', res.btn);
 
   console.log('\n[lobby-smoke] 传送门开启展板（4/4 触发）');
   await evalJs(`(function(){

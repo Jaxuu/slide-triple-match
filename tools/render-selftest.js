@@ -518,13 +518,36 @@ function scenarioSpriteSheets() {
   check('sheet 切片: 16 格全注册（4×4 满格——Δ21 起取消水印格跳过）', sliceOk && sliceMsg === '');
   if (sliceMsg) console.log('    [' + sliceMsg + ']');
 
-  /* sheet 定义: 6 张 × 16 格，基址 0/15/30/45/60/75（相邻张首尾重叠 1 格，覆盖 0~90） */
-  var sheetBases = [0, 15, 30, 45, 60, 75];
+  /* sheet 定义: 6 张 × 16 格，基址 0/16/32/48/64/80（Δ23/Bug2 起按满格 16 步进，
+   * 不再有「相邻张首尾重叠 1 格」——那正是 75/90 个花色取错格的原因） */
+  var sheetBases = [0, 16, 32, 48, 64, 80];
   var sheetsOk = IA.SHEETS.length === 6 &&
     IA.SHEETS.every(function (sh, i) { return sh.base === sheetBases[i] && sh.count === 16; });
-  check('SHEETS 配置: 6 张 × 基址 0/15/30/45/60/75 × 16 格（覆盖 0~90）', sheetsOk);
+  check('SHEETS 配置: 6 张 × 基址 0/16/32/48/64/80 × 16 格（覆盖 0~95）', sheetsOk);
   var pathsOk = IA.SHEETS.every(function (sh) { return sh.file.indexOf('assets/icons/sheet') === 0; });
   check('sheet 路径约定 assets/icons/sheet{1..6}.png（相对路径）', pathsOk);
+
+  /* Δ23/Bug2: 离线包围盒口径 —— 96 条、全部正方形、全部落在本格内。
+   * 任何一条越出本格 ⇒ 该花色会切到邻格内容（红鲸鱼/白兔/白牦牛的裁切回归）。 */
+  var bbRes = (function () {
+    var BB = globalThis.STM_ICON_BBOXES;
+    if (!BB || BB.length !== 96) return { ok: false, why: 'len=' + (BB ? BB.length : 'null') };
+    var CW = 512, CH = 512;
+    for (var k = 0; k < BB.length; k++) {
+      var b = BB[k];
+      var cell = k % 16, sheetIdx = Math.floor(k / 16);
+      var gx = (cell % 4) * CW, gy = Math.floor(cell / 4) * CH;
+      if (b.sw !== b.sh) return { ok: false, why: 'suit' + k + ' 非正方形 ' + b.sw + 'x' + b.sh };
+      if (b.sw < 1 || b.sw > CW) return { ok: false, why: 'suit' + k + ' 边长越界 ' + b.sw };
+      if (b.sx < gx || b.sy < gy || b.sx + b.sw > gx + CW || b.sy + b.sh > gy + CH) {
+        return { ok: false, why: 'suit' + k + ' 越出本格 sheet' + (sheetIdx + 1) +
+          ' cell' + cell + ' → (' + b.sx + ',' + b.sy + ',' + b.sw + ')' };
+      }
+    }
+    return { ok: true, why: '' };
+  })();
+  check('离线包围盒: 96 条 × 全部正方形 × 全部落在本格内（Δ23/Bug2）', bbRes.ok);
+  if (!bbRes.ok) console.log('    [' + bbRes.why + ']');
 
   /* statusOf 兜底链: 未注册 bid → 'emoji'（贴图缺失降级口径） */
   var stOk = IA.statusOf(0) === 'emoji' || IA.statusOf(0) === 'sheet';
@@ -1649,7 +1672,7 @@ function scenarioDelta22Intro() {
   rnd.startDeal(0);
   pumpFrames(120);
   check('T111④: 逐牌落定触发落牌涟漪音（5 张牌全部发声）', dealTicks.length === 5);
-  check('T111④: 落牌音 progress 单调不减（音高渐次上扬）', (function () {
+  check('T111④: 落牌音 progress 单调不减（落牌时间轴顺序）', (function () {
     for (var i = 1; i < dealTicks.length; i++) if (dealTicks[i] < dealTicks[i - 1]) return false;
     return true;
   })());

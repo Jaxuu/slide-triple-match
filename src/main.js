@@ -126,6 +126,23 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     saveProgress();
   }
 
+  /* Δ23/Bug1：设置面板 / 调试面板把「背景音乐」拨回【开】时，立即按当前界面起播。
+   * 旧实现只调 setBgmMute(false) → startBgmKey 内部 el.play() 一旦被 autoplay
+   * 策略 reject 就再无第二次机会，表现为「开关打开了还是没声」。
+   * 这里显式 playBgm(当前场景) + kickBgm() 双保险；关闭分支由
+   * setBgmMute(true) 负责淡出并 pause()，故本函数只在「开」时动作。 */
+  function resumeBgmNow() {
+    if (!sound) return;
+    var on = true;
+    try {
+      var s = STM.Profile.get().settings;
+      on = !s || s.bgm !== false;
+    } catch (e) { on = true; }
+    if (!on) return;
+    if (sound.playBgm) sound.playBgm(isScene(SCENE.LOBBY) ? 'lobby' : 'game');
+    if (sound.kickBgm) sound.kickBgm();
+  }
+
   /* =========================================================
    * T020: boot 流程与 LEVELS.length 动态化（Δ4——禁止硬编码关数）
    * ========================================================= */
@@ -208,6 +225,8 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
           if (els.debugMute) els.debugMute.checked = !!(s.bgm && s.sfx);
           progress.muted = !(s.bgm && s.sfx);
           renderMuteBtn();
+          /* Δ23/Bug1：拨回「开」→ 立刻按当前界面响起（不等下一次手势） */
+          resumeBgmNow();
         } catch (e) { /* 存储不可用 → 内存态照常（D-03） */ }
       },
       onBackToLobby: function () { enterLobby({ unlocked: progress.unlocked, level: progress.last }); },
@@ -1713,6 +1732,8 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     } catch (e) { }
     if (sound && sound.setBgmMute) sound.setBgmMute(!on);
     if (sound && sound.setSfxMute) sound.setSfxMute(!on);
+    /* Δ23/Bug1：调试面板同样「一开就响」，与设置面板口径一致 */
+    resumeBgmNow();
     renderMuteBtn();
   }
 
