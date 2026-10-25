@@ -1022,6 +1022,12 @@
       playVoice: playVoice,
       playBgm: playBgm,
       kickBgm: kickBgm,        /* Δ23/Bug1：手动兜底一次（设置面板/调试面板切开关时用） */
+      /* Δ25 性能：预热 AudioContext。
+       * `new AudioContext()` 实测 self 166~344ms（probes/cpu-prof.js）。
+       * 原先它只在第一声落牌时被惰性创建 → 开局发牌动画被顶出 300ms 卡顿。
+       * 调用方应在**关卡加载之前**（开机动画期间）调一次；建出来只是
+       * suspended 状态，首次手势由 unlock() 的 resume() 唤醒，合规性不变。 */
+      warmup: function () { return ensureCtx(); },
       duckBgm: duckBgm,
       /* 交互级合成音效（T107 / 供 T111 逐牌消费） */
       playTap: playTap,

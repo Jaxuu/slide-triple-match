@@ -1151,6 +1151,38 @@ function scenarioDelta19() {
   var sh = STM.rendererTest.SHARDS;
   check('T084: 白瓷碎片数落入 48~60', sh && sh.min >= 48 && sh.max <= 60 && sh.max > sh.min);
 
+  /* ---- T122~T124: Δ25 性能回归护栏（开局发牌卡顿） ----
+   * 根因链：默认 2D 上下文是 GPU 后备的，getImageData 要同步把像素从显存拷回
+   * 内存，且这条通路首次使用还有一次性初始化（实测冷启动 1024² 需 279.6ms）。
+   * 6 张图集键控因此把 1000ms 的落牌编舞拉长到 2883~3158ms。护栏三条：
+   *   ① 所有要回读的画布 MUST 用 willReadFrequently 拿上下文（WRF 画布
+   *      从一开始就是 CPU 后备，冷启动首次 1024² 只要 9.9ms）；
+   *   ② registerSheet MUST NOT 逐格调 whiteKeySlice（回读次数 96 → 6）；
+   *   ③ 关卡准备 MUST 排在图标切片之后（编舞不得与键控重叠）。 */
+  check('T122: 要回读像素的画布一律用 willReadFrequently 上下文',
+    /var WRF = \{ willReadFrequently: true \}/.test(brSrc) &&
+    /atlas\.getContext\('2d', WRF\)/.test(brSrc) &&
+    /* 图集若退回默认上下文，首张键控会重新吃 250ms+ 的一次性惩罚 */
+    !/atlas\.getContext\('2d'\)/.test(brSrc));
+  check('T123: registerSheet 走图集批量键控（不再逐格 whiteKeySlice）', (function () {
+    var i = brSrc.indexOf('function registerSheet');
+    var j = brSrc.indexOf('function statusOf', i);
+    if (i < 0 || j <= i) return false;
+    var body = brSrc.slice(i, j);
+    /* 兜底分支可以保留 whiteKeySlice，但必须在 buildSheetSlices 失败之后才走到 */
+    return body.indexOf('buildSheetSlices(img, base)') !== -1 &&
+      body.indexOf('built && built[i]') !== -1;
+  })());
+  check('T124: 大厅/局内准备排在图标切片之后（编舞不与键控重叠）', (function () {
+    var i = mainSrc.indexOf('function startPreloadResources');
+    var j = mainSrc.indexOf('function renderSplashQuote', i);
+    if (i < 0 || j <= i) return false;
+    var body = mainSrc.slice(i, j);
+    var w = body.indexOf('waitIconSlices()');
+    var p = body.indexOf('tryPrepareLobby()');
+    return w !== -1 && p !== -1 && w < p;
+  })());
+
   /* ---- T085: 顶栏（含 IQ 胶囊）→ 待消槽 → 棋盘 ---- */
   var iqPillAt = html.indexOf('id="iq-pill"');
   var dockAt = html.indexOf('id="dock"');

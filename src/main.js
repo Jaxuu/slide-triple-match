@@ -346,6 +346,39 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     });
   }
 
+  /* Δ25 性能：音频上下文预热。建出来只是 suspended，首次手势由 unlock()
+   * 的 resume() 唤醒——autoplay 合规性不变，只是把构造成本挪出编舞窗口。 */
+  function warmAudioNow() {
+    if (!sound || !sound.warmup) return;
+    try { sound.warmup(); } catch (eWarm) { /* 忽略 */ }
+  }
+
+  /* Δ25 性能：等图标切片（96 格键控）全部就绪。
+   *
+   * 【为什么必须等】实测 deal-timeline.js：旧实现里 `enterGame → loadLevel →
+   * startDealChoreography` 在 ~520ms 就跑起来了，而 6 张图集的键控要到
+   * ~1.7s 才陆续到达（sheet 的 Image 解码耗时），于是键控直接压在落牌编舞上，
+   * 把 1000ms 的动画拉长到 2883~3158ms——这就是「开局卡牌落子很卡」。
+   * 现在把「准备大厅/局内」整体推到切片就绪之后，编舞再也不会与键控重叠。
+   *
+   * 【为什么不会拖慢开机】开机遮罩本来就要挂到 3.76s（1.6s 片头 + 2.16s 进度条），
+   * 切片在 1.7~1.9s 完成，仍完全落在遮罩窗口内。 */
+  function waitIconSlices() {
+    return new Promise(function (resolve) {
+      if (!STM.IconAssets || !STM.IconAssets.ensureLoaded) { resolve(); return; }
+      try { STM.IconAssets.ensureLoaded(); } catch (e) { resolve(); return; }
+      var total = (STM.IconAssets.SHEETS && STM.IconAssets.SHEETS.length) || 6;
+      var t0 = Date.now();
+      (function poll() {
+        var n = 0;
+        try { n = STM.IconAssets.sheetCount() || 0; } catch (e2) { n = 0; }
+        /* 2.5s 兜底：任一张 sheet 404 时不能把开机卡死（键控降级 darken 仍可玩） */
+        if (n >= total || Date.now() - t0 > 2500) { resolve(); return; }
+        global.setTimeout(poll, 32);
+      })();
+    });
+  }
+
   function startPreloadResources() {
     if (preloadPromise) return preloadPromise;
     var items = [];
@@ -355,8 +388,12 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     items.push(waitForBBoxes());
     preloadPromise = Promise.all(items).then(function () {
       preloadDone = true;
-      tryPrepareLobby();
       tryFinishSplashTransition();
+      /* Δ25: 大厅/局内准备（含开局编舞）必须排在图标切片之后 */
+      return waitIconSlices().then(function () {
+        tryPrepareLobby();
+        tryFinishSplashTransition();
+      });
     });
     return preloadPromise;
   }
@@ -383,7 +420,9 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
   }
 
   function tryFinishSplashTransition() {
-    if (!preloadDone || !splashStageReached || !progressAnimationDone) return;
+    /* Δ25: 追加 lobbyPrepared 门槛——大厅/局内准备已整体推到图标切片之后，
+     * 遮罩 MUST 等它完成再淡出，否则会露出空白底。 */
+    if (!preloadDone || !splashStageReached || !progressAnimationDone || !lobbyPrepared) return;
     global.setTimeout(function () {
       var splash = global.document.getElementById('splash-screen');
       if (!splash) return;
@@ -417,6 +456,14 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
 
     sound = STM.createSoundManager({});
     if (sound.setMuted && progress.muted) sound.setMuted(progress.muted);
+
+    /* Δ25 性能：AudioContext 预热。
+     * `new AudioContext()` 冷启动实测 180ms（隔离测量，probes 内 /tmp/ac-cost.js），
+     * 原先它落在**第一声落牌**上（ensureCtx 惰性创建），把发牌顶出 ~300ms 卡顿。
+     * 这里在 boot 之后的下一个宏任务里建好——此时 6 张 sheet 还没解码完，
+     * 音频线程初始化不会和 JPEG 解码抢 CPU；建出来只是 suspended，
+     * 首次手势由 unlock() 的 resume() 唤醒，autoplay 合规性不变。 */
+    global.setTimeout(warmAudioNow, 0);
 
     /* 首次 pointerdown 惰性解锁 AudioContext（autoplay 政策）
      * Δ14/T052f: unlock() 内首交互自动开启治愈系 BGM（FR-037 §2） */

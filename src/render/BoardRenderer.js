@@ -188,6 +188,17 @@
      * 128 档丢弃 87.5% 像素且在 DPR≥2 真机上逼近源分辨率而被迫插值。
      * 256 档在 8×8×DPR2（图标绘制约 150px）下仍有余量，且切片总数仅 45。 */
     var SLICE_PX = 256;
+    /* Δ25 性能（卡顿根因）：凡是**要回读像素**的画布，一律用它拿上下文。
+     * 默认 2D 上下文是 GPU 后备的，`getImageData` 要先把整块像素从显存同步
+     * 拷回内存，且这条通路首次使用还有一次性初始化。实测（probes/getimg-cost.js）：
+     *   默认上下文 · 冷启动首次 1024²  →  get 260.5ms + loop 16.0 + put 3.1 = 279.6ms
+     *   默认上下文 · 预热后再 1024²    →  get   7.7ms + loop  5.8 + put 1.0 =  14.5ms
+     *   WRF 上下文 · 冷启动首次 1024²  →  get   3.3ms + loop  4.6 + put 2.0 =   9.9ms
+     *   WRF 上下文 · 连做 6 张 1024²   →  合计 78.6ms
+     * WRF 画布从一开始就是 CPU 后备，压根没有「显存→内存」这一步，连一次性
+     * 初始化都不存在。代价是它不参与 GPU 合成——所以**只**给中间画布加：
+     * 图集、键控临时层、单张兜底切片；真正逐帧绘制的 256 切片仍用默认上下文。 */
+    var WRF = { willReadFrequently: true };
     /* 白键控可用性: getImageData 首次成功即确认；file:// 跨源污染下为 false，
      * 此时贴图保留不透明白底——由 drawBestiaryIcon 用 darken 合成把白底
      * 融进卡面（见该函数注释），避免「内嵌白方框」露出。 */
@@ -229,7 +240,7 @@
         /* 离线包围盒分支：直接裁切真实非白像素区域并等比居中 */
         var ttmp = document.createElement('canvas');
         ttmp.width = S; ttmp.height = S;
-        var ttctx = ttmp.getContext('2d');
+        var ttctx = ttmp.getContext('2d', WRF);
         if (ttctx) {
           ttctx.imageSmoothingEnabled = true;
           ttctx.imageSmoothingQuality = 'high';
@@ -283,7 +294,7 @@
         if (sh < 1) sh = 1;
         var tmp = document.createElement('canvas');
         tmp.width = S; tmp.height = S;
-        var tctx = tmp.getContext('2d');
+        var tctx = tmp.getContext('2d', WRF);
         tctx.imageSmoothingEnabled = true;
         tctx.imageSmoothingQuality = 'high';
         try { tctx.drawImage(img, sx, sy, sw, sh, 0, 0, S, S); }
@@ -371,15 +382,110 @@
       c2.globalCompositeOperation = 'source-over';
     }
 
+    /* Δ25 性能：把「每格一次像素回读」压成「每张图集一次」。
+     *
+     * 【为什么必须这样】旧实现 registerSheet 里对 16 格逐个调 whiteKeySlice，
+     * 每格内部都做一次 `getImageData` + `putImageData`——96 格 = **96 次
+     * GPU↔CPU 同步回读**。实测（probes/cpu-prof.js，L40 开局 4.5s）：
+     *   whiteKeySlice  self 3819ms / 70.9%  ← 主线程被独占
+     *   ensureCtx        387ms /  7.2%
+     * 直接后果：开局发牌动画 p95 帧间隔 66.8ms → 683.8ms（max 1050ms），
+     * 即用户报告的「开局卡牌落子很卡」。
+     *
+     * 【为什么不直接对整张 2048² 键控】那样数据量反而翻 4 倍
+     * （96×256²=25MB → 6×2048²=100MB），实测仍有 2477ms。
+     * 正确做法：先把 16 格裁切缩放拼进一张 **1024×1024 图集**（纯 drawImage），
+     * 再对图集做**一次**键控，最后拆回 16 个 256 切片。
+     *   · 回读次数 96 → 6
+     *   · 回读数据量 25MB（与逐格相同，但同步次数降 16 倍）
+     *   · 逐像素循环 6.3M 次（与逐格相同）
+     * 键控是逐像素独立运算，先缩放后键控与先键控后缩放**视觉等价**
+     * （双线性插值只会在近白区域内部插值，不会跨越阈值边界产生新色）。 */
+    function bboxArray() {
+      if (typeof global !== 'undefined' && global.STM_ICON_BBOXES) return global.STM_ICON_BBOXES;
+      if (typeof window !== 'undefined' && window.STM_ICON_BBOXES) return window.STM_ICON_BBOXES;
+      return null;
+    }
+
+    /* 返回 16 个 256 切片数组；键控不可用（file:// 跨源）时返回**未键控**切片，
+     * 由 drawBestiaryIcon 的 darken 合成兜底（T085 断言）。 */
+    function buildSheetSlices(img, base) {
+      if (!hasDOM()) return null;
+      var S = SLICE_PX;
+      var AW = S * 4, AH = S * 4;
+      var atlas = document.createElement('canvas');
+      atlas.width = AW; atlas.height = AH;
+      var a2 = atlas.getContext('2d', WRF);   /* Δ25: 图集要回读 → WRF */
+      if (!a2) return null;
+      a2.imageSmoothingEnabled = true;
+      a2.imageSmoothingQuality = 'high';
+
+      var bboxes = bboxArray();
+      var cw = img.naturalWidth / 4, ch = img.naturalHeight / 4;
+      for (var i = 0; i < 16; i++) {
+        var ax = (i % 4) * S, ay = Math.floor(i / 4) * S;
+        var bb = (bboxes && bboxes[base + i]) ? bboxes[base + i] : null;
+        try {
+          if (bb && bb.sw > 0 && bb.sh > 0) {
+            var sc = Math.min((S * 0.92) / bb.sw, (S * 0.92) / bb.sh);
+            if (!isFinite(sc) || sc <= 0) sc = 1;
+            var dw = Math.max(1, Math.round(bb.sw * sc));
+            var dh = Math.max(1, Math.round(bb.sh * sc));
+            a2.drawImage(img, bb.sx, bb.sy, bb.sw, bb.sh,
+              ax + Math.round((S - dw) / 2), ay + Math.round((S - dh) / 2), dw, dh);
+          } else {
+            a2.drawImage(img, Math.round((i % 4) * cw), Math.round(Math.floor(i / 4) * ch),
+              Math.round(cw), Math.round(ch), ax, ay, S, S);
+          }
+        } catch (eCell) { /* 单格失败不杀整张 */ }
+      }
+
+      /* 一次性键控（近白 → 透明） */
+      var keyed = false;
+      try {
+        var d = a2.getImageData(0, 0, AW, AH);
+        var p = d.data;
+        for (var k = 0; k < p.length; k += 4) {
+          if (p[k + 3] > 20 && p[k] > 244 && p[k + 1] > 244 && p[k + 2] > 244) p[k + 3] = 0;
+        }
+        a2.putImageData(d, 0, 0);
+        keyingOk = true;
+        keyed = true;
+      } catch (errS) {
+        keyingOk = false;
+        warnOnce('IconAssets', '图集白键控不可用（' + (errS && errS.name || 'err') +
+          '）——切片保留白底，绘制时改用 darken 合成');
+      }
+
+      var out = [];
+      for (var j = 0; j < 16; j++) {
+        var cv = document.createElement('canvas');
+        cv.width = S; cv.height = S;
+        var c2 = cv.getContext('2d');
+        if (c2) {
+          c2.drawImage(atlas, (j % 4) * S, Math.floor(j / 4) * S, S, S, 0, 0, S, S);
+          if (!keyed) maskRounded(c2, S);  /* 键控失败：清四角硬边，避免白方框 */
+        }
+        cv.__sliceRect = { x: 0, y: 0, w: S, h: S };
+        out.push(cv);
+      }
+      /* 图集画布（1024² ≈ 4MB 后备）用完立即释放 */
+      atlas.width = 0; atlas.height = 0;
+      return out;
+    }
+
     /* Δ23/Bug2: sheet 加载成功 → 逐格切片 16 枚 + 注册来源
      * 【铁律】base MUST 按 16 步进（0/16/32/48/64/80）——6×16 = 96 个花色。
      * 旧实现 base 按 15 步进，每张第 16 格与下一张第 1 格索引撞车
      * （谁最后 onload 谁赢），导致 75/90 个花色取到错格包围盒 →
-     * 白兔左脸/红鲸鱼头部/白牦牛左侧身体被裁切。 */
+     * 白兔左脸/红鲸鱼头部/白牦牛左侧身体被裁切。
+     * Δ25: 走 buildSheetSlices 的图集批量键控（见其注释）。 */
     function registerSheet(img, base) {
+      var built = null;
+      try { built = buildSheetSlices(img, base); } catch (eB) { built = null; }
       for (var i = 0; i < 16; i++) {
         try {
-          slices[base + i] = whiteKeySlice(img, i, base);
+          slices[base + i] = (built && built[i]) ? built[i] : whiteKeySlice(img, i, base);
           source[base + i] = 'sheet';
         } catch (err) { /* 单格失败不杀整张 */ }
       }
@@ -461,7 +567,7 @@
       var S = SLICE_PX; /* Δ15b3e（Bug B 修复）: 128→256 */
       var cv = document.createElement('canvas');
       cv.width = S; cv.height = S;
-      var c2 = cv.getContext('2d');
+      var c2 = cv.getContext('2d', WRF);
       c2.imageSmoothingEnabled = true;
       c2.imageSmoothingQuality = 'high';
       c2.drawImage(img, PAD, PAD, SS - PAD * 2, SS - PAD * 2, 8, 8, 240, 240);
