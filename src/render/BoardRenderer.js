@@ -241,6 +241,7 @@
           var dy = Math.round((S - dh) / 2);
           try { ttctx.drawImage(img, _bbox.sx, _bbox.sy, _bbox.sw, _bbox.sh, dx, dy, dw, dh); } catch (eDrawB) { /* fallthrough to runtime */ }
           /* 白键控（尽力而为——file:// 下可能失败，降级 darken） */
+          var didKey = false;
           try {
             var dd = ttctx.getImageData(0, 0, S, S);
             var pp = dd.data;
@@ -250,6 +251,7 @@
               if (aa > 20 && rr > 244 && gg > 244 && bb > 244) pp[pi + 3] = 0;
             }
             ttctx.putImageData(dd, 0, 0);
+            didKey = true;
             if (typeof keyingOk !== 'undefined') keyingOk = true;
           } catch (errK) {
             if (typeof keyingOk !== 'undefined') keyingOk = false;
@@ -257,7 +259,10 @@
           }
           c2.clearRect(0, 0, S, S);
           c2.drawImage(ttmp, 0, 0);
-          maskRounded(c2, S);
+          /* Δ24: 键控成功时**不**上圆角遮罩——白底已被抠成透明，
+           * 遮罩此时只会把主体四角（耳朵/鳍/车头）削掉；
+           * 仅在键控失败（白底仍在）时才用它清掉四角硬边。 */
+          if (!didKey) maskRounded(c2, S);
           cv.__sliceRect = { x: 0, y: 0, w: S, h: S };
           return cv;
         }
@@ -632,8 +637,12 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     ctx.lineWidth = 1;
     roundRect(ctx, x, y, w, h, r);
     ctx.stroke();
-    /* 3. 图鉴图案（基准取短边——百叶窗翻转时不拉伸变形） */
-    drawBestiaryIcon(ctx, sv, x + w / 2, y + h / 2, Math.round(Math.min(w, h) * 0.82));
+    /* 3. 图鉴图案（基准取短边——百叶窗翻转时不拉伸变形）
+     * Δ24: 0.82 → 0.93。切片内部已把主体归一化到 0.92×画布，
+     *   故 0.93 × 0.92 ≈ 主体长边占卡面 86%，四周各留约 7% 呼吸位
+     *   （用户口径：「充实地占满卡牌，边缘留 10% 空间」）。
+     *   旧 0.82 叠上被投影撑大的包围盒，主体实际只有卡面 47%~75%。 */
+    drawBestiaryIcon(ctx, sv, x + w / 2, y + h / 2, Math.round(Math.min(w, h) * 0.93));
     /* 零偏移原位被压变暗 */
     // covered = RulesEngine.isCovered(state, tile) 或 probe.covered
     var covered = (t && t.covered === true);

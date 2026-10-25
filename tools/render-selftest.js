@@ -1138,8 +1138,11 @@ function scenarioDelta19() {
     brSrc.indexOf('rgba(120,135,155,0.55)') === -1);
   /* Δ22c/T111: drawTileBody 的宽高分离（w/h）以支持 blinds_flip 的 scaleX——
    * 图标基准改取**短边** Math.min(w, h)，等比调用点（w === h）与原实现逐像素一致 */
-  check('T084: 动物图标 iconSize = tileSize × 0.84（居中铺满）',
-    /drawBestiaryIcon\(ctx,\s*sv,\s*x \+ w \/ 2,\s*y \+ h \/ 2,\s*Math\.round\(Math\.min\(w, h\) \* 0\.82\)\)/.test(brSrc));
+  /* Δ24: 0.82 → 0.93。切片内部已把主体归一化到 0.92×画布，
+   * 0.93 × 0.92 ≈ 主体长边占卡面 86%（旧口径叠上被投影撑大的包围盒，
+   * 主体实际只有卡面 47%~75%，且 96 个花色之间极差 1.6×）。 */
+  check('T084: 动物图标 iconSize = tileSize × 0.93（居中铺满）',
+    /drawBestiaryIcon\(ctx,\s*sv,\s*x \+ w \/ 2,\s*y \+ h \/ 2,\s*Math\.round\(Math\.min\(w, h\) \* 0\.93\)\)/.test(brSrc));
   check('T084: 卡牌内无内缩白描边（drawTileBody 内零 strokeRect）', (function () {
     var i = brSrc.indexOf('function drawTileBody');
     var j = brSrc.indexOf('function drawBestiaryIcon', i);

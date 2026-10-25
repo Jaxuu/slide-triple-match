@@ -76,6 +76,13 @@ ok(dupAdj === 0, '相邻 suit 的 bbox 互不相同（无重复注册）', '重�
 
 console.log('\n[3] 强墨迹覆盖率（阈值 < ' + STRONG + '）');
 let worst = 1, worstSuit = -1;
+/* Δ24: 同时统计「可见主体占框比」——THR 235 可见范围长边 / bbox 长边。
+ * 这是「卡牌图标有的大有的小」的离线代理指标：包围盒若被柔和投影撑大，
+ * 可见主体只占框的一小块，渲染出来自然显小。
+ * 之所以取 235 而不是 200（强墨迹）：浅色主体（白牦牛/白兔/天鹅/白鸟）
+ * 的实体大量落在 200~244 区间，用 200 当基准会把它们误判成「框过大」。 */
+const VIS = 235;
+const fillRatios = [];
 for (let sheet = 1; sheet <= SHEETS; sheet++) {
   const file = path.join(ROOT, 'assets', 'icons', 'sheet' + sheet + '.png');
   if (!fs.existsSync(file)) { ok(false, '缺少素材 ' + file); continue; }
@@ -85,23 +92,47 @@ for (let sheet = 1; sheet <= SHEETS; sheet++) {
     const b = bboxes[suit];
     const gx = (cell % GRID) * CW, gy = Math.floor(cell / GRID) * CH;
     let strong = 0, inside = 0;
+    let vMinX = 1e9, vMinY = 1e9, vMaxX = -1, vMaxY = -1;
     for (let y = gy; y < gy + CH; y++) {
       for (let x = gx; x < gx + CW; x++) {
         const pi = (y * (GRID * CW) + x) * 3;
-        if (buf[pi] < STRONG || buf[pi + 1] < STRONG || buf[pi + 2] < STRONG) {
+        const r0 = buf[pi], g0 = buf[pi + 1], b0 = buf[pi + 2];
+        if (r0 < STRONG || g0 < STRONG || b0 < STRONG) {
           strong++;
           if (x >= b.sx && x < b.sx + b.sw && y >= b.sy && y < b.sy + b.sh) inside++;
+        }
+        if (r0 < VIS || g0 < VIS || b0 < VIS) {
+          if (x < vMinX) vMinX = x;
+          if (x > vMaxX) vMaxX = x;
+          if (y < vMinY) vMinY = y;
+          if (y > vMaxY) vMaxY = y;
         }
       }
     }
     const cover = strong === 0 ? 1 : inside / strong;
     if (cover < worst) { worst = cover; worstSuit = suit; }
+    if (vMaxX >= 0) {
+      const visLong = Math.max(vMaxX - vMinX + 1, vMaxY - vMinY + 1);
+      fillRatios.push({ suit: suit, r: visLong / b.sw, visLong: visLong, box: b.sw });
+    }
   }
 }
 console.log('    最差覆盖率: ' + (worstSuit < 0 ? '全部 100%' :
   ('suit' + worstSuit + ' = ' + (worst * 100).toFixed(2) + '%')));
 ok(worst >= MIN_COVER, '96 个花色强墨迹覆盖率 ≥ ' + (MIN_COVER * 100) + '%',
   '最差 suit' + worstSuit + ' = ' + (worst * 100).toFixed(2) + '%');
+
+console.log('\n[4] 可见主体占框比（Δ24：图标大小一致性的离线代理）');
+fillRatios.sort((a, b) => a.r - b.r);
+const MIN_FILL = 0.90;
+const bad4 = fillRatios.filter(o => o.r < MIN_FILL);
+console.log('    最低 5 个: ' + fillRatios.slice(0, 5).map(o =>
+  'suit' + o.suit + '=' + (o.r * 100).toFixed(1) + '%').join(' '));
+console.log('    中位: ' + (fillRatios[(fillRatios.length / 2) | 0].r * 100).toFixed(1) + '%');
+ok(bad4.length === 0,
+  '96 个花色可见主体占框比 ≥ ' + (MIN_FILL * 100) + '%（包围盒未被柔和投影撑大）',
+  '不达标 ' + bad4.length + ' 个: ' + bad4.slice(0, 6).map(o =>
+    'suit' + o.suit + '=' + (o.r * 100).toFixed(1) + '%').join(' '));
 
 console.log('\n──────────── 结果 ────────────');
 console.log('通过 ' + passes + ' / 失败 ' + fails);

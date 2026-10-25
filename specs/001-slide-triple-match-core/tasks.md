@@ -79,6 +79,7 @@ description: "Task list for feature implementation（四里程碑门禁式）"
 | **Δ23a 素材响度归一 + BGM 音量定标 + 手势自愈** | 新增 `tools/normalize-audio.js`（Node + ffmpeg，零 npm）：BGM loudnorm 两遍法 `I=-18 LUFS / TP≤-2.0 dBTP / LRA=20 / linear=true`；<1.5s 的一次性音效走「确定性增益 + `alimiter`」（音效 `I=-14` / 语音 `I=-13` / `TP≤-1.5`）；`--check` 门禁（`I` 容差 `±1.5 dB`、`TP≤-0.8`）；`ASSETS.volume` 重定标 `bgm_lobby 0.45` / `bgm_game 0.38` / `shatter`+语音 `0.85`；`SoundManager` 新增 `kickBgm()` + `document` 级常驻 `pointerdown`/`click`/`keydown` 幂等兜底，`main.js` 新增 `resumeBgmNow()` 供设置/调试面板「一开就响」 | **T115, T116** |
 | **Δ23b 落牌涟漪重做 + 交互音效响度对齐 + 冰封音柔化** | 落牌涟漪：节流 `22→45ms`、单声 `28→22ms`、正弦 `320→180Hz`、`800Hz` 低通 `Q=0.7`、删除 `2.4×` 三角泛音（振荡器 2→1）、整场 8~12 声；`playTap` 峰值 `0.30→0.65`、`playBlock` `0.26→0.65`；压缩总线 `-18dB/8:1 → -12dB/5:1`；`iceBreak` 改低域正弦水滴 `480→620Hz/70ms/0.22`（零 sawtooth/square、零 >1000Hz）；`noise()` 补 ≥6ms 线性起音 | **T117** |
 | **Δ23c 图集满格 96 切片 + 零裁切包围盒** | `SHEETS.base` `0/15/30/45/60/75 → 0/16/32/48/64/80`，`suit → (floor(suit/16)+1, suit%16)`（消灭双注册竞态）；`tools/gen-icon-bboxes.js` 重写为 Node + ffmpeg `rawvideo`（零 npm），口径「只忽略最外圈 `2px` + 阈值 `246` + 外扩 `8px` + 连通域 `<3px` 剔除 + 正方形 `max(bw,bh)` 夹回本格」→ 96 条；运行期兜底内缩 `0.09→0.004`；新增 `tools/icon-bbox-audit.js` 独立反证（强墨迹 `<200` 覆盖率 ≥99.5%） | **T118, T119** |
+| **Δ24 图标占卡比例与大小一致性** | 包围盒阈值 `246 → 215`、外扩 `8px → 6px`（`246` 把柔和投影算成墨迹 → 包围盒满格 → 图标被压小；实测可见长边 `148~236`，极差 `1.6×`）；`drawBestiaryIcon` 绘制比例 `0.82 → 0.93`（主体长边约占卡面 `86%`，四周留约 `7%`）；键控成功时不再施加圆角遮罩；`icon-bbox-audit` 新增「可见主体占框比 ≥90%」门禁；`render-selftest` T084 同步 | **T120, T121** |
 
 ## 里程碑门禁总览（执行纪律）
 

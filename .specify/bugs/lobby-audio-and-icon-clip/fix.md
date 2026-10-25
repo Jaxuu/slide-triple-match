@@ -3,7 +3,7 @@
 - **Slug**: `lobby-audio-and-icon-clip`
 - **Fixed**: 2026-10-25T21:52+08:00
 - **Assessment**: ./assessment.md
-- **Status**: applied
+- **Status**: applied（Δ23 首轮 + Δ24 图标尺寸回补）
 
 ## Summary
 
@@ -15,11 +15,11 @@
 |------|--------|-------|
 | `src/audio/SoundManager.js` | modified | `ASSETS` 音量重定标；`DEAL_TICK_MIN_MS` 22→45；新增 `kickBgm()` + `bindBgmKick()`；压缩总线 −18dB/8:1 → −12dB/5:1；`noise()` 补 6ms 起音；`playTap`/`playBlock` 峰值增益提升；`playDealTick()` 整体重写；`iceBreak` 整体重写 |
 | `src/main.js` | modified | 新增 `resumeBgmNow()`；`onAudio()` 与 `onDebugMuteChange()` 在「开」分支立即按当前场景 `playBgm()` + `kickBgm()` |
-| `src/render/BoardRenderer.js` | modified | `SHEETS.base` 0/15/30/45/60/75 → 0/16/32/48/64/80；兜底 `process(0.09)` → `process(0.004)`；sheet 缓存版本 `?v=21` → `?v=22`；`registerSheet` 注释按 16 格口径重写 |
-| `src/data/icon-bboxes.js` | regenerated | 96 条正方形包围盒（旧 96 条为 5% 内缩 + 阈值 242 口径，且索引与 `SHEETS.base` 错位） |
-| `tools/gen-icon-bboxes.js` | rewritten | 从「Python + PIL/numpy」迁到「Node + ffmpeg rawvideo + TypedArray」，零 npm 依赖；新增 `--report` 模式 |
+| `src/render/BoardRenderer.js` | modified | `SHEETS.base` 0/15/30/45/60/75 → 0/16/32/48/64/80；兜底 `process(0.09)` → `process(0.004)`；sheet 缓存版本 `?v=21` → `?v=22`；`registerSheet` 注释按 16 格口径重写；**Δ24**：`drawBestiaryIcon` 比例 `0.82 → 0.93`、键控成功时不再施加 `maskRounded` |
+| `src/data/icon-bboxes.js` | regenerated | 96 条正方形包围盒。Δ23 按「阈值 246 + 外扩 8px」重生成；**Δ24 再按「阈值 215 + 外扩 6px」重生成**（246 会把柔和投影算成墨迹，导致图标被压小） |
+| `tools/gen-icon-bboxes.js` | rewritten | 从「Python + PIL/numpy」迁到「Node + ffmpeg rawvideo + TypedArray」，零 npm 依赖；新增 `--report` 模式；**Δ24**：`THR 246 → 215`、`PAD 8 → 6` |
 | `tools/normalize-sheets.js` | modified | 旧口径（5% 内缩 + 阈值 242）已废弃，改为转调 `gen-icon-bboxes.js`，保留文件名兼容旧引用 |
-| `tools/icon-bbox-audit.js` | added | 独立校验：条数/正方形/落在本格/相邻不重复/强墨迹覆盖率 ≥99.5% |
+| `tools/icon-bbox-audit.js` | added | 独立校验：条数/正方形/落在本格/相邻不重复/强墨迹覆盖率 ≥99.5%；**Δ24 新增第 4 组「可见主体占框比 ≥ 90%」**（图标大小一致性的离线门禁，7 项断言） |
 | `tools/audio-smoke.js` | updated | 音量 0.45/0.38、节流 45ms、落牌涟漪新参数；新增 9 项（含 4 项 `kickBgm` 行为断言） |
 | `tools/deal-smoke.js` | updated | `dealTickMinMs === 45`；「音高上扬」文案改为「落牌时间轴顺序」 |
 | `tools/render-selftest.js` | updated | `SHEETS` 基址断言改 0/16/32/48/64/80；新增「96 条 × 正方形 × 落在本格内」断言；文案同步 |
@@ -121,7 +121,7 @@ master.ratio.value     = 5;    /* 旧 8  */
 | `node tools/deal-smoke.js` | **all green**（15 模式 / 零穿模 / 落子音 / 点击快进 / 降级） |
 | `node tools/render-selftest.js` | **all green**，265 项全通过（基线 264，净增 1 项） |
 | `node tools/render-selftest.js --engine-selftest` | **all green** |
-| `node tools/icon-bbox-audit.js` | **通过 6 / 失败 0**，最差强墨迹覆盖率 **全部 100%** |
+| `node tools/icon-bbox-audit.js` | **通过 7 / 失败 0**（Δ24 起含第 4 组「可见主体占框比 ≥ 90%」，最差 96.9% / 中位 98.8%；强墨迹覆盖率仍 **全部 100%**） |
 | `node tools/gen-icon-bboxes.js` | 96 条写入，边长 358~512，空单元 0 |
 | `node tools/solver.js` | **72/72 solvable**，`curveGate: chMonotonic=true slope14=13.31 waveZigzag=true`（跑完已 `git checkout -- tools/solver-report.json` 还原） |
 | `node tools/lobby-smoke.js` | **83 passed / 0 failed**（修复前 80/3；3 项基线陈旧断言已按现行口径重写，见下） |
@@ -210,6 +210,35 @@ thr<252 → 47.45% 像素被判「非白」   thr<242 → 40.56%
 - **实现已移除**：`a29bd26`（commit message 明写 *lobby wrench*）把 `.lobby-btn-debug` 从 `src/ui/lobby.js` 的 `build()` 中删掉，改为全局浮动 `#debug-toggle`。`renderTopBar()` 里 `if (el.btnDebug)` 的守卫使残留引用无害。
 
 本次处理方式：**只让测试反映实现，不动 spec、不动产品行为**——因为移除是刻意的缺陷修复（该按钮与局内面板抢同一开关态，且挤压设置按钮的命中区），恢复它会重新引入被修掉的缺陷；而直接改 FR-039 §2 属产品口径变更，超出「bug fix」授权范围。建议由用户裁定后按 Δ24 增量同步条文（二选一：① 正式下线大厅 🛠，把 FR-039 §2 与 Δ16 Edge Case 改写为「调试面板唯一入口为全局 `#debug-toggle`」；② 保留条文，另开任务恢复一个不抢状态的入口）。
+
+### D8（Δ24 回补）包围盒阈值 **246 → 215**、外扩 **8 → 6px**、绘制比例 **0.82 → 0.93**
+
+实机复测报了两个新问题：**① 红鲸鱼「不见了」**、**② 卡牌图标有的大有的小**。取证结论：两者同源，都是 D2 的 `246` 阈值引入的**投影膨胀**。
+
+**根因链**（全部实测，非推断）：
+
+1. AI 生成的图集里，每只动物都带一层**柔和投影**，像素值落在 `215~245`。`246` 阈值把投影也算成墨迹 → `bw` 普遍被撑到整格 `508`。
+2. 生成器随后取正方形 `size = max(bw, bh)` → 正方形跟着满格 `508~512`。
+3. 渲染器把正方形缩放到 `0.92 × 256`，于是**动物只占正方形的一小块**。
+4. `drawBestiaryIcon` 再按 `tileSize × 0.82` 绘制 → 动物实际只占卡面 **47%~75%**。
+
+**量化证据**（`probes/slice-report.json`，96 个切片的渲染后可见包围盒）：
+
+| 指标 | Δ23 口径（246） | Δ24 口径（215） |
+|------|------------------|------------------|
+| 可见长边 min / p50 / max | 148 / 224 / 236 | **230 / 234 / 236** |
+| 极差（max/min） | **1.60×** | **1.03×** |
+| 贴边（被切）花色数 | 0 | 0 |
+
+`suit 46`（红鲸鱼）在 Δ23 口径下可见长边只有 `148~180`，占卡面约 `43%`——用户看到的就是「红鲸鱼没了」。Δ24 后它回到 `230+`，实机截图已确认完整、饱满。
+
+**阈值为什么是 215 而不是更低**：扫描 `246/235/225/215/200/185` 六档，长边保留率在 `215` 处已是拐点（`p50 0.953`），再往下降到 `185` 只多收 `1%`（`p50 0.942`），却开始啃浅色主体的边缘。且**六档下都没有任何花色跌破 `0.6`**——说明白兔 / 白牦牛 / 天鹅 / 白鸟这些浅色主体的深色结构（眼睛、喙、蹄、描边）足以撑住包围盒，不会被切。
+
+**绘制比例为什么是 0.93**：切片内主体已占画布 `92%`，`0.93 × 0.92 ≈ 86%` 卡面 → 四周各留约 `7%`，正对用户口径「充实地占满卡牌，边缘留 10% 空间」；同时给边缘方向角标（红色三角）留出压边空间。
+
+**顺带修掉的隐患**：白键控成功时不再施加 `maskRounded`。该遮罩半径是画布 `12%`，此前无条件施加，会把主体四角（耳朵 / 鳍 / 车头）削掉——这正是「裁切」类投诉的残余来源。现在只在键控失败（白底仍在）时才用它清四角硬边。
+
+**代价（明确记录）**：`215~235` 的**极淡投影边缘**会被裁掉（96 个花色中 8 个有此类像素出框，最多 `82px` 源像素）。在卡牌尺寸下不可见（已用 `probes/cards.html` 按真实牌面 `84px` 逐张核对），换来的是图标统一放大 ~15%~25%。这是用户明确要求的取舍方向。
 
 ## Follow-ups
 
