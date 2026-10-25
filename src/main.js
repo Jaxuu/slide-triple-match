@@ -153,6 +153,8 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     if (app) app.classList.add('scene-lobby');
     scene = SCENE.LOBBY;
     stopBgStage();
+    /* Δ22/T106 ⑥: 返回大厅 → 切回 bgm_lobby（350ms 交叉淡变，非硬切） */
+    if (sound) sound.playBgm('lobby');
     if (STM.Lobby) {
       STM.Lobby.show({
         unlocked: opts.unlocked || progress.unlocked,
@@ -174,6 +176,8 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     if (app) app.classList.remove('scene-lobby');
     if (STM.Lobby) STM.Lobby.hide();
     scene = SCENE.GAME;
+    /* Δ22/T106 ⑥: 进入关卡 → bgm_lobby 淡出 / bgm_game 淡入（同 350ms） */
+    if (sound) sound.playBgm('game');
     loadLevel(id);
   }
 
@@ -731,7 +735,11 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     });
 
     renderer = STM.createBoardRenderer(els.board, session, {
-      onShake: shakeBoard
+      onShake: shakeBoard,
+      /* Δ22/T107 ④（FR-050 §8）: 落牌涟漪音回调——T111 的进场编舞每张卡牌
+       * 落定时调用（progress ∈ [0,1] 随落牌进度上扬；>= 22ms 节流在
+       * SoundManager 内部保证，满载 8×8×5 也不会糊成噪音） */
+      onDealTick: function (progress) { if (sound) sound.playDealTick(progress); }
     });
     renderer.setLevel(currentLevel); /* Δ14: 渲染层花色映射/背景随当前关 id 切换 */
     renderer.refresh();
@@ -1170,7 +1178,8 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
      * 动画期间不再拦截点击；仅终态时 GameState 才发 input-locked（静默忽略） */
     if (e.e === 'input-locked') return;
     if (e.e === 'click') {
-      sound.play('click');
+      /* Δ22/T107: 点击音改由交互级合成音承担（flyout → ber~ / blocked →
+       * deng~），此处不再补 click 合成音，避免双重起音糊成一团 */
       return;
     }
     if (e.e === 'flyout') {
@@ -1261,13 +1270,17 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
   /* ---------- 终局结算（won/lost）T051: 进关/进度/终局 ---------- */
   function handleTerminal(o) {
     if (o.kind === 'won') {
-      sound.play('victory');
+      /* Δ22/T106 ③（FR-050 §4）: sfx_win 相对最后一组三消碎裂延迟 250ms 触发，
+       * 触发同时把 bgm_game 压低至 0.08（避免胜利音被 BGM 掩蔽）；
+       * 延迟由 SoundManager 内部排定——静音时会被一并取消（无漏音） */
+      if (sound) sound.playSfx('win', { delay: 250, duck: true });
       recordWin(currentId, o.score, o.combo); /* T050: unlocked/max 刷新 + 持久化 */
       /* Δ16e/T070: 结算奖励 + 晶片点亮（FR-041 §1 确定性表，幂等） */
       var settlement = settleWin(currentId);
       enterResult(settlement);
     } else {
-      sound.play('defeat');
+      /* Δ22/T106 ③（FR-050 §4）: 槽满 7 格锁死 / 死局 → 失败页弹出瞬间瞬发 */
+      if (sound) sound.playSfx('lose');
       progress.last = currentId; /* 失败也记录 last（刷新回本关） */
       saveProgress();
       var reason = o.kind === 'lost_burst' ? '收集槽爆满' : '陷入死局';
@@ -1362,7 +1375,7 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
       return;
     }
     var r = session.purify(); /* 成组净化消除——恒为 3 的倍数（FR-043 §4） */
-    sound.play('match', 3);
+    sound.playSfx('shatter', { combo: 3 });
     renderer.refresh();
     renderDock();
     renderHud();

@@ -1,12 +1,8 @@
 # Contract: Game Session / UI / Rendering / Audio / Debug（前端运行时接口）
 
-> ⚠️ **STALE**: spec.md was refined on 2026-10-24 (Δ21: 调试面板 `findBestNextMove(state)` 残局启发式求解与音效复选框布尔修正、`#dock .slot` 单层卡牌、FR-049 无描边 Low-Poly 碎片参数、画卷主题名显示、图集质心居中切片、`bg`/`sheet` 扩展名自适应)。Run `/speckit.refine.propagate` to update this document.
-
-> ⚠️ **STALE**: spec.md was refined on 2026-10-22 (Δ19: **本契约为主要传播落点**——① FR-046 前两关**交互式教学**（L1 玩法引导卡片+动态手指指引 / L2 层叠压制引导 / L3 起零提示，可跳过、非阻塞）；② FR-047 **顶部导航栏**（左上并排【↩ 返回大厅】【⚙️ 设置】圆形立体按钮、正中央严格 `关卡 X` 无 `/72` 后缀、右上【💎 棱晶数量】）+ **IQ 指数条**（初始 `IQ: 90`、三消 `+(3+combo×2)`、跳字动效与趣味头衔、受阻不扣 IQ 但 combo 归零）+ **7 格待消槽上移**至 IQ 条正下方/棋盘上方（立体深木色/银色金属内凹托盘样式，含命中区域互斥与飞入动画终点坐标改向）；③ FR-048 **三大道具**（撤销/灵犀三消/乾坤洗牌）——灵犀三消无视阻挡与锁定、优先匹配待消槽花色、同花色取最顶层防悬空、全场同花色不足 3 张时拒绝；乾坤洗牌重排花色与方向且保持必胜可解 + 翻转动画；④ FR-049 **白瓷多边形碎裂 VFX**（45~60 枚带高光与阴影面片、抛射翻滚重力飘落）；⑤ FR-050 **清脆碎裂音效**（Web Audio 合成、受 SFX 开关联动）；⑥ **扳手下线**——道具栏固定三键、`useItem('wrench')` 与目标选择交互态移除；⑦ **原 FR-044 改号 FR-051**)。Run `/speckit.refine.propagate` to update this document.
-
-> ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: **本契约为主要传播落点**——① FR-038 开机动画、FR-039 主大厅（Glide Critters 六区布局）、FR-040 设置/个人信息弹窗、FR-041 棱晶经济与局内道具购买闭环、FR-042 通关结算与画卷解锁展板、FR-043 失败与棱晶复活界面（含"净化消除"语义）、FR-044 画卷拼图进度系统——全部为新增前端运行时契约；② FR-035 §6 拼图切片与局内背景同源；③ 关卡总数 60→72、背景贴图口径 bg{1..20}→bg{1..6})。Run `/speckit.refine.propagate` to update this document.
-
-> ⚠️ **STALE**: spec.md was refined on 2026-10-20 (Δ14: US5——BoardRenderer 底座/角标/背景/图鉴渲染、SoundManager BGM、挑战关横幅均有新契约需求 FR-033~037；本契约为主要传播落点)；Δ15: ① FR-033 §6/FR-035 §3 贴图加载 + Emoji/程序化双兜底渲染链入 BoardRenderer 契约；② FR-034 §3 方向角标重做为锐利宽翼三角（猪鼻子禁令）；③ FR-029 聚散度指标进调试面板难度展示复核。Run `/speckit.refine.propagate` to update this document.
+> **Propagated**: 2026-10-25 — **Δ22（全景声学 + 5 秒连击 + 15 种开局编舞）** refine 传播：**§5 SoundManager 全节重写**（混合双轨架构 + 统一 API + `comboChanged` 事件契约 + 事件→音效映射的轨道归属）；**§4 BoardRenderer 新增「开局进场编舞」契约**（15 种模式 + `180/820ms` 时序 + 层级不变量 + 点击快进）；§6 main.js 补连击飘字与编舞调度职责。**四条 STALE 警告（Δ14/Δ16/Δ19/Δ21）一并清除**——但请注意下方「仍未同步项」，勿误认为该四轮增量已全部落入本契约。
+>
+> **仍未同步项（明确记录，勿误认为已补齐）**：本契约仍未覆盖 ① **Δ16** 的 `src/ui/*` 五模块（`splash.js` / `lobby.js` / `modals.js` / `result.js` / `fail.js`）与 `src/core/profile.js` 的接口契约；② **Δ19** 的 `src/render/shape-masks.js` 掩码契约、`RulesEngine` 自愈 API（`findHeadOnDeadlocks` / `selfHealDeadlocks`）、顶部导航栏与 IQ 条 DOM 契约、三大道具 `useItem` 签名变更（`wrench` 已下线）；③ **Δ21** 的 `#vfx-canvas` 碎片渲染契约与 `findBestNextMove(state)` 完整签名。上述三项在 [plan.md](../plan.md) 的「Project Structure」与 [tasks.md](../tasks.md) 的 T064~T104 中已有权威定义，**实现期以那里为准**；本契约待后续 `refine.propagate` 补齐。
 
 **Feature**: `001-slide-triple-match-core` | **文件**: `index.html`, `css/style.css`, `src/main.js`, `src/core/GameState.js`, `src/render/BoardRenderer.js`, `src/audio/SoundManager.js`
 
@@ -89,15 +85,86 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 
 **粒子**: 三消爆裂（花色色粒子 12~20 个，重力+衰减）、破冰碎屑（白蓝）、飞出拖尾。单帧粒子 ≤ 200。
 
-## 5. SoundManager（`STM.createSoundManager()`）
+**开局进场编舞契约（Δ22 / FR-052）**：
 
-Web Audio 事件驱动合成（D-04）。事件→音效映射（GameState onEvent 转发）: click / flyout / blocked / match(连击数调制音高) / gear / unlock / **ice（引擎破冰事件名——映射音效键 'iceBreak'）** / prism / undo / item / victory / defeat / botTick。`setMuted(bool)` 持久于 Progress。AudioContext 于首次 pointerdown 惰性创建（autoplay 政策）。
+| 项 | 契约 |
+|---|---|
+| `startDeal(modeId)` | 启动进场编舞；`modeId` 为 15 种之一（缺省由 `main.js` 抽取后传入）；重复调用 MUST 幂等（先快进上一次） |
+| `skipDeal()` | 立即快进至 `100%`（全部卡牌归位、`alpha = 1`、压制锁定按 FR-044 §4 生效），返回后棋盘立即可交互 |
+| `isDealing()` | 返回 `boolean`；`main.js` 的 `pointerdown` 前置检查据此决定是否先 `skipDeal()` 再走正常命中判定（**MUST NOT 吞掉该次点击**） |
+| 时序 | `0 ~ 180ms`：全部卡牌 `alpha = 0`，仅绘制风景底图；`180 ~ 820ms`：逐牌落定（动画总时长 `<= 640ms`） |
+| 逐牌回调 | 每张卡牌落定触发 `onDealTick(tile)` → `SoundManager.playSynth('dealTick')`（节流 `>= 22ms`，音高随进度上扬） |
+| **绘制排序（MUST）** | 动画期间 MUST 复用静态渲染**同一比较器** `(a.z - b.z) \|\| (a.r - b.r) \|\| (a.c - b.c)` 升序；MUST NOT 为动画另建排序 |
+| **层级延迟（MUST）** | 同一渲染坐标下高层 `z` 的落定时刻恒比低层晚 `+60ms * z`——**先落底层、后落顶层，零穿模** |
+| 坐标口径 | 起落坐标 MUST 复用 `getTileCssRect()`（含奇偶层半格偏移），MUST NOT 用逻辑坐标 `(c+0.5)*cell` 直算 |
+| 降级 | `prefers-reduced-motion: reduce` → 一次性淡入（无位移 / 旋转 / 缩放），**保留 `180ms` 底图停留** |
+| 纯表现层 | MUST NOT 改变卡牌花色/方向/坐标/层号；MUST NOT 触发 Solver、关卡生成或持久化 |
+
+**15 种 `modeId` 枚举**（逐字锁定）：`diagonal_cascade` / `center_ripple` / `outer_converge` / `spiral_vortex` / `wings_clasp` / `sky_rain` / `layer_stack` / `zipper_interleave` / `windmill_quadrants` / `v_formation` / `checkerboard_weave` / `blinds_flip` / `deck_deal` / `tailwind_glide` / `starlight_scatter`。
+
+## 5. SoundManager（`STM.createSoundManager(opts)`）
+
+**Δ22：由「纯合成」重构为混合双轨（Hybrid Dual-Track）。** 对外 API 统一，**调用方 MUST NOT 感知轨道差异**。
+
+### 5.1 双轨分工
+
+| 轨道 | 承载 | 加载 / 合成方式 | 硬红线 |
+|---|---|---|---|
+| **外部资产轨** | `bgm_lobby` / `bgm_game` / `sfx_shatter` / `sfx_win` / `sfx_lose` / `sfx_voice_good` / `sfx_voice_great` / `sfx_voice_unbelievable`（共 8 个，`assets/audio/`） | `new Audio('assets/audio/x.mp3')` + `preload = "auto"`；每音效**独立实例池** | **MUST NOT 用 `fetch + decodeAudioData`**（`file://` 下 `Origin: null` 必 CORS）；单文件 `error` 静默降级；BGM 缺失回退程序化合成 |
+| **合成轨** | `tap`（`ber~`）/ `blocked`（`deng~`）/ `dealTick`（落牌涟漪）/ `splashChord`（开机和弦） | `AudioContext` 振荡器 + 物理包络（attack / decay） | **MUST 零文件依赖**（延迟敏感 / 首帧可用性） |
+
+### 5.2 统一 API
+
+| 方法 | 参数 | 行为与约束 |
+|---|---|---|
+| `preload()` | — | 预载 8 个外部资产，返回 `Promise<{ready: string[], failed: string[]}>`；失败不抛错 |
+| `playBgm(which)` | `'lobby' \| 'game' \| null` | `lobby` → 音量 `0.28`；`game` → `0.22`；切换时 **`400ms` 交叉淡变**（音量渐变，非硬切）；`null` = 全部淡出。快速回切 MUST 平滑、**MUST NOT 叠音** |
+| `playSfx(name, opts)` | `name`（外部轨音效名）, `opts = {rate = 1.0, delay = 0}` | 瞬发（`sfx_shatter` 为 0ms）；`rate` 写入 `playbackRate` 并设 `preservesPitch = false`；`delay` 为毫秒延迟（**静音时 MUST 一并取消**） |
+| `playVoice(tier)` | `'good' \| 'great' \| 'unbelievable'` | 内部固定延迟 **`120ms`** 播放；连击升级时**取消上一档未播语音**（只播最终档） |
+| `playSynth(name, opts)` | `name` = `'tap' \| 'blocked' \| 'dealTick' \| 'splashChord'`, `opts` | **同帧起音**（`pointerdown` 判合法后立即，不等动画）；`dealTick` 受 `>= 22ms` 节流 |
+| `duckGameBgm(ratio)` | `ratio = 0.5` | `sfx_win` 触发时压低 `bgm_game` 至 50% |
+| `setMuted(bool)` | — | **两轨同静默** + 取消所有已排定延迟触发；持久于 Progress / Profile |
+| `setSfxMuted(bool)` / `setBgmMuted(bool)` | — | 分轨开关（FR-040 三项开关粒度）；**`settings.sfx` MUST 与复选框 `checked` 严格同向**（Δ21 修布尔反转） |
+| `dispose()` | — | 释放实例池与 `AudioContext` |
+
+### 5.3 `comboChanged` 事件契约（Δ22，GameState → 音频 / 飘字层）
+
+`GameState` 每次三消结算后广播 `comboChanged`，**消费方 MUST NOT 各自维护副本计数**：
+
+| 字段 | 类型 | 取值 / 说明 |
+|---|---|---|
+| `count` | int | 当前连击数（窗口内递增，超窗重置为 1） |
+| `tier` | `1\|2\|3\|4\|5` | 档位（`count >= 5` 归 5） |
+| `playbackRate` | number | `1.00` / `1.06` / `1.12` / `1.18` / `1.25`（写入 `sfx_shatter`） |
+| `voice` | `string \| null` | `null`（tier 1/2）/ `'good'`（3）/ `'great'`（4）/ `'unbelievable'`（5） |
+| `floatText` | `string \| null` | `null`（tier 1）/ `'Combo ×2'` / `'Good! ×3'` / `'Great! ×4'` / `'Unbelievable! ×N'`（**逐字锁定**） |
+
+**窗口语义**：`now - lastMatchAt <= 5000` 则 `count += 1`，否则重置为 `1`；**无论续连与否刷新窗口**；MUST 用时间戳差值、**MUST NOT 用 rAF 帧计数**；受阻反弹**不重置本计数**。
+**双口径铁律**：本计数与 IQ Meter 的 `M_combo`（受阻断连）**MUST NOT 互相覆盖或隐式同步**（见 [data-model.md](../data-model.md) §10 表末注记）。
+
+### 5.4 事件 → 音效映射（GameState onEvent 转发）
+
+| 游戏事件 | 音效 | 轨道 |
+|---|---|---|
+| `click` / `flyout` | `tap`（`ber~` 上滑 + 落槽软木轻叩） | 合成轨 |
+| `blocked` | `blocked`（`deng~` 下沉 + 2 次阻尼泛音） | 合成轨 |
+| `dealTick`（开局逐牌落定，FR-052） | `dealTick`（马林巴/骨牌轻叩，音高上扬） | 合成轨 |
+| `match`（三消，连击数调制音高） | `sfx_shatter` + `playbackRate = comboChanged.playbackRate` | 外部轨 |
+| `victory` | `sfx_win`（延迟 250ms + BGM 压低 50%） | 外部轨 |
+| `defeat` | `sfx_lose`（槽满锁死/弹窗瞬间） | 外部轨 |
+| `gear` / `unlock` / `ice`（引擎事件名，映射音效键 `iceBreak`）/ `prism` / `undo` / `item` / `botTick` | 合成轨合成音（既有实现保留） | 合成轨 |
+| `splash`（开机） | `splashChord` | 合成轨 |
+
+`AudioContext` 于首次 `pointerdown` 惰性创建并 `resume()`（autoplay 政策）；页面 `visibilitychange → hidden` 时 BGM 暂停、恢复可见按开关续播。
 
 ## 6. main.js（入口与编排）
 
 - `DOMContentLoaded` → 读 `LEVELS` / Progress / `?level=N` 深链（1 ≤ N ≤ `LEVELS.length` 钳制）→ `createSession(LEVELS[N-1])` → 挂 Renderer/Sound。
 - 结算交互：won → 「下一关」（`id+1 > LEVELS.length` ⇒ 全通关庆祝终局，动态关数）或重玩；lost → 重玩（lives 重置）。
 - 进度写入：通关 `unlocked = max(unlocked, id+1)`（≤ LEVELS.length）、best 分更新（D-03）。
+- **（Δ22）连击飘字调度**：订阅 `comboChanged` → 当 `floatText !== null` 时在 `#dock` **下方**渲染微光艺术字（浮起 → 放大 → 淡出，生命周期 700~1100ms）；飘字层 `pointer-events: none`，MUST NOT 遮挡待消槽与棋盘命中区域；连续连击允许多条并存且纵向错位不重叠。
+- **（Δ22）开局编舞调度**：开局（进关 / 重置）时从 15 种中抽取 `modeId`（**相邻两次开局 MUST NOT 重复**），调用 `renderer.startDeal(modeId)`；`pointerdown` 前置检查 `renderer.isDealing()` → 先 `skipDeal()` 再继续走正常命中判定（**MUST NOT 吞点击**）；挑战横幅（FR-036 的 1.6s）与 L1/L2 教学卡片（FR-046）MUST 在编舞完成后（`>= 820ms`）再出现。
+- **（Δ22）BGM 场景接线**：`BOOT → LOBBY` 起 `playBgm('lobby')`；`LOBBY → GAME` 切 `playBgm('game')`；`GAME → RESULT` 与返回大厅回切 `playBgm('lobby')`。
 
 ## 7. 评委调试面板（FR-027/028，M4）
 

@@ -1,10 +1,6 @@
 # Data Model: Slide & Triple（滑块三消）
 
-> ⚠️ **STALE**: spec.md was refined on 2026-10-24 (Δ21: Bestiary Entry 45→90 种（Suit 0~89，六画卷篇章 ×15 种，`sheet{1..6}` 图集格位与质心居中切片）；Eco Background 增补权威主题名/介绍文案与扩展名探测链；Stage Suit Mapping 池区间改为画卷累计池 0~14/0~29/0~44/0~59/0~74/0~89；Player Profile 头像 Suit 0~89 且复用 `sheet1~6`；新增 Deadlock Guard 实体；FR-045 迎头死锁与运行期自愈、FR-049 零描边碎片参数)。Run `/speckit.refine.propagate` to update this document.
-
-> ⚠️ **STALE**: spec.md was refined on 2026-10-22 (Δ19: ① Tile 实体增补**层号 `z` 与渲染实坐标**（偶数层 `(r,c)` / 奇数层 `(r+0.5,c+0.5)`）、压制锁定态与支撑象限；② 新增实体 **Shape Mask**（36 套掩码模板，模板 id 落库于关卡 `cfg`）、**Bottleneck Chain**（咽喉点/连锁爽消段）、**IQ Meter**（纯局内表现态，不持久化）、**Top Dock Tray**（待消槽承载位置由底部迁至顶部）；③ 关卡 `cfg` 增列层数与掩码模板 id、**items 道具由 `{undo, wrench}` 改为 `{undo, magnet, shuffle}`**（扳手下线）；④ Solver Report 增列瓶颈节奏指标与零悬空违规计数；⑤ **原 FR-044 改号 FR-051**（画卷拼图进度系统，内容零改动）；⑥ FR-008 Δ13/Δ16 逐字节零改写铁律受控让位——既有 72 关全量受控迁移为 v2 布局，data-model 中的关卡数据契约与迁移器 `tools/migrate-layout-72.js` 需新增定义)。Run `/speckit.refine.propagate` to update this document.
-
-> ⚠️ **STALE**: spec.md was refined on 2026-10-21 (Δ16: 新增实体 Painting Progress / Prism Balance / Player Profile；Level 与 Solver Report 实体口径由 60 关改为 72 关；Eco Background 实体由 20 景重排为 6 幅画卷 × 12 关；Stage Suit Mapping 阶段边界重划为 L1~24 / L25~48 / L49~72；Spatial Dispersion Profile 末档延展至 L72)。Run `/speckit.refine.propagate` to update this document.
+> **Propagated**: 2026-10-25 — **Δ22（全景声学 + 5 秒连击 + 15 种开局编舞）** refine 传播：新增 **§10 增量实体** 章节，补齐 **Δ16 / Δ19 / Δ21 / Δ22 四轮累计拖欠的 10 个实体**——Δ16（Painting Progress / Prism Balance / Player Profile）、Δ19（Shape Mask / Bottleneck Chain / IQ Meter / Top Dock Tray）、Δ21（Deadlock Guard）、**Δ22（Audio Bank / Combo Window / Deal Choreography）**。此前三条 STALE 警告（Δ16/Δ19/Δ21）一并清除——本次为**一次性补齐**，非仅加 Δ22 三实体。**边界**：新增实体全部为**表现层 / 持久化层 / 防御层**，MUST NOT 改变 `levels.js` 的关卡数据契约与 `RulesEngine` 的判定语义（FR-032）；其中 **Combo Window 与 IQ Meter 的连击口径相互独立、MUST NOT 合并**（见 §10 表末注记）。
 
 **Feature**: `001-slide-triple-match-core` | **Phase**: 1 | **Date**: 2026-10-17
 
@@ -165,7 +161,27 @@ WON/LOST ──结算交互──→ (下一关: id+1>LEVELS.length ⇒ ALL_CLEA
 | `levels[]` | `{id, solvable, minMoves, solutionCount, dockPeak, mechCount, openSuitsMax, elapsedMs}` | 每关验证记录（metrics 双写：levels.js 与本报告，前端用前者、评审看后者） |
 | `summary` | `{total, solvable, failedIds[], curveGate: {monotonic, ch5Zigzag, slope}}` | 50/50 与难度曲线门结论（SC-001/SC-004） |
 
-## 10. 关键不变量汇总（校验责任方）
+## 10. 增量实体（Δ16 / Δ19 / Δ21 / Δ22）
+
+> 本节为 **Δ16 起四轮增量的累计补齐**（此前仅散见于 spec.md 的 Key Entities，未落入本数据模型）。所有实体均为**表现层 / 持久化层 / 防御层**，不改变 §1~§9 的关卡数据契约与判定语义。
+
+| 实体 | 增量 | 载体 | 关键字段 | 关系与不变量 |
+|---|---|---|---|---|
+| **Painting Progress**（画卷拼图进度） | Δ16（Δ17 载体改称晶片） | `profile.paintingProgress[6]`（localStorage v2） | `paintingIndex`（1~6）、`lit`（0~4 已点亮块数）、`litBy[]`（点亮来源的困难位关 id）、`browsingIndex`（当前浏览画卷，Δ17 左右切换） | 每通关 1 个困难位关（L3/L6/…/L72）点亮当前画卷 1 块；每 12 关拼齐 1 幅（FR-051 §2）。重复通关不重复点亮、不重复发奖。**零回写 levels.js**（FR-041 §4） |
+| **Prism Balance**（棱晶余额） | Δ16 | `profile.shards` | `balance`（≥0 整数）、`earnedTotal` | 产出：首通普通 +25 / 首通困难 +60 / 满画卷 +150 / 重复通关 +10；消耗：道具 −50、复活 −100。扣费与生效 MUST 原子；余额 MUST NOT 为负 |
+| **Player Profile**（玩家档案） | Δ16（Δ21 扩容） | `slide-triple:profile:v2` | `nickname`、`avatar`（Suit 0~89）、`settings{bgm, sfx, haptics}`、`debugPanel` | 头像切片复用 `sheet1~6`；【确认】为统一落库点（Δ18）；`settings.sfx` MUST 与音效复选框 `checked` **严格同向**（Δ21 修布尔反转） |
+| **Shape Mask**（图形掩码模板） | Δ19 | `src/render/shape-masks.js` 常量表 | `maskId`（36 套之一）、`cells`（该层格点集合）、`layer`（底层/上层） | 每关底层与上层各绑定一个模板，落库于 `cfg`；**运行时 MUST NOT 随机选取**；Generator 与 `migrate-layout-72.js` 共用同一份定义 |
+| **Bottleneck Chain**（瓶颈依赖链） | Δ19 | Solver Report 输出 | `chokePoints[]`（咽喉点位置 + 可行操作集大小）、`chainSegments[]`（连锁爽消段长度）、`singlePath`（是否唯一解） | 生成器按 FR-045 §3 构建；每关 MUST ≥2 个咽喉点（可行操作集 ≤3）且咽喉点间 ≥5 连可操作；MUST NOT 以牺牲可解性为代价 |
+| **IQ Meter**（IQ 指数计） | Δ19（Δ20 改曲线） | `Session` 内纯表现态 | `iq`（初值 **50**、封顶 **200**）、`errorCount`、`elapsedMs` | 每三消 `delta = Base × M_combo × M_error × M_time`；受阻**不扣 IQ**但 `combo` 归零且 `errorCount += 1`。**MUST NOT 持久化**、不影响棱晶与进度 |
+| **Top Dock Tray**（顶部待消槽） | Δ19 | DOM `#dock` | `slots[7]`、`filled` 状态类、托盘样式 | 由屏幕底部迁至**棋盘上方**（IQ 条正下方）；填充槽 MUST 去 `border/padding/background`（单层卡片，Δ21）；**Δ22：亦为连击飘字锚点**（飘字自其下方浮出） |
+| **Deadlock Guard**（死锁自愈器） | Δ21 | `RulesEngine.findHeadOnDeadlocks / selfHealDeadlocks` | `headOnPairs[]`、`legalMoves[]`、`healRotations`（≤4）、`healLog[]`（入 Undo） | 每次操作结算后自检；优先旋转出「可立即飞出」；超限走乾坤洗牌兜底、**MUST NOT 判负**；MUST NOT 破花色守恒与零悬空；**MUST NOT 放宽 Generator 静态门禁** |
+| **Audio Bank**（声学资产库） | **Δ22** | `src/audio/SoundManager.js` 运行时态 | 外部轨：`assets{}`（8 文件的 `idle/loading/ready/failed` 状态）、`pools{}`（每音效实例池）、`bgmVolume{lobby: 0.28, game: 0.22}`、`fadeProgress`、`shatterRate`；合成轨：`audioCtx`、`masterGain`、三类合成参数 | 受 FR-037 的 SFX/BGM 开关与页面可见性统一调度；静音时**已排定的延迟触发 MUST 一并取消**；BGM 缺失回退程序化合成。**纯表现层，MUST NOT 持久化、MUST NOT 进 RulesEngine / Solver** |
+| **Combo Window**（连击时间窗） | **Δ22** | `Session` 内纯表现态 | `comboCount`（初值 0）、`lastMatchAt`（`performance.now()` 时间戳）、`tier`（1/2/3/4/5+）、`pendingVoice`、`pendingFloat` | 每次三消：`now - lastMatchAt <= 5000` 则 `+1`，否则重置为 `1`；**无论续连与否刷新窗口**；MUST 用时间戳差值、**MUST NOT 用 rAF 帧计数**；受阻**不重置**（与 IQ 口径不同）。驱动 `sfx_shatter` 升调（1.00/1.06/1.12/1.18/1.25）、延迟 120ms 语音与飘字。**MUST NOT 持久化** |
+| **Deal Choreography**（开局编舞） | **Δ22** | `BoardRenderer` 表现态 + `main.js` 调度 | `modeId`（15 种之一）、`prevModeId`（相邻去重）、`offsets{}`（逐牌起飞向量/旋转/缩放初值）、`delayOf(tile)`、`totalMs`（≤640ms）、`fastForwarded`（点击快进标记） | `0~180ms` 卡牌 `alpha = 0` 仅风景底图；`180~820ms` 依次落定并逐牌触发落牌涟漪音；绘制排序 MUST 复用静态比较器 `(a.z-b.z)\|\|(a.r-b.r)\|\|(a.c-b.c)`，同渲染坐标高层延迟恒 `+60ms*z`；点击 MUST 快进 100% 且正常响应。**MUST NOT 改卡牌花色/方向/坐标/层号，MUST NOT 持久化** |
+
+**双连击口径注记（Δ22，MUST）**：**Combo Window**（5 秒滑动窗，驱动音效与飘字）与 **IQ Meter** 的 `M_combo` 乘区（受阻断连，驱动 IQ 结算）为**两套独立计数**，MUST NOT 互相覆盖或隐式同步；若需统一，MUST 先修订 FR-047 §2。
+
+## 11. 关键不变量汇总（校验责任方）
 
 | 不变量 | 校验方 |
 |---|---|
