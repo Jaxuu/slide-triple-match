@@ -1100,8 +1100,10 @@ function scenarioDelta19() {
     brSrc.indexOf('0.16 * aboveN') === -1 &&
     brSrc.indexOf('var dotR') === -1 &&
     brSrc.indexOf('rgba(120,135,155,0.55)') === -1);
+  /* Δ22c/T111: drawTileBody 的宽高分离（w/h）以支持 blinds_flip 的 scaleX——
+   * 图标基准改取**短边** Math.min(w, h)，等比调用点（w === h）与原实现逐像素一致 */
   check('T084: 动物图标 iconSize = tileSize × 0.84（居中铺满）',
-    /drawBestiaryIcon\(ctx,\s*sv,\s*x \+ w \/ 2,\s*y \+ w \/ 2,\s*Math\.round\(w \* 0\.82\)\)/.test(brSrc));
+    /drawBestiaryIcon\(ctx,\s*sv,\s*x \+ w \/ 2,\s*y \+ h \/ 2,\s*Math\.round\(Math\.min\(w, h\) \* 0\.82\)\)/.test(brSrc));
   check('T084: 卡牌内无内缩白描边（drawTileBody 内零 strokeRect）', (function () {
     var i = brSrc.indexOf('function drawTileBody');
     var j = brSrc.indexOf('function drawBestiaryIcon', i);
@@ -1503,6 +1505,185 @@ function scenarioAnimLayerZOrder() {
     src.indexOf("classList.remove('no-keying')") !== -1);
 }
 
+/* =========================================================
+ * 场景 L: Δ22c / FR-052 —— 15 种开局进场编舞（T111/T112）
+ *   ① 常量表与 15 模式全覆盖、逐种可辨识（规格两两不同）
+ *   ② 时序：180ms 纯底图留白 → 基准延迟 180~520ms + z*55ms
+ *   ③ 零穿模：同坐标高层延迟恒 > 低层（严格单调，且 = +55ms*z）
+ *   ④ 落定归位：动画结束后 introTransformOf → null（静态精确坐标）
+ *   ⑤ 点击快进：skipDeal 后立刻可命中且该次点击被正常处理
+ *   ⑥ reduced-motion：无位移/无缩放，仅淡入，保留 180ms 留白
+ * ========================================================= */
+function scenarioDelta22Intro() {
+  console.log('场景 L: Δ22c 开局进场编舞（15 模式 / 零穿模 / 落子音 / 点击快进）');
+  var RT = STM.rendererTest;
+  var I = RT.INTRO;
+  var spec = RT.introSpecOf;
+  check('T111①: 15 种编舞模式全部登记（mode 0..14）',
+    !!I && I.MODES.length === 15);
+  check('T111①: 模式名两两互异（逐种可辨识）', (function () {
+    var seen = {};
+    for (var i = 0; i < I.MODES.length; i++) {
+      if (seen[I.MODES[i]]) return false;
+      seen[I.MODES[i]] = 1;
+    }
+    return true;
+  })());
+  check('T111②: 留白 180ms / 单卡 260ms / 层补偿 55ms / 落定阈值 0.85',
+    I.LEAD_MS === 180 && I.TILE_MS === 260 && I.Z_STEP_MS === 55 && I.TICK_AT === 0.85);
+  check('T111②: 基准延迟区间 = 180~520ms（LEAD + SPREAD）',
+    I.LEAD_MS + I.SPREAD_MS === 520);
+
+  /* 逐模式 × 逐坐标：规格有限性 + ord 值域 + 规格互异 */
+  var n = 6;
+  var total = n * n;
+  var sigs = {};
+  var allFinite = true;
+  var ordOk = true;
+  var distinct = 0;
+  for (var m = 0; m < 15; m++) {
+    var sig = '';
+    for (var r = 0; r < n; r++) {
+      for (var c = 0; c < n; c++) {
+        var t = { id: r * n + c, r: r, c: c, z: 0, d: (r + c) % 4 };
+        var s = spec(m, t, n, r * n + c, total);
+        var vals = [s.ord, s.ox, s.oy, s.oxc, s.oyc, s.sx, s.sy, s.a0];
+        for (var vi = 0; vi < vals.length; vi++) {
+          if (typeof vals[vi] !== 'number' || !isFinite(vals[vi])) allFinite = false;
+        }
+        if (!(s.ord >= 0 && s.ord <= 1)) ordOk = false;
+        sig += s.ord.toFixed(3) + ':' + s.ox.toFixed(1) + ':' + s.oy.toFixed(1) + ';';
+      }
+    }
+    if (!sigs[sig]) { sigs[sig] = 1; distinct++; }
+  }
+  check('T111②: 15 模式 × 36 坐标全量规格均为有限数值', allFinite);
+  check('T111②: 排序权重 ord 恒落 [0,1]', ordOk);
+  check('T111②: 15 种模式的落牌序/位移规格两两不同（非退化）', distinct === 15);
+
+  /* ③ 零穿模：同一 (r,c) 上高层延迟严格更大，且增量 = 55ms × Δz（layer_stack 因 ord 含 z 项而更大） */
+  var zMonotone = true;
+  var zExact = true;
+  for (var m2 = 0; m2 < 15; m2++) {
+    for (var rr = 0; rr < n; rr += 2) {
+      for (var cc = 0; cc < n; cc += 2) {
+        var prev = -Infinity;
+        for (var z = 0; z <= 4; z++) {
+          var st = spec(m2, { id: rr * n + cc, r: rr, c: cc, z: z, d: 0 }, n, 0, total);
+          var dly = I.LEAD_MS + st.ord * I.SPREAD_MS + z * I.Z_STEP_MS;
+          if (!(dly > prev)) zMonotone = false;
+          if (m2 !== 6 && z > 0 && Math.abs((dly - prev) - I.Z_STEP_MS) > 1e-6) zExact = false;
+          prev = dly;
+        }
+      }
+    }
+  }
+  check('T111③: 同坐标高层延迟严格大于低层（零穿模——先落底层后落顶层）', zMonotone);
+  check('T111③: 除 layer_stack 外层延迟增量恒 = +55ms × Δz', zExact);
+
+  /* 运行时：逐模式跑完整进场，零异常 + 落定后归位 */
+  var lv = {
+    id: 1, name: 'delta22-intro', n: 4, cfg: {},
+    tiles: [
+      { r: 0, c: 0, d: 1, s: 0, z: 0 },
+      { r: 0, c: 2, d: 2, s: 1, z: 0 },
+      { r: 1, c: 1, d: 0, s: 2, z: 0 },
+      { r: 2, c: 2, d: 3, s: 3, z: 0 },
+      { r: 3, c: 0, d: 1, s: 4, z: 0 }
+    ],
+    prisms: []
+  };
+  var dealTicks = [];
+  var cv = makeCanvas();
+  var ctxTrace = cv.getContext('2d');
+  var fillCount = 0;
+  var origFill = ctxTrace.fill;
+  ctxTrace.fill = function () { fillCount++; return origFill.apply(ctxTrace, arguments); };
+  var rnd = null;
+  var sess = STM.GameState.createSession(lv, {
+    onEvent: function (e) { if (rnd) { rnd.handleEvent(e); rnd.refresh(); } }
+  });
+  rnd = STM.createBoardRenderer(cv, sess, {
+    onDealTick: function (p) { dealTicks.push(p); }
+  });
+  rnd.refresh();
+
+  var modeOk = true;
+  var settledOk = true;
+  var tickOk = true;
+  for (var mm = 0; mm < 15; mm++) {
+    dealTicks = [];
+    rnd.startDeal(mm);
+    check('T111: 启动模式 ' + mm + '（' + I.MODES[mm] + '）', rnd.dealMode() === mm && rnd.isDealing());
+    if (rnd.dealMode() !== mm) modeOk = false;
+    /* 留白期（前 8 帧 ≈ 128ms < 180ms）棋盘零卡体填充 */
+    fillCount = 0;
+    try { pumpFrames(8); } catch (e0) { modeOk = false; check('  ↳ 模式 ' + mm + ' 留白期异常: ' + e0.message, false); }
+    if (fillCount !== 0) { tickOk = false; }
+    /* 跑完整个进场（120 帧 = 1920ms > 最大 1000ms） */
+    try { pumpFrames(120); } catch (e1) { modeOk = false; check('  ↳ 模式 ' + mm + ' 进场异常: ' + e1.message, false); }
+    if (rnd.isDealing()) settledOk = false;
+    if (rnd.dealPlanOf() !== null) settledOk = false;
+    /* 落定后必须回到静态路径（100% 精确网格坐标） */
+    if (dealTicks.length === 0) tickOk = false;
+  }
+  check('T111: 15 种模式逐种进场渲染零异常', modeOk);
+  check('T111①: 0~180ms 留白期棋盘零卡体绘制（纯风景底图）', tickOk);
+  check('T111④: 15 种模式进场结束后全部归位（introPlan 清空 / active=false）', settledOk);
+
+  /* 落子音：逐牌一声且节流后仍能覆盖多数卡牌；progress 单调上扬 */
+  dealTicks = [];
+  rnd.startDeal(0);
+  pumpFrames(120);
+  check('T111④: 逐牌落定触发落牌涟漪音（5 张牌全部发声）', dealTicks.length === 5);
+  check('T111④: 落牌音 progress 单调不减（音高渐次上扬）', (function () {
+    for (var i = 1; i < dealTicks.length; i++) if (dealTicks[i] < dealTicks[i - 1]) return false;
+    return true;
+  })());
+
+  /* ⑤ 点击快进：动画中途 skipDeal → 立即可命中 */
+  rnd.startDeal(3);
+  pumpFrames(6);
+  check('T112③: 动画进行中（约 96ms）intro 仍 active', rnd.isDealing());
+  var fast = rnd.skipDeal();
+  check('T112③: skipDeal 返回「此前确实在动画中」', fast === true);
+  check('T112③: 快进后 intro 立刻失活且计划清空',
+    rnd.isDealing() === false && rnd.dealPlanOf() === null);
+  var hitId = rnd.hitTest(160, 160);
+  check('T112③: 快进后同帧命中判定可用（不吞点击）', hitId >= 0);
+  var tapRes = sess.tap(hitId);
+  check('T112③: 快进后该次点击被正常处理（非 undefined）', !!tapRes);
+
+  /* ⑥ reduced-motion 降级 */
+  rnd.setReducedMotion(true);
+  rnd.startDeal(4);
+  var rm = RT.INTRO;
+  pumpFrames(14); /* ≈224ms → 越过 180ms 留白，进入淡入期 */
+  check('T112⑥: reduced-motion 下仍保留 180ms 底图留白节奏', rm.LEAD_MS === 180);
+  try { pumpFrames(120); check('T112⑥: reduced-motion 降级路径零异常', true); }
+  catch (e2) { check('T112⑥: reduced-motion 降级路径零异常 [' + e2.message + ']', false); }
+  check('T112⑥: reduced-motion 降级后同样完全归位', rnd.isDealing() === false);
+  rnd.setReducedMotion(false);
+
+  /* ⑦ 相邻两次开局不重复 + 锁定可复现 */
+  rnd.setDealModeLock(null);
+  var lastM = -1;
+  var noRepeat = true;
+  for (var k = 0; k < 40; k++) {
+    var got = rnd.startDeal();
+    if (got === lastM) noRepeat = false;
+    lastM = got;
+    rnd.skipDeal();
+  }
+  check('T112①: 连续 40 次开局相邻两次模式不重复', noRepeat);
+  rnd.setDealModeLock(9);
+  check('T112②: 调试锁定模式 9 → 启动即命中（评委逐种回放）',
+    rnd.startDeal() === 9 && rnd.dealModeName() === 'v_formation');
+  rnd.setDealModeLock(null);
+  rnd.skipDeal();
+  pumpFrames(2);
+}
+
 scenarioBlocked();
 scenarioMechAnims();
 scenarioPrismBlocked();
@@ -1515,6 +1696,7 @@ scenarioPurifyAndOriginality();
 scenarioDelta19();
 scenarioHitGeometry();
 scenarioAnimLayerZOrder();
+scenarioDelta22Intro();
 
 console.log('');
 if (failures.length) {

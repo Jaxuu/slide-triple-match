@@ -538,7 +538,8 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
       debugHint: d.getElementById('debug-hint'),
       debugAuto: d.getElementById('debug-auto'),
       debugInfo: d.getElementById('debug-info'),
-      debugMute: d.getElementById('debug-mute')
+      debugMute: d.getElementById('debug-mute'),
+      debugIntro: d.getElementById('debug-intro')
     };
   }
   /* M4 T053: 移动端调试面板折叠按钮（PC 端不显示）
@@ -814,6 +815,10 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     });
     renderer.setLevel(currentLevel); /* Δ14: 渲染层花色映射/背景随当前关 id 切换 */
     renderer.refresh();
+    /* Δ22c/T111+T112: 开局进场编舞——15 种随机抽取、相邻两次不重复；
+     * 0~180ms 纯底图留白，180~1000ms 花式落牌（z=4 满载上界；z≤2 典型 820ms），
+     * 逐牌落定配落子涟漪音 */
+    startDealChoreography();
 
     /* Δ15/T052i: 贴图就绪惰性换装——Dock chip 同步刷新（棋盘由渲染器
      * markDirty 重绘；贴图后到不闪烁——同关内同 suit 恒同来源）
@@ -835,10 +840,14 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     bindItemInput(); /* T035: 道具栏 + 暂存区输入绑定 */
     resetIq(); /* Δ19c/T085: 每关 IQ 重置为 90（纯局内表现态，不持久化） */
 
-    /* Δ19e/T087: L1/L2 交互式教学（L3+ 零提示——纯表现层，不阻塞输入） */
+    /* Δ19e/T087: L1/L2 交互式教学（L3+ 零提示——纯表现层，不阻塞输入）
+     * Δ22c/T112 ④: 教学卡 MUST 在编舞完成（>= 820ms，z=4 满载 1000ms）后再出现 */
     if (STM.Tutorial) {
       if (STM.Tutorial.dismiss) STM.Tutorial.dismiss();
-      STM.Tutorial.maybeStart(id, { session: session, renderer: renderer });
+      afterIntro(function () {
+        if (!session || !renderer) return;
+        STM.Tutorial.maybeStart(id, { session: session, renderer: renderer });
+      });
     }
 
     /* M4: 调试面板首次初始化（DOM 订阅 + 1~LEVELS.length 动态选项） */
@@ -868,7 +877,8 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     stopAutoBot('载入关卡');
 
     startBgStage(currentId); /* Δ15b3: 全视口背景舞台（贴图 + 氛围 + 粒子） */
-    showChallengeBanner(); /* Δ14/T052e: 挑战位关开局 1.6s 激励横幅（FR-036） */
+    /* Δ22c/T112 ④: 挑战横幅 1.6s 计时自**编舞完成**起算（不遮挡落牌） */
+    afterIntro(showChallengeBanner);
   }
 
   /* =========================================================
@@ -892,6 +902,46 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
   }
 
   var bannerTimer = null;
+
+  /* =========================================================
+   * Δ22c/T112: 开局编舞闸门（FR-052 §3 §5）
+   *   挑战横幅（FR-036 的 1.6s）与 L1/L2 教学卡 MUST 在编舞完成
+   *   之后才出现；横幅 1.6s 计时自编舞完成起算。
+   *   点击快进 → flushIntroGate() 立即放行（不等到原定时刻）。
+   * ========================================================= */
+  var introGateTimer = null;
+  var introGateQueue = [];
+  function clearIntroGate() {
+    if (introGateTimer) { clearTimeout(introGateTimer); introGateTimer = null; }
+    introGateQueue = [];
+  }
+  function flushIntroGate() {
+    if (introGateTimer) { clearTimeout(introGateTimer); introGateTimer = null; }
+    var q = introGateQueue;
+    introGateQueue = [];
+    for (var i = 0; i < q.length; i++) {
+      try { q[i](); } catch (eGate) { /* 单个闸门回调异常不影响其余 */ }
+    }
+  }
+  function afterIntro(fn) {
+    var d = (renderer && renderer.dealRemainingMs) ? renderer.dealRemainingMs() : 0;
+    if (d <= 0) { fn(); return; }
+    introGateQueue.push(fn);
+    if (!introGateTimer) introGateTimer = setTimeout(flushIntroGate, d);
+  }
+
+  /* 抽取并启动本局编舞（进入关卡 / 重置本关都走这里） */
+  function startDealChoreography() {
+    if (!renderer || !renderer.startDeal) return -1;
+    clearIntroGate();
+    var m = renderer.startDeal(); /* 相邻两次开局 MUST NOT 重复（渲染器内部保证） */
+    if (els.debugIntro) {
+      els.debugIntro.value = (renderer.getDealModeLock && renderer.getDealModeLock() != null)
+        ? String(renderer.getDealModeLock()) : 'random';
+    }
+    return m;
+  }
+
   function showChallengeBanner() {
     if (!isChallengeLevel(currentId)) return;
     if (bannerTimer) { clearTimeout(bannerTimer); bannerTimer = null; }
@@ -1511,6 +1561,17 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
       els.debugMute.checked = sound ? !sound.isMuted() : !progress.muted;
     }
 
+    /* Δ22c/T112 ②: 编舞模式锁定下拉（15 种 + 随机）——评委逐种回放验收 */
+    if (els.debugIntro) {
+      var im = (STM.rendererTest && STM.rendererTest.INTRO_MODES) || [];
+      var iopts = '<option value="random">随机（相邻不重复）</option>';
+      for (var ii = 0; ii < im.length; ii++) {
+        iopts += '<option value="' + ii + '">' + ii + ' · ' + im[ii] + '</option>';
+      }
+      els.debugIntro.innerHTML = iopts;
+      els.debugIntro.value = 'random';
+    }
+
     /* T053: 移动端浮动按钮 + 抽屉切换 */
     if (els.debugToggle) {
       els.debugToggle.addEventListener('pointerdown', onDebugToggleDown);
@@ -1521,6 +1582,15 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     if (els.debugHint) els.debugHint.addEventListener('pointerdown', onDebugHintDown);
     if (els.debugAuto) els.debugAuto.addEventListener('pointerdown', onDebugAutoDown);
     if (els.debugMute) els.debugMute.addEventListener('change', onDebugMuteChange);
+    if (els.debugIntro) els.debugIntro.addEventListener('change', onDebugIntroChange);
+  }
+
+  /* Δ22c/T112 ②: 切换编舞模式 → 立刻重放一次进场（评委逐种验收用） */
+  function onDebugIntroChange() {
+    if (!renderer || !renderer.setDealModeLock) return;
+    var v = els.debugIntro ? els.debugIntro.value : 'random';
+    renderer.setDealModeLock(v === 'random' ? null : parseInt(v, 10));
+    startDealChoreography();
   }
 
   /* 关卡机制标记文本（齿轮/冰封/锁链/棱镜——按 tiles/prisms/cfg 实际出现计） */
@@ -1580,11 +1650,13 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     stopAutoBot('重置');
     session.reset();
     renderer.refresh();
+    /* Δ22c/T111: 重置本关同样是一次「开局」——重新抽签进场编舞 */
+    startDealChoreography();
     renderHud();
     renderDock();
     renderItems();
     renderDebugInfo();
-    showChallengeBanner();
+    afterIntro(showChallengeBanner);
   }
 
   /* T057: 难度指标 + 机制标签在面板中实时刷新 */
@@ -1923,6 +1995,14 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     /* Δ10: 终态拦截（won/lost_* 结算浮层期间棋盘不可点）；扳手选目标期间点选优先 */
     var st = session.state();
     if (st.phase !== 'READY' && st.phase !== 'LOADING') return;
+    /* Δ22c/T112 ③（FR-052 §7）: 开局编舞点击快进——零迟滞。
+     * 先归位（skipDeal 使 introTransformOf 立刻返回 null，全部卡牌
+     * 100% 精确落回标准网格坐标），**紧接着继续走同一套命中判定**——
+     * 绝不吞掉本次点击、绝不要求二次点击、绝不以「动画中」禁用输入。 */
+    if (renderer.isDealing && renderer.isDealing()) {
+      renderer.skipDeal();
+      flushIntroGate(); /* 横幅/教学闸门同步放行 */
+    }
     var id = renderer.hitTest(ev.clientX, ev.clientY);
     if (id < 0) return;
     /* Δ10 无锁连点: 瞬时结算（0ms）——连续狂点直接命中最新逻辑态的栈顶滑块 */

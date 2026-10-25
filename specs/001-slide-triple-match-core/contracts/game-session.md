@@ -1,6 +1,6 @@
 # Contract: Game Session / UI / Rendering / Audio / Debug（前端运行时接口）
 
-> **Propagated**: 2026-10-25 — **Δ22（全景声学 + 5 秒连击 + 15 种开局编舞）** refine 传播：**§5 SoundManager 全节重写**（混合双轨架构 + 统一 API + `comboChanged` 事件契约 + 事件→音效映射的轨道归属）；**§4 BoardRenderer 新增「开局进场编舞」契约**（15 种模式 + `180/820ms` 时序 + 层级不变量 + 点击快进）；§6 main.js 补连击飘字与编舞调度职责。**四条 STALE 警告（Δ14/Δ16/Δ19/Δ21）一并清除**——但请注意下方「仍未同步项」，勿误认为该四轮增量已全部落入本契约。
+> **Propagated**: 2026-10-25 — **Δ22（全景声学 + 5 秒连击 + 15 种开局编舞）** refine 传播：**§5 SoundManager 全节重写**（混合双轨架构 + 统一 API + `comboChanged` 事件契约 + 事件→音效映射的轨道归属）；**§4 BoardRenderer 新增「开局进场编舞」契约**（15 种模式 + `180/1000ms` 时序 + 层级不变量 + 点击快进）；§6 main.js 补连击飘字与编舞调度职责。**四条 STALE 警告（Δ14/Δ16/Δ19/Δ21）一并清除**——但请注意下方「仍未同步项」，勿误认为该四轮增量已全部落入本契约。
 >
 > **仍未同步项（明确记录，勿误认为已补齐）**：本契约仍未覆盖 ① **Δ16** 的 `src/ui/*` 五模块（`splash.js` / `lobby.js` / `modals.js` / `result.js` / `fail.js`）与 `src/core/profile.js` 的接口契约；② **Δ19** 的 `src/render/shape-masks.js` 掩码契约、`RulesEngine` 自愈 API（`findHeadOnDeadlocks` / `selfHealDeadlocks`）、顶部导航栏与 IQ 条 DOM 契约、三大道具 `useItem` 签名变更（`wrench` 已下线）；③ **Δ21** 的 `#vfx-canvas` 碎片渲染契约与 `findBestNextMove(state)` 完整签名。上述三项在 [plan.md](../plan.md) 的「Project Structure」与 [tasks.md](../tasks.md) 的 T064~T104 中已有权威定义，**实现期以那里为准**；本契约待后续 `refine.propagate` 补齐。
 
@@ -92,10 +92,10 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 | `startDeal(modeId)` | 启动进场编舞；`modeId` 为 15 种之一（缺省由 `main.js` 抽取后传入）；重复调用 MUST 幂等（先快进上一次） |
 | `skipDeal()` | 立即快进至 `100%`（全部卡牌归位、`alpha = 1`、压制锁定按 FR-044 §4 生效），返回后棋盘立即可交互 |
 | `isDealing()` | 返回 `boolean`；`main.js` 的 `pointerdown` 前置检查据此决定是否先 `skipDeal()` 再走正常命中判定（**MUST NOT 吞掉该次点击**） |
-| 时序 | `0 ~ 180ms`：全部卡牌 `alpha = 0`，仅绘制风景底图；`180 ~ 820ms`：逐牌落定（动画总时长 `<= 640ms`） |
+| 时序 | `0 ~ 180ms`：全部卡牌 `alpha = 0`，仅绘制风景底图；`180 ~ 1000ms`：逐牌落定（动画总时长 `<= 1000ms`） |
 | 逐牌回调 | 每张卡牌落定触发 `onDealTick(tile)` → `SoundManager.playSynth('dealTick')`（节流 `>= 22ms`，音高随进度上扬） |
 | **绘制排序（MUST）** | 动画期间 MUST 复用静态渲染**同一比较器** `(a.z - b.z) \|\| (a.r - b.r) \|\| (a.c - b.c)` 升序；MUST NOT 为动画另建排序 |
-| **层级延迟（MUST）** | 同一渲染坐标下高层 `z` 的落定时刻恒比低层晚 `+60ms * z`——**先落底层、后落顶层，零穿模** |
+| **层级延迟（MUST）** | 同一渲染坐标下高层 `z` 的落定时刻恒比低层晚 `+55ms * z`——**先落底层、后落顶层，零穿模** |
 | 坐标口径 | 起落坐标 MUST 复用 `getTileCssRect()`（含奇偶层半格偏移），MUST NOT 用逻辑坐标 `(c+0.5)*cell` 直算 |
 | 降级 | `prefers-reduced-motion: reduce` → 一次性淡入（无位移 / 旋转 / 缩放），**保留 `180ms` 底图停留** |
 | 纯表现层 | MUST NOT 改变卡牌花色/方向/坐标/层号；MUST NOT 触发 Solver、关卡生成或持久化 |
@@ -163,7 +163,7 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 - 结算交互：won → 「下一关」（`id+1 > LEVELS.length` ⇒ 全通关庆祝终局，动态关数）或重玩；lost → 重玩（lives 重置）。
 - 进度写入：通关 `unlocked = max(unlocked, id+1)`（≤ LEVELS.length）、best 分更新（D-03）。
 - **（Δ22）连击飘字调度**：订阅 `comboChanged` → 当 `floatText !== null` 时在 `#dock` **下方**渲染微光艺术字（浮起 → 放大 → 淡出，生命周期 700~1100ms）；飘字层 `pointer-events: none`，MUST NOT 遮挡待消槽与棋盘命中区域；连续连击允许多条并存且纵向错位不重叠。
-- **（Δ22）开局编舞调度**：开局（进关 / 重置）时从 15 种中抽取 `modeId`（**相邻两次开局 MUST NOT 重复**），调用 `renderer.startDeal(modeId)`；`pointerdown` 前置检查 `renderer.isDealing()` → 先 `skipDeal()` 再继续走正常命中判定（**MUST NOT 吞点击**）；挑战横幅（FR-036 的 1.6s）与 L1/L2 教学卡片（FR-046）MUST 在编舞完成后（`>= 820ms`）再出现。
+- **（Δ22）开局编舞调度**：开局（进关 / 重置）时从 15 种中抽取 `modeId`（**相邻两次开局 MUST NOT 重复**），调用 `renderer.startDeal(modeId)`；`pointerdown` 前置检查 `renderer.isDealing()` → 先 `skipDeal()` 再继续走正常命中判定（**MUST NOT 吞点击**）；挑战横幅（FR-036 的 1.6s）与 L1/L2 教学卡片（FR-046）MUST 在编舞完成后（`>= 1000ms`）再出现。
 - **（Δ22）BGM 场景接线**：`BOOT → LOBBY` 起 `playBgm('lobby')`；`LOBBY → GAME` 切 `playBgm('game')`；`GAME → RESULT` 与返回大厅回切 `playBgm('lobby')`。
 
 ## 7. 评委调试面板（FR-027/028，M4）

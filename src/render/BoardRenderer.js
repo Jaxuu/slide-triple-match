@@ -34,6 +34,11 @@
 
   var STM = global.STM = global.STM || {};
   var lastRendererApi = null;
+  /* Δ22c/T112: 编舞「上一次抽取结果」与「调试锁定」都是**会话级**状态——
+   * 每次 loadLevel 都会重建 renderer 实例，若放在实例作用域内，
+   * 换关后「相邻两次不重复」与「评委锁定」都会失效。故提升到模块作用域。 */
+  var introLastModeGlobal = -1;
+  var dealModeLockGlobal = null;
   var RE = STM.RulesEngine;
   var Bestiary = STM.Bestiary; /* Δ14: 装载序保证先于 BoardRenderer */
 
@@ -569,23 +574,34 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
    *   · 动物图标 iconSize = tileSize * 0.84（居中饱满，留白最小）
    *   · 已彻底移除：被压变暗遮罩、层间环境阴影块、内嵌白描边、
    *     堆叠 layerOff 双叠加 —— 层次仅靠卡牌自身柔和投影表达
-   * px,py 牌中心（CSS 像素——draw() 已按 dpr 建立缩放矩阵）
    * ========================================================= */
-  function drawTileBody(ctx, cell, px, py, t, scale, alpha, nowMs) {
+  /* px,py 牌中心（CSS 像素——draw() 已按 dpr 建立缩放矩阵）
+   * Δ22c/T111: scaleX/scaleY 为**可选的等比/非等比缩放**（默认等于 scale）。
+   *   · 只影响牌体矩形的宽高与图标基准，**不使用 ctx.scale**——
+   *     Δ15b3f 铁律「变换矩阵只经 setTransform 绝对赋值」继续成立；
+   *   · 其余调用点不传后两参 → w === h === (cell-GAP)*scale，与原实现逐像素一致。
+   * ========================================================= */
+  function drawTileBody(ctx, cell, px, py, t, scale, alpha, nowMs, scaleX, scaleY) {
     var sv = suitVisual(t.s);
     scale = scale || 1;
     alpha = alpha == null ? 1 : alpha;
-    var w = Math.max(1, cell - GAP) * scale; /* tileSize = cellStep - 1 */
-    var r = Math.round(w * 0.20);
+    var base = Math.max(1, cell - GAP); /* tileSize = cellStep - 1 */
+    var kx = (scaleX == null) ? scale : scaleX;
+    var ky = (scaleY == null) ? scale : scaleY;
+    if (!(kx > 0)) kx = 0.0001;
+    if (!(ky > 0)) ky = 0.0001;
+    var w = base * kx;
+    var h = base * ky;
+    var r = Math.round(Math.min(w, h) * 0.20);
     var x = px - w / 2;
-    var y = py - w / 2;
+    var y = py - h / 2;
     ctx.globalAlpha = alpha;
     /* 1. 底部 4px 立体厚度层 */
     ctx.save();
     ctx.shadowColor = 'rgba(15, 23, 42, 0.25)';
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 3;
-    roundRect(ctx, x, y + 4, w, w, r);
+    roundRect(ctx, x, y + 4, w, h, r);
     ctx.fillStyle = '#CBD5E1';
     ctx.fill();
     ctx.strokeStyle = '#94A3B8';
@@ -593,31 +609,31 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     ctx.stroke();
     ctx.restore();
     /* 2. 温润奶油白牌面 */
-    var fg = ctx.createLinearGradient(x, y, x, y + w);
+    var fg = ctx.createLinearGradient(x, y, x, y + h);
     fg.addColorStop(0, '#FFFFFF');
     fg.addColorStop(1, '#FFFFFF');
-    roundRect(ctx, x, y, w, w, r);
+    roundRect(ctx, x, y, w, h, r);
     ctx.fillStyle = fg;
     ctx.fill();
     /* 顶部内侧 1px 纯白高光边 */
     ctx.strokeStyle = '#FFFFFF';
     ctx.lineWidth = 1;
-    roundRect(ctx, x + 1, y + 1, w - 2, w - 2, Math.max(1, r - 1));
+    roundRect(ctx, x + 1, y + 1, Math.max(1, w - 2), Math.max(1, h - 2), Math.max(1, r - 1));
     ctx.stroke();
     /* 外侧 1px solid #E2E8F0 柔和边界 */
     ctx.strokeStyle = '#E2E8F0';
     ctx.lineWidth = 1;
-    roundRect(ctx, x, y, w, w, r);
+    roundRect(ctx, x, y, w, h, r);
     ctx.stroke();
-    /* 3. 图鉴图案 */
-    drawBestiaryIcon(ctx, sv, x + w / 2, y + w / 2, Math.round(w * 0.82));
+    /* 3. 图鉴图案（基准取短边——百叶窗翻转时不拉伸变形） */
+    drawBestiaryIcon(ctx, sv, x + w / 2, y + h / 2, Math.round(Math.min(w, h) * 0.82));
     /* 零偏移原位被压变暗 */
     // covered = RulesEngine.isCovered(state, tile) 或 probe.covered
     var covered = (t && t.covered === true);
     if (covered === true) {
       ctx.save();
       ctx.fillStyle = 'rgba(15, 23, 42, 0.28)';
-      roundRect(ctx, x, y, w, w, r);
+      roundRect(ctx, x, y, w, h, r);
       ctx.fill();
       ctx.restore();
     }
@@ -834,6 +850,180 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
 
 
   /* =========================================================
+   * Δ22c / FR-052：15 种开局卡牌进场编舞（纯运动学表现层）
+   *
+   * 时序（ms，自 startDeal 起算）：
+   *   0 ~ 180        纯背景留白——全盘 alpha=0，仅透出关卡风景底图
+   *   180 ~ 520      各模式排序权重 ord∈[0,1] 线性映射的基准延迟区间
+   *   + z * 55       层高补偿（**恒正**——永远先落底层、后落顶层）
+   *   + 260          单卡持续时长
+   *
+   * 安全不变量（MUST）：
+   *   ① 绘制顺序 100% 复用静态层同一比较器
+   *      (a.z-b.z)||(a.r-b.r)||(a.c-b.c)——本模块**只产生每张牌的
+   *      位移/缩放/透明度**，绝不重排、绝不改 tile 属性；
+   *   ② 动画结束后 introTransformOf 返回 null → 走静态路径，
+   *      卡牌 100% 精确落在 getTileCssRect 给出的标准网格坐标；
+   *   ③ 编舞期间不触发任何 Solver / 关卡生成 / 持久化写入。
+   * ========================================================= */
+  var INTRO_LEAD_MS = 180;      /* 纯背景留白（兼作解码/预排版窗口） */
+  var INTRO_SPREAD_MS = 340;    /* 基准延迟展开量 → 180~520ms */
+  var INTRO_Z_STEP_MS = 55;     /* 每层 +55ms（零穿模的关键） */
+  var INTRO_TILE_MS = 260;      /* 单卡进场持续时长 */
+  var INTRO_TICK_AT = 0.85;     /* 落盘定格瞬间 → 落牌涟漪音 */
+  var INTRO_MODES = [
+    'diagonal_cascade', 'center_ripple', 'outer_converge', 'spiral_vortex',
+    'wings_clasp', 'sky_rain', 'layer_stack', 'zipper_interleave',
+    'windmill_quadrants', 'v_formation', 'checkerboard_weave', 'blinds_flip',
+    'deck_deal', 'tailwind_glide', 'starlight_scatter'
+  ];
+
+  function introEaseOutCubic(p) { return 1 - Math.pow(1 - p, 3); }
+  function introEaseOutQuart(p) { return 1 - Math.pow(1 - p, 4); }
+  function introEaseOutBack(p) {
+    var c1 = 1.70158, c3 = c1 + 1;
+    return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
+  }
+  function introEase(kind, p) {
+    if (p <= 0) return 0;
+    if (kind === 'back') return introEaseOutBack(p);
+    if (kind === 'quart') return introEaseOutQuart(p);
+    return introEaseOutCubic(p);
+  }
+
+  /* 距棋盘中心的归一化欧氏距离（0=正中，1=四角） */
+  function introDist01(r, c, n) {
+    var h = (n - 1) / 2;
+    var dx = c - h, dy = r - h;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    var dmax = Math.sqrt(h * h + h * h) || 1;
+    return { d: Math.max(0, Math.min(1, d / dmax)), dx: dx, dy: dy, len: d };
+  }
+
+  /* =========================================================
+   * introSpecOf —— 15 种编舞的**纯函数**规格表（可离线断言）
+   *   mode   : 0..14
+   *   t      : 渲染探针 tile（需 r / c / z / d / id）
+   *   n      : 棋盘边长（格）
+   *   rank   : 该牌在 id 升序中的序号（deck_deal 发牌序）
+   *   total  : 卡牌总数
+   * 返回 { ord∈[0,1], ox, oy (px), oxc, oyc (格), sx, sy, a0, ease }
+   *   ord 越大 → 越晚落定
+   * ========================================================= */
+  function introSpecOf(mode, t, n, rank, total) {
+    var r = t.r || 0, c = t.c || 0;
+    var nn = n > 1 ? n : 2;
+    var h = (nn - 1) / 2;
+    var z = t.z || 0;
+    var totalN = total > 1 ? total : 1;
+    var cd = introDist01(r, c, nn);
+    var out = { ord: 0, ox: 0, oy: 0, oxc: 0, oyc: 0, sx: 1, sy: 1, a0: 0, ease: 'cubic' };
+
+    switch (mode) {
+      case 0: /* diagonal_cascade —— 对角瀑布流：左上 → 右下斜向波浪落下 */
+        out.ord = (r + c) / (2 * (nn - 1));
+        out.oy = -45;
+        break;
+      case 1: /* center_ripple —— 中心涟漪绽放：由近及远 Ease-Out-Back 弹出 */
+        out.ord = cd.d;
+        out.sx = out.sy = 0.2;
+        out.a0 = 0.3;
+        out.ease = 'back';
+        break;
+      case 2: /* outer_converge —— 外环聚拢：由远及近，自外 60px 向内滑入 */
+        out.ord = 1 - cd.d;
+        if (cd.len > 0.0001) {
+          out.ox = (cd.dx / cd.len) * 60;
+          out.oy = (cd.dy / cd.len) * 60;
+        }
+        break;
+      case 3: { /* spiral_vortex —— 螺旋星璇：极角 + 半径构成螺旋序依次弹入 */
+        var ang = Math.atan2(cd.dy, cd.dx);
+        var an = ((ang + Math.PI / 2) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) / (Math.PI * 2);
+        out.ord = 0.62 * an + 0.38 * cd.d;
+        var amp = 55 * (0.45 + 0.55 * cd.d);
+        out.ox = Math.cos(ang - 0.9) * amp;
+        out.oy = Math.sin(ang - 0.9) * amp;
+        out.sx = out.sy = 0.55;
+        out.ease = 'back';
+        break;
+      }
+      case 4: /* wings_clasp —— 双翼合拢：左半自左、右半自右，中央最后咬合 */
+        out.ord = 0.85 * (1 - Math.abs(c - h) / (h || 1)) + 0.15 * (r / (nn - 1));
+        out.ox = c < nn / 2 ? -120 : 120;
+        break;
+      case 5: /* sky_rain —— 天降甘霖：列/行错落，自 -90px 带回弹落下 */
+        out.ord = 0.45 * (c / (nn - 1)) + 0.55 * (r / (nn - 1));
+        out.oy = -90;
+        out.ease = 'back';
+        break;
+      case 6: /* layer_stack —— 层峦叠嶂：z=0→4 整层分批自上方放大压下 */
+        out.ord = (z + (r + c) / (2 * (nn - 1))) / 5;
+        out.oy = -50;
+        out.sx = out.sy = 1.14;
+        out.ease = 'quart';
+        break;
+      case 7: /* zipper_interleave —— 交错拉链：偶数行自左、奇数行自右 */
+        out.ord = (r + 0.4 * (c / (nn - 1))) / (nn - 1 + 0.4);
+        out.ox = (r % 2 === 0) ? -100 : 100;
+        break;
+      case 8: { /* windmill_quadrants —— 风车四象限：TL/TR/BR/BL 四向切入 */
+        var q = (r < nn / 2) ? (c < nn / 2 ? 0 : 1) : (c < nn / 2 ? 3 : 2);
+        out.ord = q * 0.25 + cd.d * 0.25;
+        if (q === 0) out.ox = -90;
+        else if (q === 1) out.oy = -90;
+        else if (q === 2) out.ox = 90;
+        else out.oy = 90;
+        break;
+      }
+      case 9: /* v_formation —— V 字雁阵：r + |c - centerC| 呈 V 字波浪自上方 */
+        out.ord = (r + Math.abs(c - h)) / (nn - 1 + h);
+        out.oy = -70;
+        break;
+      case 10: /* checkerboard_weave —— 棋盘格交织：偶格前半拍、奇格后半拍 */
+        out.ord = ((r + c) % 2 === 0)
+          ? (r / (nn - 1)) * 0.45
+          : 0.5 + (r / (nn - 1)) * 0.45;
+        out.oy = -40;
+        out.sx = out.sy = 0.7;
+        out.a0 = 0.25;
+        break;
+      case 11: /* blinds_flip —— 百叶窗翻转：按列从左到右 scaleX 0.05→1 展开 */
+        out.ord = c / (nn - 1);
+        out.sx = 0.05;
+        out.sy = 1;
+        out.a0 = 0.15;
+        break;
+      case 12: /* deck_deal —— 中心发牌式：起点=棋盘正中，按 id 序飞散铺开 */
+        out.ord = rank / (totalN - 1);
+        out.oxc = h - c;
+        out.oyc = h - r;
+        out.sx = out.sy = 0.55;
+        out.ease = 'quart';
+        break;
+      case 13: /* tailwind_glide —— 顺风滑入：沿自身箭头 d 的后方滑入 */
+        out.ord = (r + c) / (2 * (nn - 1));
+        if (t.d === 1) out.ox = -55;        /* 朝右 R → 自左侧滑入 */
+        else if (t.d === 3) out.ox = 55;    /* 朝左 L → 自右侧滑入 */
+        else if (t.d === 0) out.oy = 55;    /* 朝上 U → 自下方滑入 */
+        else out.oy = -55;                  /* 朝下 D → 自上方滑入 */
+        break;
+      case 14: /* starlight_scatter —— 星雨点亮：伪随机均匀散点缩放点亮 */
+        out.ord = (((t.id || 0) * 7 + 3) % totalN) / (totalN - 1);
+        out.sx = out.sy = 0.35;
+        break;
+      default:
+        out.ord = (r + c) / (2 * (nn - 1));
+        out.oy = -45;
+        break;
+    }
+    if (!isFinite(out.ord)) out.ord = 0;
+    if (out.ord < 0) out.ord = 0;
+    if (out.ord > 1) out.ord = 1;
+    return out;
+  }
+
+  /* =========================================================
    * Renderer 工厂
    * ========================================================= */
   function createBoardRenderer(canvas, session, opts) {
@@ -921,6 +1111,18 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
      * 现改为每帧在 draw() 里算出位移，交给静态层 drawBoardTile 施加，
      * 使抖动天然遵守 z 序。 */
     var blockDx = {};
+
+    /* ---------- Δ22c/T111: 开局进场编舞运行态 ---------- */
+    var introAnim = null;        /* { startTime, mode, active, totalMs } */
+    var introPlan = null;        /* tileId → { delay, ord, ox, oy, oxc, oyc, sx, sy, a0, ease } */
+    var introTicked = {};        /* tileId → true（落牌涟漪音只响一次） */
+    /* introLastMode / dealModeLock 见模块作用域（跨 renderer 实例存活） */
+    var reducedMotion = false;
+    try {
+      if (typeof global.matchMedia === 'function') {
+        reducedMotion = !!global.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      }
+    } catch (eRM) { reducedMotion = false; }
 
     function nowMs() {
       return global.performance ? global.performance.now() : Date.now();
@@ -1030,6 +1232,185 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       if (needMore) start();
     }
 
+    /* =========================================================
+     * Δ22c/T111: 开局进场编舞——启动 / 计划 / 逐帧变换 / 落子音
+     * ========================================================= */
+
+    /* 抽取一种编舞（相邻两次开局 MUST NOT 重复；锁定优先） */
+    function pickIntroMode() {
+      if (dealModeLockGlobal != null && isFinite(dealModeLockGlobal)) {
+        var lm = dealModeLockGlobal | 0;
+        return (lm >= 0 && lm < INTRO_MODES.length) ? lm : 0;
+      }
+      if (introLastModeGlobal < 0 || introLastModeGlobal >= INTRO_MODES.length) {
+        return Math.floor(Math.random() * INTRO_MODES.length);
+      }
+      /* 从「除上一次之外的 14 种」里等概率抽——数学上保证相邻不重复 */
+      var k = Math.floor(Math.random() * (INTRO_MODES.length - 1));
+      if (k >= introLastModeGlobal) k += 1;
+      return k;
+    }
+
+    /* 启动进场动画；modeIdx 省略 → 按不重复规则抽取。返回实际使用的模式号 */
+    function startDeal(modeIdx) {
+      var m;
+      if (modeIdx != null && isFinite(modeIdx)) {
+        m = modeIdx | 0;
+        if (m < 0 || m >= INTRO_MODES.length) m = 0;
+      } else {
+        m = pickIntroMode();
+      }
+      introLastModeGlobal = m;
+      introAnim = { startTime: nowMs(), mode: m, active: true, totalMs: 0 };
+      introPlan = null;
+      introTicked = {};
+      markDirty();
+      return m;
+    }
+
+    /* 点击快进：立刻归位（introTransformOf 随即返回 null → 静态精确坐标） */
+    function skipDeal() {
+      var wasActive = !!(introAnim && introAnim.active);
+      if (introAnim) introAnim.active = false;
+      introPlan = null;
+      dirty = true;
+      markDirty();
+      return wasActive;
+    }
+
+    function isDealing() { return !!(introAnim && introAnim.active); }
+    function dealMode() { return introAnim ? introAnim.mode : -1; }
+    function dealModeName() {
+      var m = dealMode();
+      return (m >= 0 && m < INTRO_MODES.length) ? INTRO_MODES[m] : '';
+    }
+    function dealTotalMs() { return introAnim ? (introAnim.totalMs || 0) : 0; }
+
+    /* 剩余时长（main.js 据此把挑战横幅/教学卡推迟到编舞完成之后） */
+    function dealRemainingMs() {
+      if (!introAnim || !introAnim.active) return 0;
+      var total = introAnim.totalMs ||
+        (INTRO_LEAD_MS + INTRO_SPREAD_MS + 4 * INTRO_Z_STEP_MS + INTRO_TILE_MS);
+      var left = introAnim.startTime + total - nowMs();
+      return left > 0 ? left : 0;
+    }
+
+    /* 构建逐牌计划（延迟 / 起点偏移 / 起点缩放 / 起点透明度） */
+    function buildIntroPlan() {
+      if (!introAnim || !lastProbe) return null;
+      var n = layout.n || lastProbe.n || 0;
+      if (!n) return null; /* 布局未就绪——下一帧再建 */
+      var tiles = lastProbe.tiles || [];
+      var list = [];
+      var i;
+      for (i = 0; i < tiles.length; i++) if (!tiles[i].removed) list.push(tiles[i]);
+      var total = list.length || 1;
+      /* deck_deal 的发牌序 = id 升序 */
+      var sorted = list.slice().sort(function (a, b) { return a.id - b.id; });
+      var rankOf = {};
+      for (i = 0; i < sorted.length; i++) rankOf[sorted[i].id] = i;
+
+      var plan = {};
+      var maxEnd = 0;
+      var maxDelay = INTRO_LEAD_MS;
+      for (i = 0; i < list.length; i++) {
+        var t = list[i];
+        var sp = introSpecOf(introAnim.mode, t, n, rankOf[t.id] || 0, total);
+        /* 层高补偿恒正 → 同一渲染坐标永远先落底层、后落顶层（零穿模） */
+        var delay = INTRO_LEAD_MS + sp.ord * INTRO_SPREAD_MS + (t.z || 0) * INTRO_Z_STEP_MS;
+        plan[t.id] = {
+          delay: delay,
+          ord: sp.ord,
+          ease: sp.ease,
+          ox: sp.ox, oy: sp.oy, oxc: sp.oxc, oyc: sp.oyc,
+          sx: sp.sx, sy: sp.sy, a0: sp.a0
+        };
+        if (delay + INTRO_TILE_MS > maxEnd) maxEnd = delay + INTRO_TILE_MS;
+        if (delay > maxDelay) maxDelay = delay;
+      }
+      introAnim.totalMs = maxEnd;
+      introAnim.maxDelay = maxDelay;
+      return plan;
+    }
+
+    /* 每帧变换：返回 null 表示「已归位」→ 调用方走静态路径（坐标 100% 精确） */
+    function introTransformOf(t, now) {
+      if (!introAnim || !introAnim.active) return null;
+      if (!introPlan) introPlan = buildIntroPlan();
+      if (!introPlan) return null;
+      var rec = introPlan[t.id];
+      if (!rec) return null;
+      var el = now - introAnim.startTime - rec.delay;
+      var oxPx = rec.ox + rec.oxc * cell;
+      var oyPx = rec.oy + rec.oyc * cell;
+      if (el <= 0) {
+        /* 尚未开始：完全隐形（0~180ms 纯底图留白期的唯一表现） */
+        return { p: 0, dx: oxPx, dy: oyPx, sx: rec.sx, sy: rec.sy, alpha: 0 };
+      }
+      var p = el / INTRO_TILE_MS;
+      if (p >= 1) return null; /* 定格 → 静态路径 */
+      if (reducedMotion) {
+        /* prefers-reduced-motion: reduce → 无位移/无旋转/无缩放，仅一次性淡入 */
+        var ar = p < 0 ? 0 : p;
+        return { p: p, dx: 0, dy: 0, sx: 1, sy: 1, alpha: rec.a0 + (1 - rec.a0) * ar };
+      }
+      var e = introEase(rec.ease, p);
+      var k = 1 - e;
+      var ae = e < 0 ? 0 : (e > 1 ? 1 : e);
+      return {
+        p: p,
+        dx: oxPx * k,
+        dy: oyPx * k,
+        sx: 1 + (rec.sx - 1) * k,
+        sy: 1 + (rec.sy - 1) * k,
+        alpha: rec.a0 + (1 - rec.a0) * Math.min(1, ae * 1.6)
+      };
+    }
+
+    /* 逐帧推进：跨越 p>=0.85 首次落定 → 一声落牌涟漪（>=22ms 节流在 SoundManager 内） */
+    function tickIntro(now) {
+      if (!introAnim || !introAnim.active) return false;
+      if (!introPlan) introPlan = buildIntroPlan();
+      if (!introPlan) return true;
+      var allDone = true;
+      var pending = null;
+      for (var key in introPlan) {
+        if (!Object.prototype.hasOwnProperty.call(introPlan, key)) continue;
+        var rec = introPlan[key];
+        var el = now - introAnim.startTime - rec.delay;
+        if (el < INTRO_TILE_MS) allDone = false;
+        if (!introTicked[key] && el >= INTRO_TILE_MS * INTRO_TICK_AT) {
+          introTicked[key] = true;
+          if (typeof opts.onDealTick === 'function') {
+            /* overallProgress = 该牌在**落牌时间轴**上的归一化位置——
+             * 恒随落定时刻单调不减（若用 ord 会因层高补偿而乱序，
+             * 音高就会忽高忽低）。节流由 SoundManager 保证 >= 22ms。 */
+            var span = Math.max(1, (introAnim.maxDelay || INTRO_LEAD_MS) - INTRO_LEAD_MS);
+            var prog = (rec.delay - INTRO_LEAD_MS) / span;
+            if (!isFinite(prog)) prog = 0;
+            if (prog < 0) prog = 0;
+            if (prog > 1) prog = 1;
+            if (!pending) pending = [];
+            pending.push(prog);
+          }
+        }
+      }
+      /* 同帧内多张牌同时落定 → 按时间轴升序发声，保证音高单调上扬 */
+      if (pending) {
+        pending.sort(function (a, b) { return a - b; });
+        for (var pi = 0; pi < pending.length; pi++) {
+          try { opts.onDealTick(pending[pi]); } catch (eTick) { /* 音频异常不阻塞渲染 */ }
+        }
+      }
+      if (allDone) {
+        introAnim.active = false;
+        introPlan = null;
+        dirty = true;
+        return false;
+      }
+      return true;
+    }
+
     /* 动画推进；reveal 过期即移除 */
     function tick(now) {
       var active = false;
@@ -1071,6 +1452,8 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       }
       if (vfxShards.length > 0) active = true;
       if (particles.length > 0) active = true;
+      /* Δ22c/T111: 开局编舞推进（含逐牌落子涟漪音）——动画期持续请求下一帧 */
+      if (introAnim && introAnim.active && tickIntro(now)) active = true;
       return active;
     }
 
@@ -1435,6 +1818,18 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
           lift = (1 - ease) * cell * 0.45;
         }
       }
+      /* Δ22c/T111: 进场编舞——只对**本张牌**施加位移/缩放/透明度，
+       * 绘制顺序仍由 draw() 的 z→r→c 升序循环决定（绝不重排、绝不穿模）。
+       * 已归位时 introTransformOf 返回 null → 走下方静态路径，
+       * 保证动画结束后坐标与 getTileCssRect 完全一致（零残留偏移）。 */
+      var itr = introTransformOf(t, now);
+      if (itr) {
+        if (itr.alpha <= 0.004) return; /* 留白/未开始：不绘制（无半透明残影） */
+        /* 位移交给牌心坐标、缩放交给 drawTileBody 的 scaleX/scaleY——
+         * 全程零 ctx.transform 累加（Δ15b3f 铁律） */
+        drawTileBody(ctx, cell, px + itr.dx, py + itr.dy + lift, t, 1, itr.alpha, now, itr.sx, itr.sy);
+        return;
+      }
       drawTileBody(ctx, cell, px, py + lift, t, 1, 1, now);
     }
 
@@ -1736,6 +2131,22 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       setHighlights: setHighlights,
       tileRect: tileRect,
       setLevel: setLevel,
+      /* Δ22c/T111: 开局进场编舞（main.js 抽取 / 快进 / 降级唯一入口） */
+      startDeal: startDeal,
+      skipDeal: skipDeal,
+      isDealing: isDealing,
+      dealMode: dealMode,
+      dealModeName: dealModeName,
+      dealTotalMs: dealTotalMs,
+      dealRemainingMs: dealRemainingMs,
+      setDealModeLock: function (m) {
+        dealModeLockGlobal = (m == null || m === '' || m === 'random') ? null : (m | 0);
+        return dealModeLockGlobal;
+      },
+      getDealModeLock: function () { return dealModeLockGlobal; },
+      setReducedMotion: function (v) { reducedMotion = !!v; },
+      isReducedMotion: function () { return reducedMotion; },
+      dealPlanOf: function () { return introPlan; }, /* 自测只读 */
       /* 自测/调试用只读布局（CSS 像素：origin/cellStep/tileSize/n） */
       layoutOf: function () { return layout; },
       SUITS: SUITS
@@ -2305,5 +2716,16 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
   /* ingame-hud-render-defects: 几何唯一出口外露（纯函数——Node/N 层/rect 任意组合可测） */
   STM.rendererTest.getTileCssRect = getTileCssRect;
   STM.rendererTest.tileGridOf = tileGridOf;
+  /* Δ22c/T111: 编舞常量表与纯函数规格（离线自测断言——不参与运行时逻辑） */
+  STM.rendererTest.INTRO = {
+    LEAD_MS: INTRO_LEAD_MS,
+    SPREAD_MS: INTRO_SPREAD_MS,
+    Z_STEP_MS: INTRO_Z_STEP_MS,
+    TILE_MS: INTRO_TILE_MS,
+    TICK_AT: INTRO_TICK_AT,
+    MODES: INTRO_MODES
+  };
+  STM.rendererTest.INTRO_MODES = INTRO_MODES;
+  STM.rendererTest.introSpecOf = introSpecOf;
 
 })(typeof window !== 'undefined' ? window : globalThis);

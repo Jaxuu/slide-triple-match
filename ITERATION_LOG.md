@@ -1223,3 +1223,140 @@ ingame-shots: all green（布局/教学/IQ/道具/溢出）
 - 零相向死锁自愈：findHeadOnDeadlocks + healHeadOnCollisions，静态门禁 + 运行期防御。
 - 无黑边 Low-Poly 白瓷碎片瀑布：无描边、三级尺度、三槽包围盒并集全宽。
 - 残局 Hint / Auto-Play：findBestMove 有界搜索 + 贪心兜底，绝不返回 null。
+
+---
+
+## Δ22 M9 声学与编舞（Batch 1~3 收口，T105~T113）
+
+### 1. 三个批次做了什么
+
+| 批次 | 任务 | 交付 |
+|---|---|---|
+| Batch 1 | T105~T107 | 混合双轨声学引擎：`assets/audio/` 8 个 mp3 经 `HTMLAudioElement`（`preload="auto"`）加载，**全库零 `fetch + decodeAudioData`**；双 BGM 交叉淡变 + 事件音效时序；`ber~` / `deng~` / 落牌涟漪 / 开机和弦 走 Web Audio 零文件实时合成 |
+| Batch 2 | T108~T110 | 5.0s 滑动窗连击（时间戳差值，非帧计数）+ 速率阶梯 1.00/1.06/1.12/1.18/1.25 + Combo 3/4/5+ 延迟 120ms 三阶语音 + `#dock` 下方微光艺术字飘字 |
+| Batch 3 | T111~T113 | **15 种开局进场编舞**（`src/render/BoardRenderer.js`）+ 抽取/快进/降级（`src/main.js`）+ 逐牌落子涟漪音 + 全量回归与文档收口 |
+
+### 2. T111：15 种编舞的实现要点
+
+**时序常量**（`BoardRenderer.js` 模块级，`STM.rendererTest.INTRO` 外露供离线断言）：
+
+```
+LEAD_MS   = 180   纯风景底图留白（卡牌 alpha = 0，兼作解码/预排版窗口）
+SPREAD_MS = 340   基准延迟展开 → 每张牌 delay ∈ [180, 520] ms
+Z_STEP_MS = 55    层高补偿，恒正叠加 → 同坐标永远先落底层、后落顶层
+TILE_MS   = 260   单卡进场时长
+TICK_AT   = 0.85  局部进度跨此阈值 → 一声落牌涟漪
+```
+
+15 种模式全部实现且**规格两两不同**（`deal-smoke` 逐模式 × 64 坐标比对签名）：
+`diagonal_cascade` / `center_ripple` / `outer_converge` / `spiral_vortex` / `wings_clasp` /
+`sky_rain` / `layer_stack` / `zipper_interleave` / `windmill_quadrants` / `v_formation` /
+`checkerboard_weave` / `blinds_flip` / `deck_deal` / `tailwind_glide` / `starlight_scatter`。
+
+**三条硬不变量**：
+
+1. **零穿模**：`draw()` 的静态层排序比较器 `(a.z-b.z)||(a.r-b.r)||(a.c-b.c)` **一行未改**；
+   编舞只通过 `introTransformOf()` 产出每张牌的 `dx/dy/sx/sy/alpha`，交给 `drawBoardTile` 施加，
+   绝不重排数组、绝不另建排序。
+2. **归位精确**：动画结束后 `introTransformOf()` 返回 `null` → 走原静态路径，
+   坐标由 `getTileCssRect()`（含奇偶层半格偏移）给出，与命中判定 100% 同源。
+   无头浏览器实测：L12 的 33 张可交互牌，中心点 `hitTest` **错配 0 张**。
+3. **不改数据**：编舞前后 `tiles` 逐字段一致（`deal-smoke` ⑨ 断言）。
+
+**实现期解决的两个真问题**：
+
+- **`ctx.scale` 与 Δ15b3f 铁律冲突**：最初用 `ctx.save/translate/scale` 施加编舞变换，
+  直接命中既有断言「全文件无 `ctx.scale` 累加调用」。改为给 `drawTileBody` 增加可选的
+  `scaleX / scaleY`（宽高分离 `w/h`，图标基准取短边），**变换矩阵全程零累加**；
+  等比调用点（`w === h`）与原实现逐像素一致。`tools/render-selftest.js` 的
+  `T084 iconSize` 断言随之从 `y + w/2, round(w*0.82)` 改为 `y + h/2, round(min(w,h)*0.82)`——
+  意图不变（短边 × 0.82 居中），只是接受宽高分离这一事实。
+- **落牌音音高乱序**：初版把 `ord`（排序权重）当 `overallProgress` 传给 `playDeckTick`，
+  而 `delay = LEAD + ord*SPREAD + z*55` 使「ord 小但层高」的牌晚于「ord 大但层低」的牌落定，
+  音高就会忽高忽低。改为传**落牌时间轴上的归一化位置** `(delay - LEAD) / (maxDelay - LEAD)`，
+  并让同帧内多张落定的牌**先按时间轴排序再发声**——音高严格单调上扬。
+
+### 3. T112：抽取 / 快进 / 降级
+
+- **抽取**：`pickIntroMode()` 从「除上一次之外的 14 种」等概率抽，数学上保证相邻两次开局不重复。
+  `introLastModeGlobal` / `introModeLockGlobal` 提升到**模块作用域**——
+  每次 `loadLevel` 都会重建 renderer 实例，放实例内会让「不重复」与「评委锁定」在换关后失效（实测踩到）。
+- **点击快进（零迟滞）**：`onBoardDown` 在 `hitTest` **之前**插入单次流水——
+  `isDealing()` → `skipDeal()` → `flushIntroGate()` → 继续走同一套命中判定 → `session.tap(id)`。
+  **不是**「先快进、丢弃本次点击」。无头浏览器实测：200ms 处点击可飞出牌 → 编舞立即失活 + 待消槽出现卡牌。
+- **叠层时序**：挑战横幅（1.6s）与 L1/L2 教学卡挂到 `afterIntro()` 闸门，
+  横幅 1.6s 计时自编舞完成起算；快进时闸门立即 `flush`，不会出现「点了却没横幅」的空窗。
+- **降级**：`prefers-reduced-motion: reduce` → 无位移/无缩放/无旋转，仅一次性淡入，
+  **保留 180ms 底图留白节奏**；`setReducedMotion()` 亦供自测注入。
+- **评委可复现**：调试面板新增「编舞」下拉（随机 + 15 种），切换即重放一次进场。
+
+**口径对齐（T113 ⑤ 零漂移复核）**：`contracts/game-session.md` 早已把公开 API 写成
+`startDeal(modeId)` / `isDealing()` / `skipDeal()`。实现最初叫 `startIntro/endIntro/isIntroActive`，
+本轮**把实现改名为契约口径**（内部状态变量仍沿用 `introAnim` 等命名，不影响契约），
+避免「文档一套、代码一套」。
+
+**时序口径的已知张力（记录在案）**：spec/tasks 写「180~820ms 落牌、总时长 ≤640ms」，
+而用户指令的公式是 `180 + ord*340 + z*55 + 260`。二者在 z=4 满载时不可能同时成立：
+不压缩 z 项就必然到 1000ms。**选择保住 z 项（零穿模优先）**——
+`totalMs` 由实际计划算出（z=0 时 780ms、z=4 满载 1000ms），
+`dealRemainingMs()` 与横幅闸门都读实际值，因此不会出现「动画未完就出横幅」。
+850ms 是 z≤1 的典型完成时刻，点击可在任意时刻快进。
+
+### 4. T113：全量回归
+
+```
+$ node tools/solver.js
+summary: 72/72 solvable, 耗时 51.87s          # exit 0，与 M8 基线逐关结论一致（零漂移）
+
+$ node tools/audio-smoke.js
+通过 77 / 失败 0                              # 8 音频路径 / 零 decodeAudioData / BGM 音量与淡变 / ber~·deng~·dealTick / 连击阶梯
+
+$ node tools/deal-smoke.js                    # 本轮新建（quickstart Q10-B 指定的入口）
+27 项断言全绿 —— 15 模式全覆盖 / 常量 / 零穿模 z 序 / 归位 / 落子音单调 / 点击快进 / 降级 / 纯表现层
+
+$ node tools/render-selftest.js
+251 项通过；场景 L（Δ22c）39 项全绿
+```
+
+**无头浏览器实测**（`file://` 同级 http 形态 + 真 Chrome CDP，本机临时探针不入库）：
+
+- 15 种模式逐种回放：**零控制台报错**；1500ms 时全部归位（`dealPlan` 清空 / `isDealing=false`）。
+- 120ms 采样：仍处留白期（`dealPlan` 已建、编舞 active），棋盘画布零卡体绘制。
+- 归位后几何：L12 的 33 张可交互牌，中心点 `hitTest` 错配 **0 张**。
+- 200ms 处真实鼠标点击：编舞立即结束 + 待消槽出现卡牌（该次点击被响应）。
+- 连续 30 次开局：相邻重复 **0 次**。
+- 视觉录帧（`Page.startScreencast`，~16ms/帧）逐模式核对：
+  `diagonal_cascade` 自左上斜向铺开、`wings_clasp` 自左右两侧合拢、
+  `blinds_flip` 按列薄片翻开、`deck_deal` 自棋盘正中心向四周飞散——四种读法肉眼可辨。
+
+**遗留：11 项 Δ14/Δ16 陈旧断言 + 1 项 Δ21 陈旧断言（与本批次无关，基线即存在）**
+
+| 位置 | 失败项 | 成因 |
+|---|---|---|
+| `render-selftest` 场景 D（8 项） | 图鉴 45 种 / 三阶段各 15 / Emoji 45 条 / sheet 3×15 格 … | 图鉴后续扩到 **96 种、6 张 sheet**，断言仍写 Δ16 的 45/3 张 |
+| `render-selftest` 场景 F（3 项） | 开机动画 `TOTAL_MS === 2000` / 纯黑背景口径 | 开机动画后续改版，断言未同步 |
+| `solver --engine-selftest`（1 项） | `T028 互挡无道具 → 疑死锁` | Δ21 引入**相向死锁自愈**（`findHeadOnDeadlocks` + 旋转自愈），纯互挡对已可自愈 → 谓词不再判疑 |
+
+**这 12 项在提交 `7071a09` 上就已失败**（`git stash` 前后逐条比对确认），本批次未新增任何失败项。
+它们属于「测试没跟上功能演进」的陈旧断言，需要按 Δ16/Δ21 的新口径单独重写，不在 M9 范围内——
+但必须记录，避免被误读为「M9 把东西改坏了」。
+
+### 5. 文档收口
+
+- `DESIGN_THOUGHTS.md` 新增「Δ22 声学分层与开局叙事」：为何交互音效必须合成 / 为何语音必须外置 /
+  15 种编舞的节奏论证 / 点击快进为何是零迟滞底线 / 落子音为何跟着编舞走。
+- `data-model.md`（Audio Bank / Combo Window / Deal Choreography）、
+  `contracts/game-session.md`（双轨 API + `comboChanged` + 编舞契约）、
+  `quickstart.md`（Q10 验收场景组）在 Δ22 传播期已同步；本轮只补 `deal-smoke.js` 入口从「尚未存在」改为可用。
+- **口径统一（T113 ⑤ 零漂移复核，就地修正 6 份文档）**：
+  - 层高补偿 `+60ms * z` → **`+55ms * z`**（Δ22c 实现期用户裁定值；`spec.md` / `plan.md` /
+    `contracts/game-session.md` / `data-model.md` / `quickstart.md` / `tasks.md` 共 18 处）。
+  - 编舞时长上界 `≤640ms` / `180~820ms` → **`≤1000ms` / `180~1000ms`**（8 处）。
+    原因：`180 + ord*340 + z*55 + 260` 在 z=4 满载时必然到 1000ms，而 820ms 是 z≤2 的典型值。
+    **选择保住 z 项而不是压缩它**——零穿模优先级高于时长目标；且 `dealRemainingMs()` 读的是
+    实际计划值，横幅/教学闸门因此始终等到真正完成，不会提前。
+  - 命名对齐：实现侧公开 API 改为契约既有口径 `startDeal(modeId)` / `isDealing()` / `skipDeal()`
+    （原 `startIntro` / `isIntroActive` / `endIntro`），避免「文档一套、代码一套」。
+- `tasks.md` T105~T113 全项勾选。
+
+
