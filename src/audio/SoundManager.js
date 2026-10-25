@@ -9,7 +9,8 @@
  *     · 语音夸赞：sfx_voice_good / great / unbelievable（T109 消费）
  *     · 多声道实例池（碎裂音效 pool=4，连续三消不掐头）+ playbackRate 变调
  *  ② Web Audio 实时合成轨（零文件、零解码延迟）
- *     · 交互级：ber~（点击起飞）/ deng~（受阻反弹）/ 落牌涟漪（开局编舞）
+ *     · 交互级：提牌+落槽（点击飞入）/ 双叩（受阻反弹）/ 落牌涟漪（开局编舞）
+ *       —— Δ26 起全部改为「白瓷/竹木麻将物理碰撞」口径，与三消碎裂声同族
  *     · 开机和弦 playBootChime（FR-038 §4）
  *     · 程序化治愈系 BGM —— bgm_*.mp3 缺失/解码失败时的强制兜底（FR-037 §5）
  *
@@ -53,12 +54,55 @@
   var DUCK_FADE_MS = 240;   /* 压低/恢复的过渡时长 */
   var DEAL_TICK_MIN_MS = 45;/* 落牌涟漪最小触发间隔（Δ23：22→45ms，满载只余 8~12 声） */
 
+  /* =========================================================
+   * Δ26 交互音声学参数（白瓷/竹木麻将物理碰撞口径）
+   * 《Tile Explorer》《Vita Mahjong》式：极短瞬态 + 温润短共鸣，零滑音。
+   * 全部为「物理量」而非「旋律量」——刻意不做大幅度扫频。
+   * ========================================================= */
+  var TAP = {
+    /* 第一声 0ms：提牌（指尖叩击白瓷牌面） */
+    clickMs: 12,          /* 高频脆响噪声长度 */
+    clickBpf: 2400,       /* 脆响带通中心频率（与 match 兜底的 2600Hz 同族） */
+    clickQ: 3.5,          /* 高 Q → 有音高的「咔」，不是「嘶」 */
+    clickPeak: 0.45,
+    clickAtkMs: 2,        /* 2ms 内达峰 = 指尖触感，无软起音 */
+    bodyF0: 520,          /* 温润瓷木共鸣：起始频率 */
+    bodyF1: 580,          /* 28ms 内微升至 580Hz（仅轻微定音，绝不气泡滑音） */
+    bodyGlideMs: 28,
+    bodyPeak: 0.55,
+    bodyMs: 45,           /* 共鸣衰减总长（干净利落，无延音） */
+    /* 第二声 115ms：落槽（麻将牌嵌入磨砂/木质卡槽） */
+    dockAt: 0.115,
+    dockF0: 380,
+    dockF1: 290,
+    dockMs: 32,
+    dockPeak: 0.40,
+    dockNoiseMs: 8,
+    dockNoiseBpf: 1600
+  };
+
+  var KNOCK = {
+    /* 受阻：原地轻磕两下的「哒-哒」（Double Crisp Wood/Tile Knock） */
+    gap: 0.055,           /* 两声间隔 */
+    dur: 0.028,           /* 单次敲击总时长上限——极度干脆，零拖尾 */
+    glideMs: 25,          /* freq → freq*0.85 的微降时长 */
+    glideRatio: 0.85,
+    bpf: 1400,            /* 瞬态冲击噪声带通中心频率 */
+    bpfQ: 2.2,
+    noiseMs: 8,
+    noiseMix: 0.35,       /* 噪声相对主体峰值的比例（微冲击，不抢戏） */
+    f1: 310, g1: 0.55,    /* 第一下：牌面受阻 */
+    f2: 260, g2: 0.38     /* 第二下：原地回弹归位 */
+  };
+
   /* 供自测/调试读取的只读配置快照（tools/audio-smoke.js 消费） */
   STM.AUDIO_CONFIG = {
     dir: AUDIO_DIR,
     fadeMs: FADE_MS,
     duckVolume: DUCK_VOL,
     dealTickMinMs: DEAL_TICK_MIN_MS,
+    tap: TAP,
+    knock: KNOCK,
     bgmVolume: { lobby: ASSETS.bgm_lobby.volume, game: ASSETS.bgm_game.volume },
     files: (function () {
       var out = {};
@@ -561,108 +605,166 @@
 
     /* =========================================================
      * ⑥ Δ22/FR-050 §6~§8：交互级合成音效（零文件、零延迟）
+     *   Δ26 声学口径：全部按「白瓷 / 竹木麻将物理碰撞」设计——
+     *   极短瞬态（8~12ms）+ 温润短共鸣（≤45ms），MUST NOT 出现
+     *   超过 ±60Hz 的大幅度滑音或 >100ms 的拖尾延音。
      * ========================================================= */
 
-    /* §6 点击飞入 ber~（Tile Tap Pop）
-     *   0~65ms 260Hz → 680Hz 指数上滑（圆润正弦「拔塞气泡」）
-     *   8ms 起音 / 75ms 衰减归零
-     *   +120ms 软木入槽轻叩（180→90Hz / 40ms 正弦）—— 卡牌落入 #dock 瞬间
-     *   Δ23/Bug4：峰值 0.30 → 0.65（配合压缩总线放宽，实测感知响度 +7dB） */
+    /* §6 点击飞入 —— 白瓷/竹木麻将「提牌 + 落槽」双段式（Δ26 彻底重做）
+     *
+     * 旧版（已废除）：260→680Hz / 65ms 指数上滑 + 2× 三角泛音同扫 ——
+     *   「拔塞气泡」式长滑音，电子玩具感强，与三消碎裂的物理质感割裂。
+     *
+     * 新版（《Tile Explorer》口径）：两段都是**极短物理瞬态**，全程零滑音——
+     *   第一声 0ms 提牌：
+     *     ① 高频脆响层：12ms 白噪 + 2400Hz/Q3.5 带通，
+     *        2ms 达峰 0.45 → 12ms 指数衰到 0.001（指尖叩白瓷「咔」）
+     *     ② 温润瓷木共鸣层：三角波 + 正弦波同时 520→580Hz（28ms 微升，
+     *        仅做轻微定音），共享包络 0.55 在 45ms 内衰完（短木琴体感）
+     *   第二声 115ms 落槽（卡牌飞入 #dock 的瞬间）：
+     *     正弦 + 三角 380→290Hz / 32ms 轻叩，峰 0.40，
+     *     叠 8ms / 1600Hz 带通微噪点（磨砂卡槽的「沙」感），干脆无拖尾。 */
     function playTap() {
       if (!ctx) unlock();
       if (!ctx || sfxMuted) return false;
       try {
         var t0 = ctx.currentTime + 0.001;
+        var i;
 
-        var osc = ctx.createOscillator();
-        var g = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(260, t0);
-        osc.frequency.exponentialRampToValueAtTime(680, t0 + 0.065);
-        g.gain.setValueAtTime(0.0001, t0);
-        g.gain.exponentialRampToValueAtTime(0.65, t0 + 0.008);
-        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.075);
-        osc.connect(g); g.connect(master);
-        osc.start(t0); osc.stop(t0 + 0.09);
+        /* ── 第一声 ①：高频脆响层（Transient Click）── */
+        if (noiseBuf) {
+          var nz = ctx.createBufferSource();
+          nz.buffer = noiseBuf;
+          var nbp = ctx.createBiquadFilter();
+          nbp.type = 'bandpass';
+          nbp.frequency.setValueAtTime(TAP.clickBpf, t0);
+          nbp.Q.setValueAtTime(TAP.clickQ, t0);
+          var ng = ctx.createGain();
+          ng.gain.setValueAtTime(0.0001, t0);
+          ng.gain.linearRampToValueAtTime(TAP.clickPeak, t0 + TAP.clickAtkMs / 1000);
+          ng.gain.exponentialRampToValueAtTime(0.001, t0 + TAP.clickMs / 1000);
+          nz.connect(nbp); nbp.connect(ng); ng.connect(master);
+          /* 随机读偏移：连续点击时瞬态波形不逐次重合，避免「机关枪」感 */
+          nz.start(t0, Math.random() * 0.8);
+          nz.stop(t0 + TAP.clickMs / 1000 + 0.002);
+        }
 
-        /* 泛音层（2× 三角，极轻——增加「啵」的颗粒感，不刺耳） */
-        var osc2 = ctx.createOscillator();
-        var g2 = ctx.createGain();
-        osc2.type = 'triangle';
-        osc2.frequency.setValueAtTime(520, t0);
-        osc2.frequency.exponentialRampToValueAtTime(1360, t0 + 0.065);
-        g2.gain.setValueAtTime(0.0001, t0);
-        g2.gain.exponentialRampToValueAtTime(0.11, t0 + 0.010);
-        g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.060);
-        osc2.connect(g2); g2.connect(master);
-        osc2.start(t0); osc2.stop(t0 + 0.075);
+        /* ── 第一声 ②：温润瓷木共鸣层（Body Resonance）── */
+        var bodyEnv = ctx.createGain();
+        bodyEnv.gain.setValueAtTime(0.0001, t0);
+        bodyEnv.gain.linearRampToValueAtTime(TAP.bodyPeak, t0 + 0.003);
+        bodyEnv.gain.exponentialRampToValueAtTime(0.001, t0 + TAP.bodyMs / 1000);
+        bodyEnv.connect(master);
 
-        /* 120ms 后：软木入槽低频轻叩（180→90Hz / 40ms） */
-        var t1 = t0 + 0.120;
-        var o3 = ctx.createOscillator();
-        var g3 = ctx.createGain();
-        o3.type = 'sine';
-        o3.frequency.setValueAtTime(180, t1);
-        o3.frequency.exponentialRampToValueAtTime(90, t1 + 0.040);
-        g3.gain.setValueAtTime(0.0001, t1);
-        g3.gain.exponentialRampToValueAtTime(0.30, t1 + 0.005);
-        g3.gain.exponentialRampToValueAtTime(0.0001, t1 + 0.042);
-        o3.connect(g3); g3.connect(master);
-        o3.start(t1); o3.stop(t1 + 0.06);
+        /* 三角波 45% + 正弦 55%（合成权重和为 1 → 包络峰值即 0.55） */
+        var bodyMix = [['triangle', 0.45], ['sine', 0.55]];
+        for (i = 0; i < bodyMix.length; i++) {
+          var bo = ctx.createOscillator();
+          var bw = ctx.createGain();
+          bo.type = bodyMix[i][0];
+          bw.gain.value = bodyMix[i][1];
+          bo.frequency.setValueAtTime(TAP.bodyF0, t0);
+          bo.frequency.exponentialRampToValueAtTime(TAP.bodyF1, t0 + TAP.bodyGlideMs / 1000);
+          bo.connect(bw); bw.connect(bodyEnv);
+          bo.start(t0); bo.stop(t0 + TAP.bodyMs / 1000 + 0.003);
+        }
+
+        /* ── 第二声：115ms 落槽（Dock Knock）── */
+        var t1 = t0 + TAP.dockAt;
+        var dockEnv = ctx.createGain();
+        dockEnv.gain.setValueAtTime(0.0001, t1);
+        dockEnv.gain.linearRampToValueAtTime(TAP.dockPeak, t1 + 0.003);
+        dockEnv.gain.exponentialRampToValueAtTime(0.001, t1 + TAP.dockMs / 1000);
+        dockEnv.connect(master);
+
+        var dockMix = [['sine', 0.60], ['triangle', 0.40]];
+        for (i = 0; i < dockMix.length; i++) {
+          var doo = ctx.createOscillator();
+          var dw = ctx.createGain();
+          doo.type = dockMix[i][0];
+          dw.gain.value = dockMix[i][1];
+          doo.frequency.setValueAtTime(TAP.dockF0, t1);
+          doo.frequency.exponentialRampToValueAtTime(TAP.dockF1, t1 + TAP.dockMs / 1000);
+          doo.connect(dw); dw.connect(dockEnv);
+          doo.start(t1); doo.stop(t1 + TAP.dockMs / 1000 + 0.003);
+        }
+
+        /* 落槽微噪点：8ms / 1600Hz 带通，峰 0.12（约主体 30%，只给「沙」感） */
+        if (noiseBuf) {
+          var dnz = ctx.createBufferSource();
+          dnz.buffer = noiseBuf;
+          var dbp = ctx.createBiquadFilter();
+          dbp.type = 'bandpass';
+          dbp.frequency.setValueAtTime(TAP.dockNoiseBpf, t1);
+          dbp.Q.setValueAtTime(1.6, t1);
+          var dng = ctx.createGain();
+          dng.gain.setValueAtTime(0.0001, t1);
+          dng.gain.linearRampToValueAtTime(0.12, t1 + 0.0015);
+          dng.gain.exponentialRampToValueAtTime(0.001, t1 + TAP.dockNoiseMs / 1000);
+          dnz.connect(dbp); dbp.connect(dng); dng.connect(master);
+          dnz.start(t1, Math.random() * 0.8);
+          dnz.stop(t1 + TAP.dockNoiseMs / 1000 + 0.002);
+        }
         return true;
       } catch (e) { return false; }
     }
 
-    /* 弹性阻尼泛音（deng~ 的「回弹两下」单颗） */
-    function bounce(at, f0, vol, dur) {
+    /* 单次硬牌面微碰（内部辅助）——「叩」一声的全部材料：
+     *   · 三角波固定在 freq，25ms 内只微降到 freq*0.85（微降=实心感，绝不滑音）
+     *   · 8ms / 1400Hz 带通瞬态冲击噪声（牌面撞击的「硬边」）
+     *   · 总时长严格 28ms，stop 与包络终点同一时刻 → 零拖尾
+     * 两声之间的音高与力度差（310/0.55 → 260/0.38）制造「第一下受阻、
+     * 第二下回弹归位」的物理叙事。 */
+    function triggerKnock(delaySec, freq, peakGain) {
       if (!ctx) return;
+      var at = ctx.currentTime + 0.001 + (delaySec || 0);
+
       var o = ctx.createOscillator();
       var g = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.setValueAtTime(f0, at);
-      o.frequency.exponentialRampToValueAtTime(f0 * 0.86, at + dur);
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(freq, at);
+      o.frequency.exponentialRampToValueAtTime(freq * KNOCK.glideRatio, at + KNOCK.glideMs / 1000);
       g.gain.setValueAtTime(0.0001, at);
-      g.gain.exponentialRampToValueAtTime(vol, at + 0.004);
-      g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+      g.gain.linearRampToValueAtTime(peakGain, at + 0.002);
+      g.gain.exponentialRampToValueAtTime(0.001, at + KNOCK.dur);
       o.connect(g); g.connect(master);
-      o.start(at); o.stop(at + dur + 0.02);
+      o.start(at); o.stop(at + KNOCK.dur);
+
+      /* 瞬态冲击噪声（微冲击：只取主体峰值的 35%） */
+      if (noiseBuf) {
+        var nz = ctx.createBufferSource();
+        nz.buffer = noiseBuf;
+        var bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.setValueAtTime(KNOCK.bpf, at);
+        bp.Q.setValueAtTime(KNOCK.bpfQ, at);
+        var ng = ctx.createGain();
+        ng.gain.setValueAtTime(0.0001, at);
+        ng.gain.linearRampToValueAtTime(peakGain * KNOCK.noiseMix, at + 0.0015);
+        ng.gain.exponentialRampToValueAtTime(0.001, at + KNOCK.noiseMs / 1000);
+        nz.connect(bp); bp.connect(ng); ng.connect(master);
+        nz.start(at, Math.random() * 0.8);
+        nz.stop(at + KNOCK.noiseMs / 1000 + 0.002);
+      }
     }
 
-    /* §7 受阻反弹 deng~（Blocked Bounce）
-     *   三角波 210Hz → 135Hz（150ms 下沉）+ 24Hz 轻频偏
-     *   + 2 次弹性阻尼泛音（一「开」一「合」，与 ber~ 盲听可区分）
-     *   Δ23/Bug4：峰值 0.26 → 0.65；泛音 0.075/0.055 → 0.19/0.14 */
+    /* §7 受阻反弹 —— 麻将牌原地轻磕两下的「哒-哒」（Δ26 彻底重做）
+     *
+     * 旧版（已废除）：三角波 210→135Hz / 150ms + 24Hz LFO 频偏 + 2 次阻尼泛音
+     *   —— 低频弹簧震荡滑音，是「电子玩具」听感的另一个主要来源，
+     *   且 150ms 的拖尾与受阻瞬间 ±3px 的微震动画（约 60ms）不同步。
+     *
+     * 新版（《Vita Mahjong》《Tile Explorer》口径）：两声极快、极干脆的
+     *   硬牌面微碰（Double Crisp Wood/Tile Knock），单声 28ms：
+     *     第 1 声 0ms    310Hz / 0.55 —— 牌面受阻的第一下清脆轻碰
+     *     第 2 声 55ms   260Hz / 0.38 —— 原地回弹归位的第二下轻碰
+     *   整体 83ms 收尾，与 ±3px 微震动画、三消碎裂声完美契合。 */
     function playBlock() {
       if (!ctx) unlock();
       if (!ctx || sfxMuted) return false;
       try {
-        var t0 = ctx.currentTime + 0.001;
-
-        var osc = ctx.createOscillator();
-        var g = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(210, t0);
-        osc.frequency.exponentialRampToValueAtTime(135, t0 + 0.150);
-
-        /* 轻微频率调制（橡胶弹簧 Q 弹感——绝不刺耳） */
-        var lfo = ctx.createOscillator();
-        var lfoGain = ctx.createGain();
-        lfo.type = 'sine';
-        lfo.frequency.value = 24;
-        lfoGain.gain.value = 9;
-        lfo.connect(lfoGain);
-        lfoGain.connect(osc.frequency);
-
-        g.gain.setValueAtTime(0.0001, t0);
-        g.gain.exponentialRampToValueAtTime(0.65, t0 + 0.006);
-        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.155);
-        osc.connect(g); g.connect(master);
-        osc.start(t0); osc.stop(t0 + 0.17);
-        lfo.start(t0); lfo.stop(t0 + 0.17);
-
-        /* 2 次阻尼泛音（木鱼/木琴低音回弹） */
-        bounce(t0 + 0.052, 152, 0.19, 0.045);
-        bounce(t0 + 0.100, 138, 0.14, 0.040);
+        triggerKnock(0, KNOCK.f1, KNOCK.g1);
+        triggerKnock(KNOCK.gap, KNOCK.f2, KNOCK.g2);
         return true;
       } catch (e) { return false; }
     }
@@ -836,13 +938,9 @@
     var SFX = {
       /* 点击: 880Hz 短方波 */
       click: function () { tone('square', 880, 880, 0.08, 0.12); },
-      /* 飞出: 上行扫频（Δ22 起改由 playTap 的 ber~ 承担，保留兜底） */
-      flyout: function () { tone('sine', 320, 960, 0.28, 0.16); },
-      /* 受阻: 三角下沉 + 噪声冲击（Δ22 起改由 playBlock 的 deng~ 承担） */
-      blocked: function () {
-        tone('triangle', 140, 90, 0.22, 0.22);
-        noise(0.12, 0.18, 0, 300);
-      },
+      /* 飞出 / 受阻：Δ26 起由 playTap() / playBlock() 独占（见 §6 §7），
+       * 原「320→960Hz 上行扫频」「140Hz 三角下沉」两条滑音兜底已彻底废除，
+       * 不留任何可被误触发的电子玩具音色。 */
       /* T083 三消: 薄瓷/冰晶脆裂 + 高频愉悦泛音颗粒（shatter 合成兜底） */
       match: function (combo) {
         if (ctx && !sfxMuted && noiseBuf) {
@@ -909,7 +1007,7 @@
       if (sfxMuted) return;
       if (!ctx) unlock();
       switch (name) {
-        /* 交互级：飞出 → ber~ / 受阻 → deng~（FR-050 §6 §7） */
+        /* 交互级：飞出 → 提牌+落槽 / 受阻 → 双叩（FR-050 §6 §7，Δ26 白瓷口径） */
         case 'flyout': playTap(); return;
         case 'blocked': playBlock(); return;
         /* 事件级：碎裂 / 通关 / 失败走外部资产轨（缺失时合成兜底） */

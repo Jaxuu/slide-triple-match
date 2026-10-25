@@ -13,9 +13,12 @@
  *      切换后反向轨归零并暂停（无叠音）、通关压低至 0.08、
  *      Δ23/Bug1 常驻手势兜底（被策略暂停后任意点击自动恢复）
  *   ⑤ 事件时序——sfx_win 延迟 250ms 且同时压低 BGM；sfx_lose 瞬发
- *   ⑥ 合成轨参数——ber~ 260→680Hz/65ms + 120ms 落槽轻叩；
- *      deng~ 210→135Hz/150ms + 2 次阻尼泛音；落牌涟漪 320→180Hz、
- *      22ms 总时长、单振荡器零泛音、>= 45ms 节流
+ *   ⑥ 合成轨参数（Δ26 白瓷/竹木麻将物理碰撞口径）——
+ *      提牌：2400Hz/Q3.5 带通 12ms 脆响 + 520→580Hz/28ms 三角+正弦共鸣；
+ *      落槽：115ms 处 380→290Hz/32ms 轻叩 + 1600Hz 8ms 微噪点；
+ *      受阻：55ms 间隔双叩 310Hz/260Hz，单声严格 28ms；
+ *      全程最大频差 ≤ 90Hz（无大幅度滑音）；
+ *      落牌涟漪 320→180Hz、22ms 总时长、单振荡器零泛音、>= 45ms 节流
  *   ⑦ 降级——单文件 error 后 playSfx 不抛错且走合成兜底
  *
  * 零依赖（宪章 II）：全部为浏览器契约级桩，不引任何 npm 包。
@@ -92,6 +95,8 @@ globalThis.Audio = FakeAudio;
 
 /* ---- AudioContext 桩（记录每个振荡器的频率事件时间线） ---- */
 var oscLog = [];
+var filterLog = [];   /* Δ26：记录滤波器（type / frequency / Q），用于脆响层断言 */
+var noiseLog = [];    /* Δ26：记录噪声 BufferSource 的起止，用于瞬态时长断言 */
 function Param(v) {
   this.value = v;
   this._events = [];
@@ -121,7 +126,9 @@ FakeCtx.prototype.createGain = function () {
   return g;
 };
 FakeCtx.prototype.createBiquadFilter = function () {
-  return { type: 'lowpass', frequency: new Param(1000), Q: new Param(1), connect: function () {} };
+  var f = { type: 'lowpass', frequency: new Param(1000), Q: new Param(1), connect: function () {} };
+  filterLog.push(f);
+  return f;
 };
 FakeCtx.prototype.createDynamicsCompressor = function () {
   return {
@@ -133,7 +140,13 @@ FakeCtx.prototype.createBuffer = function (ch, len) {
   return { getChannelData: function () { return new Float32Array(len); } };
 };
 FakeCtx.prototype.createBufferSource = function () {
-  return { buffer: null, connect: function () {}, start: function () {}, stop: function () {} };
+  var rec = {
+    buffer: null, connect: function () {},
+    start: function (t) { rec.started = t; }, stop: function (t) { rec.stopped = t; },
+    started: null, stopped: null
+  };
+  noiseLog.push(rec);
+  return rec;
 };
 FakeCtx.prototype.resume = function () { this.state = 'running'; return Promise.resolve(); };
 FakeCtx.prototype.suspend = function () { this.state = 'suspended'; return Promise.resolve(); };
@@ -306,45 +319,94 @@ var totalPlayed = shatterEls.reduce(function (acc, a) { return acc + a._playCoun
 ok(totalPlayed === 5 && shatterEls.length === 4, '5 连击跨 4 声道轮转（可叠放）');
 
 /* =========================================================
- * ⑥ 合成轨：ber~ / deng~ / 落牌涟漪
+ * ⑥ 合成轨：提牌+落槽 / 双叩 / 落牌涟漪
  * ========================================================= */
-console.log('\n[6] Web Audio 合成轨参数（FR-050 §6~§8）');
+console.log('\n[6] Web Audio 合成轨参数（FR-050 §6~§8 / Δ26 白瓷口径）');
 function oscSince(mark) { return oscLog.slice(mark); }
 function findFreq(rec, f) {
   return (rec.frequency._events || []).some(function (e) { return near(e.v, f, 0.6); });
 }
 
 var mark = oscLog.length;
+var fMark = filterLog.length;
+var nMark = noiseLog.length;
 sm.playTap();
 var tapOscs = oscSince(mark);
-var pop = tapOscs.filter(function (r) { return r.type === 'sine' && findFreq(r, 260); })[0];
-ok(!!pop, 'ber~ 起音 260Hz');
-if (pop) {
-  var ramp = (pop.frequency._events || []).filter(function (e) { return e.k === 'exp' && near(e.v, 680, 0.6); })[0];
-  ok(!!ramp, 'ber~ 指数上滑至 680Hz');
-  ok(ramp && near(ramp.t - 0, 0.065, 0.002), 'ber~ 上滑时长 65ms', ramp ? '实测 ' + ramp.t : '');
-}
-var thunk = tapOscs.filter(function (r) { return findFreq(r, 180); })[0];
-ok(!!thunk, '落槽软木轻叩 180Hz');
-if (thunk) {
-  var thunkStart = thunk.started;
-  ok(near(thunkStart, 0.121, 0.004), '轻叩延迟 120ms（卡牌落入 #dock）', '实测 ' + thunkStart);
-  var down = (thunk.frequency._events || []).filter(function (e) { return e.k === 'exp' && near(e.v, 90, 0.6); })[0];
-  ok(!!down && near(down.t - thunkStart, 0.040, 0.004), '轻叩下沉至 90Hz / 40ms');
-}
+var tapFilters = filterLog.slice(fMark);
+var tapNoises = noiseLog.slice(nMark);
 
+/* ── 第一声 0ms：提牌（脆响层 + 瓷木共鸣层）── */
+var bodyTri = tapOscs.filter(function (r) { return r.type === 'triangle' && findFreq(r, 520); })[0];
+var bodySin = tapOscs.filter(function (r) { return r.type === 'sine' && findFreq(r, 520); })[0];
+ok(!!bodyTri && !!bodySin, '提牌共鸣层 = 三角波 + 正弦波（520Hz 起音）');
+if (bodyTri && bodySin) {
+  var triUp = (bodyTri.frequency._events || []).filter(function (e) { return e.k === 'exp' && near(e.v, 580, 0.6); })[0];
+  var sinUp = (bodySin.frequency._events || []).filter(function (e) { return e.k === 'exp' && near(e.v, 580, 0.6); })[0];
+  ok(!!triUp && !!sinUp, '双振荡器同步微升至 580Hz（仅 +60Hz 定音）');
+  ok(triUp && near(triUp.t - bodyTri.started, 0.028, 0.002),
+    '微升时长 28ms', triUp ? '实测 ' + (triUp.t - bodyTri.started).toFixed(4) : '');
+  var bodyLen = bodyTri.stopped - bodyTri.started;
+  ok(near(bodyLen, 0.048, 0.002) && bodyLen <= 0.05,
+    '共鸣总时长 ≤ 48ms（45ms 包络 + 3ms 余量，无延音）', '实测 ' + bodyLen.toFixed(4));
+}
+var clickFilter = tapFilters.filter(function (f) { return f.type === 'bandpass' && near(f.frequency.value, 2400, 0.6); })[0];
+ok(!!clickFilter, '脆响层带通中心 2400Hz');
+ok(clickFilter && near(clickFilter.Q.value, 3.5, 0.01), '脆响层 Q = 3.5（有音高的「咔」）');
+var clickNoise = tapNoises[0];
+ok(!!clickNoise && near(clickNoise.stopped - clickNoise.started, 0.014, 0.001),
+  '脆响瞬态 12ms（+2ms 截止余量）', clickNoise ? '实测 ' + (clickNoise.stopped - clickNoise.started).toFixed(4) : '');
+
+/* ── 第二声 115ms：落槽 ── */
+var dockSin = tapOscs.filter(function (r) { return r.type === 'sine' && findFreq(r, 380); })[0];
+var dockTri = tapOscs.filter(function (r) { return r.type === 'triangle' && findFreq(r, 380); })[0];
+ok(!!dockSin && !!dockTri, '落槽轻叩 = 正弦 + 三角（380Hz 起音）');
+if (dockSin) {
+  ok(near(dockSin.started - bodyTri.started, 0.115, 0.004),
+    '落槽延迟 115ms（卡牌飞入 #dock）', '实测 ' + (dockSin.started - bodyTri.started).toFixed(4));
+  var dockDown = (dockSin.frequency._events || []).filter(function (e) { return e.k === 'exp' && near(e.v, 290, 0.6); })[0];
+  ok(!!dockDown, '落槽下沉至 290Hz');
+  ok(dockDown && near(dockDown.t - dockSin.started, 0.032, 0.002),
+    '落槽时长 32ms', dockDown ? '实测 ' + (dockDown.t - dockSin.started).toFixed(4) : '');
+}
+var dockFilter = tapFilters.filter(function (f) { return f.type === 'bandpass' && near(f.frequency.value, 1600, 0.6); })[0];
+ok(!!dockFilter, '落槽微噪点带通 1600Hz');
+ok(tapNoises.length === 2 && tapNoises[1] && near(tapNoises[1].stopped - tapNoises[1].started, 0.010, 0.001),
+  '落槽噪声 8ms（+2ms 截止余量）');
+
+/* ── 全程零大幅度滑音（Δ26 核心回归：旧版 260→680Hz 已废除）── */
+var maxSweep = 0;
+tapOscs.forEach(function (r) {
+  var evs = r.frequency._events || [];
+  var base = evs.length ? evs[0].v : 0;
+  evs.forEach(function (e) { maxSweep = Math.max(maxSweep, Math.abs(e.v - base)); });
+});
+ok(maxSweep <= 90.5, '全程无大幅度滑音（最大频差 ≤ 90Hz）', '实测 ' + maxSweep.toFixed(1) + 'Hz');
+
+/* ── 受阻：双叩「哒-哒」── */
 mark = oscLog.length;
+fMark = filterLog.length;
 sm.playBlock();
 var blockOscs = oscSince(mark);
-var deng = blockOscs.filter(function (r) { return r.type === 'triangle' && findFreq(r, 210); })[0];
-ok(!!deng, 'deng~ 起音 210Hz（三角波）');
-if (deng) {
-  var sink = (deng.frequency._events || []).filter(function (e) { return e.k === 'exp' && near(e.v, 135, 0.6); })[0];
-  ok(!!sink, 'deng~ 下沉至 135Hz');
-  ok(sink && near(sink.t, 0.150, 0.002), 'deng~ 下沉时长 150ms', sink ? '实测 ' + sink.t : '');
+var blockFilters = filterLog.slice(fMark);
+var knock1 = blockOscs.filter(function (r) { return r.type === 'triangle' && findFreq(r, 310); })[0];
+var knock2 = blockOscs.filter(function (r) { return r.type === 'triangle' && findFreq(r, 260); })[0];
+ok(!!knock1 && !!knock2, '双叩 = 310Hz + 260Hz 两声三角波硬牌面微碰');
+ok(blockOscs.length === 2, '仅 2 个振荡器（旧版 LFO + 2 次阻尼泛音已彻底删除）', '实测 ' + blockOscs.length);
+ok(blockOscs.every(function (r) { return r.type === 'triangle'; }), '零正弦泛音（弹簧回弹音已废除）');
+if (knock1 && knock2) {
+  ok(near(knock2.started - knock1.started, 0.055, 0.002),
+    '两声间隔 55ms', '实测 ' + (knock2.started - knock1.started).toFixed(4));
+  var k1Down = (knock1.frequency._events || []).filter(function (e) { return e.k === 'exp' && near(e.v, 263.5, 0.6); })[0];
+  ok(!!k1Down, '第 1 声 310 → 263.5Hz（×0.85 微降）');
+  ok(k1Down && near(k1Down.t - knock1.started, 0.025, 0.002),
+    '微降时长 25ms', k1Down ? '实测 ' + (k1Down.t - knock1.started).toFixed(4) : '');
+  var len1 = knock1.stopped - knock1.started;
+  var len2 = knock2.stopped - knock2.started;
+  ok(near(len1, 0.028, 0.0005) && near(len2, 0.028, 0.0005),
+    '单声严格 28ms（零拖尾）', '实测 ' + len1.toFixed(4) + ' / ' + len2.toFixed(4));
 }
-var bounces = blockOscs.filter(function (r) { return r.type === 'sine' && r.started > 0; });
-ok(bounces.length >= 2, 'deng~ 叠加 2 次弹性阻尼泛音', '实测 ' + bounces.length);
+var knockBpf = blockFilters.filter(function (f) { return f.type === 'bandpass' && near(f.frequency.value, 1400, 0.6); });
+ok(knockBpf.length === 2, '每声各叠 8ms / 1400Hz 带通瞬态噪声', '实测 ' + knockBpf.length + ' 个');
 
 mark = oscLog.length;
 var tickLow = sm.playDealTick(0);
