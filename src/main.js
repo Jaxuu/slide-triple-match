@@ -598,6 +598,77 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
     return f;
   }
 
+  /* ---------- Δ22b/T110: 连击微光艺术字飘字（`#dock` 正下方） ----------
+   * 纯 DOM 一次性元素 + CSS 动画；飘字层 pointer-events:none（MUST NOT 拦截命中），
+   * z-index 位于棋盘之上但不遮挡待消槽/棋盘的可点击区域。
+   * 锚点：#dock 底边（换算到 #app 坐标系），多条并存时纵向错位不重叠。 */
+  var comboFloatLayer = null;
+  var comboFloatRows = []; /* 在场飘字（新→旧），最多同时 2 条——避免连锁时铺满棋盘遮挡看牌 */
+  var COMBO_FLOAT_MAX = 2;
+
+  function ensureComboFloatLayer(d) {
+    if (comboFloatLayer && comboFloatLayer.parentNode) return comboFloatLayer;
+    comboFloatLayer = d.getElementById('combo-float-layer');
+    if (!comboFloatLayer) {
+      comboFloatLayer = d.createElement('div');
+      comboFloatLayer.id = 'combo-float-layer';
+      comboFloatLayer.setAttribute('aria-hidden', 'true');
+      d.getElementById('app').appendChild(comboFloatLayer);
+    }
+    return comboFloatLayer;
+  }
+
+  /* #dock 底边在 #app 坐标系中的 y（布局变化时逐次重算，不缓存） */
+  function dockBottomInApp() {
+    var app = global.document.getElementById('app');
+    if (!app || !els.dock || !els.dock.getBoundingClientRect) return null;
+    var ar = app.getBoundingClientRect();
+    var dr = els.dock.getBoundingClientRect();
+    if (!dr.height) return null;
+    return dr.bottom - ar.top;
+  }
+
+  function spawnComboFloat(text, tier) {
+    if (!text) return null;
+    var d = global.document;
+    var app = d.getElementById('app');
+    if (!app) return null;
+    var layer = ensureComboFloatLayer(d);
+    var top = dockBottomInApp();
+    if (top == null) top = (app.clientHeight || 640) * 0.14;
+
+    var row = d.createElement('div');
+    row.className = 'combo-float-row';
+    /* 纵向错位：与仍在场的飘字错开（间距 > 胶囊高度）；超过上限先淘汰最旧一条 */
+    while (comboFloatRows.length >= COMBO_FLOAT_MAX) {
+      var oldest = comboFloatRows.shift();
+      if (oldest && oldest.kill) oldest.kill();
+    }
+    row.style.top = (top + comboFloatRows.length * 36) + 'px';
+
+    var el = d.createElement('div');
+    el.className = 'combo-float combo-float-t' + (tier || 2);
+    el.textContent = text; /* 文案逐字锁定（FR-050 §9）——不得改写 */
+    row.appendChild(el);
+    layer.appendChild(row);
+
+    var entry = { row: row, kill: null };
+    comboFloatRows.unshift(entry); /* 新条目在队首（错位以在场条数为准） */
+
+    var alive = true;
+    var kill = function () {
+      if (!alive) return;
+      alive = false;
+      var at = comboFloatRows.indexOf(entry);
+      if (at >= 0) comboFloatRows.splice(at, 1);
+      if (row.parentNode) row.parentNode.removeChild(row);
+    };
+    entry.kill = kill;
+    if (el.addEventListener) el.addEventListener('animationend', kill, { once: true });
+    global.setTimeout(kill, 1500); /* 兜底（动画被降级/中断时仍回收） */
+    return el;
+  }
+
   /* 余额不足 → 按钮轻晃（拒绝扣费、拒绝消耗——FR-041 §2） */
   function shakeItemBtn(btnId) {
     var btn = global.document.getElementById(btnId);
@@ -1195,9 +1266,21 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
       breakComboOnBlocked();
       return;
     }
+    /* Δ22b/T108~T110: 连击唯一权威事件——碎裂升调（0ms 瞬发）+ 120ms 延迟三阶语音
+     * + `#dock` 下方微光飘字。此处 MUST NOT 自行推算档位（rate/voice/floatText 全取自事件）。 */
+    if (e.e === 'comboChanged') {
+      if (sound) {
+        if (sound.playShatter) sound.playShatter(e.playbackRate);
+        else sound.playSfx('shatter', { rate: e.playbackRate });
+        if (e.voice) sound.playVoice(e.voice); /* SoundManager 内部固定 120ms 延迟 + 通道去叠放 */
+      }
+      if (e.floatText) spawnComboFloat(e.floatText, e.tier);
+      return;
+    }
     if (e.e === 'dock' || e.e === 'match' || e.e === 'remove') {
       if (e.e === 'match') {
-        sound.play('match', e.combo);
+        /* Δ22b/T109: 碎裂音效已上移至 comboChanged（需带 playbackRate），
+         * 此处只负责 IQ 记账与碎片瀑布 VFX，避免同一次三消双重起音。 */
         /* Δ19c/T085: 每次三消 IQ += 3 + combo × 2（绿色跳字 + 放大动效） */
         addIq(3 + (e.combo || 0) * 2, e.combo || 0);
         /* Δ20/T093: 从 #dock 对应 3 个槽位真实屏幕坐标爆发白瓷碎片瀑布 */

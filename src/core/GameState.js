@@ -25,6 +25,14 @@
   /* 连击窗口：连续三消间隔 < 1.5s（game-session.md §2） */
   var COMBO_WINDOW_MS = 1500;
 
+  /* Δ22b/T108: 纯表现层连击窗口（FR-050 §9）——5.0 秒滑动时间窗。
+   * 与上方 COMBO_WINDOW_MS（IQ 乘区 M_combo 口径，受阻断连、无时间窗）**双口径并存**：
+   * 二者 MUST NOT 互相覆盖或隐式同步（T108 ⑤）。 */
+  var COMBO_FX_WINDOW_MS = 5000;
+  /* 档位速率表（FR-050 §9）：1.00 / 1.06 / 1.12 / 1.18 / 1.25（>=5 起步，逐级 +0.05 封顶 1.30） */
+  var COMBO_FX_RATE_MAX = 1.30;
+  var COMBO_FX_RATE_STEP = 0.05;
+
   function createSession(levelDef, handlers) {
     handlers = handlers || {};
     var onEvent = handlers.onEvent || function () {};
@@ -33,8 +41,12 @@
     var engine = RE.init(levelDef);
     var phase = PHASE.READY;
     var history = [];            /* 快照栈（Undo 基础设施） */
-    var lastMatchAt = 0;         /* 连击窗口时间戳 */
-    var comboActive = false;
+    /* IQ 乘区连击（M_combo 口径——受阻断连、1.5s 窗口，Δ22 起改名以让出 comboCount/lastMatchAt） */
+    var iqComboLastAt = 0;
+    var iqComboActive = false;
+    /* Δ22b/T108: 表现层连击态（5.0 秒滑动窗——驱动碎裂升调 / 语音 / 飘字） */
+    var comboCount = 0;
+    var lastMatchAt = 0;
     var railIndex = 0;           /* onRail 基准：已匹配 solutionMoves 前缀长度 */
     var onRail = true;
 
@@ -122,21 +134,85 @@
      * 会话层补连击窗口语义：连续三消间隔 <1.5s 才算连击链。 */
     function windowCombo() {
       var now = Date.now();
-      if (comboActive && now - lastMatchAt < COMBO_WINDOW_MS) {
-        lastMatchAt = now;
+      if (iqComboActive && now - iqComboLastAt < COMBO_WINDOW_MS) {
+        iqComboLastAt = now;
         return true; /* 窗口内续击 */
       }
-      lastMatchAt = now;
-      comboActive = true;
+      iqComboLastAt = now;
+      iqComboActive = true;
       return false;
+    }
+
+    /* ---- Δ22b/T108: 表现层 5.0 秒滑动窗连击（FR-050 §9 / contracts §5.3） ----
+     * 语义：now - lastMatchAt <= 5000 → count += 1；否则重置为 1；
+     * **无论续连与否 MUST 刷新 lastMatchAt**（滑动窗口，非固定节拍）。
+     * 计时 MUST 用时间戳差值（performance.now），MUST NOT 用 rAF 帧计数
+     * （切后台 / 掉帧后不得误判为续连）。
+     * 受阻反弹 MUST NOT 重置本计数（与 IQ 口径不同——本计数只受 5 秒窗口约束）。
+     * 纯表现层：不写 localStorage、不影响判定 / 计分 / 棱晶 / 可解性（FR-032）。 */
+    function comboFxNow() {
+      return (global.performance && global.performance.now)
+        ? global.performance.now()
+        : Date.now();
+    }
+
+    function comboFxTier(count) {
+      if (count <= 1) return 1;
+      return count >= 5 ? 5 : count; /* count >= 5 归 5 */
+    }
+
+    /* 档位速率：1.00 / 1.06 / 1.12 / 1.18 /（5 起）1.0 + count × 0.05，封顶 1.30 */
+    function comboFxRate(count) {
+      if (count <= 1) return 1.00;
+      if (count === 2) return 1.06;
+      if (count === 3) return 1.12;
+      if (count === 4) return 1.18;
+      return Math.min(COMBO_FX_RATE_MAX, 1.0 + count * COMBO_FX_RATE_STEP);
+    }
+
+    /* 文案逐字锁定（含标点与空格）——MUST NOT 改写、MUST NOT 本地化 */
+    function comboFxText(count, tier) {
+      if (tier <= 1) return null;
+      if (tier === 2) return 'Combo ×2';
+      if (tier === 3) return 'Good! ×3';
+      if (tier === 4) return 'Great! ×4';
+      return 'Unbelievable! ×' + count;
+    }
+
+    function comboFxVoice(tier) {
+      if (tier === 3) return 'good';
+      if (tier === 4) return 'great';
+      if (tier >= 5) return 'unbelievable';
+      return null; /* tier 1/2 MUST NOT 播语音 */
+    }
+
+    /* 每次三消结算后广播 comboChanged（唯一计数权威——消费方 MUST NOT 自建副本） */
+    function bumpCombo() {
+      var now = comboFxNow();
+      if (lastMatchAt > 0 && (now - lastMatchAt) <= COMBO_FX_WINDOW_MS) {
+        comboCount += 1;
+      } else {
+        comboCount = 1; /* 首次消除或间隔超 5 秒 */
+      }
+      lastMatchAt = now;
+      var tier = comboFxTier(comboCount);
+      emit({
+        e: 'comboChanged',
+        count: comboCount,
+        tier: tier,
+        playbackRate: comboFxRate(comboCount),
+        voice: comboFxVoice(tier),
+        floatText: comboFxText(comboCount, tier)
+      });
     }
 
     /* Δ19c/T084: 受阻清空连击（表现层 IQ 不扣分，但 combo 必须归零）
      * 引擎 combo 为连击倍率来源，归零后下一次三消从 base 重新起跳。 */
     function breakCombo() {
       engine.combo = 0;
-      comboActive = false;
-      lastMatchAt = 0;
+      iqComboActive = false;
+      iqComboLastAt = 0;
+      /* Δ22b/T108 ⑥: 受阻 MUST NOT 重置表现层连击（comboCount 只受 5 秒窗口约束） */
       emitPhase();
     }
 
@@ -188,14 +264,20 @@
       /* 事件流转发（渲染/音效——动画并发非阻塞，由 Renderer 各自动画槽消化） */
       emit({ e: 'click', tileId: tileId });
       var i;
-      for (i = 0; i < result.events.length; i++) emit(result.events[i]);
+      for (i = 0; i < result.events.length; i++) {
+        var evt = result.events[i];
+        if (evt.e === 'match') {
+          /* Δ22b/T108: 先结算连击（comboChanged 先于 match 下发——
+           * 音频层据此取 playbackRate，MUST NOT 自行推断档位） */
+          windowCombo();  /* IQ 乘区口径（M_combo） */
+          bumpCombo();    /* 表现层 5s 口径（碎裂升调 / 语音 / 飘字） */
+        }
+        emit(evt);
+      }
       if (result.type === 'flyout' || result.type === 'prism-flyout') emit({ e: 'flyout', tileId: tileId, path: result.path });
       if (result.type === 'blocked') {
         emit({ e: 'blocked', tileId: tileId, path: result.path, damage: result.damage });
         breakCombo(); /* Δ19c/T084: 受阻 MUST 立即清空连击（IQ 不扣分） */
-      }
-      for (i = 0; i < result.events.length; i++) {
-        if (result.events[i].e === 'match') windowCombo();
       }
 
       /* 瞬时终局判定（无 SETTLING 等待——级联已在 applyTap 内原子结算完毕） */
@@ -209,6 +291,7 @@
         phase: phase,
         score: engine.score,
         combo: engine.combo,
+        comboCount: comboCount, /* Δ22b/T108: 表现层连击（5s 滑动窗）——只读观测位 */
         lives: engine.lives,
         items: engine.items,
         dock: engine.dock.map(function (t) { return { id: t.id, s: t.s }; }),
@@ -227,7 +310,10 @@
       history = [];
       railIndex = 0;
       onRail = true;
-      comboActive = false;
+      iqComboActive = false;
+      iqComboLastAt = 0;
+      /* Δ22b/T108 ⑥: 重置本关 MUST 归零表现层连击 */
+      comboCount = 0;
       lastMatchAt = 0;
       emit({ e: 'reset' });
       emitPhase();
@@ -272,9 +358,10 @@
       engine.items[item] = Math.max(0, (engine.items[item] || 0) - 1);
       trackRail({ k: item === 'magnet' ? 3 : (item === 'shuffle' ? 4 : 2), t: tileId == null ? -1 : tileId });
       var i;
-      for (i = 0; i < result.events.length; i++) emit(result.events[i]);
       for (i = 0; i < result.events.length; i++) {
-        if (result.events[i].e === 'match') windowCombo();
+        var evtI = result.events[i];
+        if (evtI.e === 'match') { windowCombo(); bumpCombo(); } /* Δ22b/T108: 道具三消同样计入连击 */
+        emit(evtI);
       }
       emit({ e: 'item', item: item });
       judgeTerminal(); /* Δ10: 道具动作同样瞬时终局判定 */
@@ -343,9 +430,10 @@
       var eng = engine;
       function emitMagnetResult(r) {
         var i;
-        for (i = 0; i < r.events.length; i++) emit(r.events[i]);
         for (i = 0; i < r.events.length; i++) {
-          if (r.events[i].e === 'match') windowCombo();
+          var evtM = r.events[i];
+          if (evtM.e === 'match') { windowCombo(); bumpCombo(); } /* Δ22b/T108 */
+          emit(evtM);
         }
         emit({ e: 'item', item: 'magnet' });
         judgeTerminal();

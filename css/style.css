@@ -1529,6 +1529,7 @@ html, body {
 #app.scene-lobby #debug-panel,
 #app.scene-lobby #bg-canvas,
 #app.scene-lobby #fx-canvas,
+#app.scene-lobby #combo-float-layer,
 #app.scene-lobby #challenge-banner {
   display: none !important;
 }
@@ -2344,3 +2345,108 @@ html, body {
   font-size: 16px; cursor: pointer; z-index: 5;
 }
 .result-home-btn:hover { background: rgba(255,255,255,.32); }
+
+/* =========================================================
+ * Δ22b/T110: 连击微光艺术字飘字（FR-050 §9）
+ *   锚点：#dock 正下方（JS 逐次换算至 #app 坐标系，不缓存布局）
+ *   命中安全：整层 pointer-events:none + z-index:60
+ *   （高于 #dock/#board-wrap 的 z-index:2，低于弹窗/结算层 20/25）
+ *   视觉：圆润字重 800 + 字距 .04em + 柔和发光描边 + 半透明毛玻璃胶囊底衬
+ * ========================================================= */
+#combo-float-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  overflow: hidden;
+}
+.combo-float-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.combo-float {
+  --cf-core: #BFE9FF;
+  --cf-glow: rgba(120, 200, 255, .85);
+  position: relative;
+  display: inline-block;
+  padding: .2em .8em;
+  border-radius: 999px;
+  font-size: clamp(15px, 4.2vw, 21px);
+  font-weight: 800;
+  letter-spacing: .04em;
+  line-height: 1.24;
+  color: var(--cf-core);
+  white-space: nowrap;
+  text-shadow: 0 0 10px var(--cf-glow), 0 0 22px var(--cf-glow), 0 2px 6px rgba(8, 15, 30, .55);
+  transform-origin: 50% 62%;
+  animation: combo-float-life 1120ms cubic-bezier(.22, .9, .3, 1) forwards;
+  will-change: transform, opacity;
+}
+/* 半透明毛玻璃胶囊底衬（::before 承载，避免与流光文字的 background-clip 冲突）
+ * 深色磨砂而非白纱：卡牌与风景底图偏亮，浅底衬会让浅色艺术字发虚不可读 */
+.combo-float::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: rgba(16, 26, 44, .42);
+  border: 1px solid rgba(255, 255, 255, .28);
+  box-shadow: 0 6px 20px rgba(6, 12, 24, .38), inset 0 0 12px rgba(255, 255, 255, .10);
+  backdrop-filter: blur(8px) saturate(1.2);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+}
+/* 分级配色：冰蓝（Combo ×2）/ 翠玉（Good!）/ 琥珀金（Great!）/ 极光紫金（Unbelievable!） */
+.combo-float-t2 { --cf-core: #CDEEFF; --cf-glow: rgba(122, 202, 255, .88); }
+.combo-float-t3 { --cf-core: #B9FFE2; --cf-glow: rgba(87, 224, 166, .90); }
+.combo-float-t4 { --cf-core: #FFE7B4; --cf-glow: rgba(255, 177, 61, .92); }
+.combo-float-t5 {
+  color: transparent;
+  background-image: linear-gradient(100deg, #FFFDF0 0%, #FFD37A 30%, #F0D4FF 66%, #BFF3FF 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  /* 暗色细描边：保证璀璨流光在亮底（天空/沙滩）上仍清晰可读 */
+  -webkit-text-stroke: .6px rgba(24, 14, 44, .55);
+  text-shadow: none;
+  filter: drop-shadow(0 0 9px rgba(201, 174, 255, .95))
+          drop-shadow(0 0 20px rgba(255, 209, 122, .80))
+          drop-shadow(0 2px 5px rgba(8, 15, 30, .70));
+}
+.combo-float-t5::before {
+  background: linear-gradient(100deg, rgba(44, 28, 8, .62), rgba(28, 18, 50, .66));
+  border-color: rgba(255, 236, 176, .58);
+  box-shadow: 0 6px 24px rgba(58, 34, 120, .45), inset 0 0 14px rgba(255, 240, 190, .22);
+}
+/* 生命周期 1120ms：0~650ms 弹性放大（easeOutBack），随后平滑上浮淡出 */
+@keyframes combo-float-life {
+  0% {
+    opacity: 0;
+    transform: scale(.6) translateY(8px);
+    animation-timing-function: cubic-bezier(.34, 1.56, .64, 1);
+  }
+  58% { /* 650ms / 1120ms */
+    opacity: 1;
+    transform: scale(1.05) translateY(-6px);
+    animation-timing-function: cubic-bezier(.33, .05, .3, 1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.02) translateY(-34px);
+  }
+}
+/* reduced-motion：退化为纯淡入淡出（无缩放 / 无位移），保留可读性 */
+@keyframes combo-float-fade {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  76% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .combo-float {
+    animation: combo-float-fade 900ms ease-out forwards;
+  }
+}

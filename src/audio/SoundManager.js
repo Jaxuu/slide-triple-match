@@ -92,6 +92,7 @@
     var bgmDucked = false;    /* 通关压低态 */
     var bgmPlayingKey = null; /* 'bgm_lobby' | 'bgm_game' | 'procedural' */
     var pendingTimers = [];   /* 已排定的延迟触发（静音 MUST 一并取消） */
+    var pendingChannels = {}; /* Δ22b/T109: 具名延迟通道（语音档位升级时只播最终档） */
 
     /* ---------- 合成轨（程序化治愈系 BGM 兜底）---------- */
     var bgmGain = null;
@@ -351,35 +352,65 @@
         try { global.clearTimeout(pendingTimers[i]); } catch (e) { /* 忽略 */ }
       }
       pendingTimers = [];
+      pendingChannels = {};
     }
 
-    /* 对外：playSfx(name, { rate, delay, duck, volume, combo }) */
+    /* 取消某个具名通道上尚未播放的延迟触发（T109 ③ 语音升级去叠放） */
+    function cancelChannel(ch) {
+      if (!ch || !pendingChannels[ch]) return false;
+      var id = pendingChannels[ch];
+      try { global.clearTimeout(id); } catch (e) { /* 忽略 */ }
+      removePending(id);
+      delete pendingChannels[ch];
+      return true;
+    }
+
+    /* 对外：playSfx(name, { rate, delay, duck, volume, combo, channel }) */
     function playSfx(name, o) {
       o = o || {};
       if (sfxMuted) return false;
       if (!ASSETS[name]) return false;
       var delay = o.delay || 0;
       if (delay > 0) {
+        /* 同一通道再次排定 → 取消上一条（只播最终档位，避免叠放成噪音） */
+        if (o.channel) cancelChannel(o.channel);
         var id = global.setTimeout(function () {
           removePending(id);
+          if (o.channel && pendingChannels[o.channel] === id) delete pendingChannels[o.channel];
           if (sfxMuted) return; /* 静音后漏音防线 */
           if (o.duck) duckBgm(true);
           fireSfx(name, o);
         }, delay);
         pendingTimers.push(id);
+        if (o.channel) pendingChannels[o.channel] = id;
         return true;
       }
       if (o.duck) duckBgm(true);
       return fireSfx(name, o);
     }
 
-    /* 对外：playVoice(tier) —— tier 1/2/3 = good/great/unbelievable（T109） */
+    /* 对外：playShatter(rate) —— 三消碎裂瞬发 + 连击升调（T109 ①）
+     * rate 由 GameState 的 comboChanged.playbackRate 提供，MUST NOT 在此推断档位。 */
+    function playShatter(rate) {
+      return playSfx('shatter', { rate: rate });
+    }
+
+    /* 对外：playVoice(tier) —— tier 1/2/3 = good/great/unbelievable（T109 ②）
+     * 也接受契约字符串 'good' | 'great' | 'unbelievable'。
+     * 内部固定延迟 120ms（错开碎裂瞬态），并占用 'voice' 通道：
+     * 120ms 内连击再次升级时上一档未播语音被取消（只播最终档）。 */
     var VOICE_BY_TIER = { 1: 'voice_good', 2: 'voice_great', 3: 'voice_unbelievable' };
+    var VOICE_BY_NAME = { good: 'voice_good', great: 'voice_great', unbelievable: 'voice_unbelievable' };
     function playVoice(tier, o) {
       o = o || {};
-      var name = VOICE_BY_TIER[tier] || VOICE_BY_TIER[String(tier)];
+      var name = VOICE_BY_TIER[tier] || VOICE_BY_NAME[tier];
       if (!name) return false;
-      var opts = { delay: o.delay != null ? o.delay : 120, rate: o.rate, volume: o.volume };
+      var opts = {
+        delay: o.delay != null ? o.delay : 120,
+        rate: o.rate,
+        volume: o.volume,
+        channel: 'voice'
+      };
       return playSfx(name, opts);
     }
 
@@ -916,6 +947,7 @@
       /* 统一播放入口 */
       play: play,
       playSfx: playSfx,
+      playShatter: playShatter,
       playVoice: playVoice,
       playBgm: playBgm,
       duckBgm: duckBgm,
