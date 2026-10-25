@@ -956,19 +956,53 @@ function testDeadlockPredicate() {
   var s = RE.init(L);
   s.items = { undo: 1, wrench: 1, magnet: 1, shuffle: 1 }; /* 旧 wrench 字段仍有余量 */
   assert(RE.deadlockSuspect(s) === true, 'Δ19 死局谓词: 扳手豁免移除后齿轮在场不再豁免');
-  /* 场景 B: 真死锁——清空自由滑块后仅剩互挡对、无道具 */
-  var L2 = mkLevel(4, [
-    { r: 1, c: 1, s: 0, d: 1 }, /* 朝 R 被 (1,2) 挡 */
-    { r: 1, c: 2, s: 0, d: 3 }, /* 朝 L 被 (1,1) 挡 */
-    { r: 0, c: 0, s: 0, d: 0 }, { r: 0, c: 1, s: 0, d: 0 }
+  /* 场景 B（Δ22 重写）: 真死锁——全员受阻 + 零道具 + 无可自愈的相向对
+   * 旧构造「清空自由滑块后仅剩互挡对」在 Δ21 之后不再成立: 清空自由滑块那两次
+   * flyout 本身就会触发 healHeadOnCollisions 把相向对转开，断言执行时局面已非死锁
+   * （实测 deadlockSuspect === false）。改用 2×2 闭环互挡——每张牌的射线都被邻牌
+   * 占住，自愈也找不到自由方向，死锁得以稳定保留。 */
+  var L2 = mkLevel(2, [
+    { r: 0, c: 0, s: 0, d: 1 }, /* → 被 (0,1) 挡 */
+    { r: 0, c: 1, s: 0, d: 3 }, /* ← 被 (0,0) 挡 */
+    { r: 1, c: 0, s: 1, d: 1 }, /* → 被 (1,1) 挡 */
+    { r: 1, c: 1, s: 1, d: 3 }  /* ← 被 (1,0) 挡 */
   ]);
   var s2 = RE.init(L2);
-  RE.applyTap(s2, 2); RE.applyTap(s2, 3); /* 清空第 0 行自由滑块（同花色×2 入槽——无三消不判胜） */
   s2.items = { undo: 0, magnet: 0, shuffle: 0 };
-  s2.dock = []; /* 无关变量清空（两滑块仍在 dock——count=2 无三消） */
   var tapsB = RE.enumerateTaps(s2);
-  assert(tapsB.length === 2, '互挡对均可 tap（弹回型）, got ' + tapsB.length);
-  assert(RE.deadlockSuspect(s2) === true, 'T028 互挡无道具 → 疑死锁');
+  assert(tapsB.length === 4, '闭环互挡 4 张均可 tap（弹回型）, got ' + tapsB.length);
+  var allBlocked = true;
+  for (var bi = 0; bi < tapsB.length; bi++) {
+    var snapB = RE.snapshot(s2);
+    var rb = RE.applyTap(s2, tapsB[bi]);
+    RE.restore(s2, snapB);
+    if (rb.type === 'flyout' || rb.type === 'prism-flyout') allBlocked = false;
+  }
+  assert(allBlocked, '闭环互挡: 零飞出型 tap（死锁前提成立）');
+  assert(RE.deadlockSuspect(s2) === true, 'T028 闭环互挡 + 零道具 → 疑死锁');
+
+  /* 场景 C（Δ22 新增）: Δ21 相向死锁自愈语义——直接测 healHeadOnCollisions
+   * 自愈 MUST 把相向对中一张旋转到自由方向（只旋转、零删牌），旋转后谓词转「非疑」 */
+  var L3 = mkLevel(4, [
+    { r: 1, c: 1, s: 0, d: 1 }, /* → 被 (1,2) 挡 */
+    { r: 1, c: 2, s: 0, d: 3 }  /* ← 被 (1,1) 挡 */
+  ]);
+  var s3 = RE.init(L3);
+  var pairsC = RE.findHeadOnDeadlocks(s3);
+  assert(pairsC.length === 1 && pairsC[0].kind === 'RL',
+    '自愈前置: 识别 1 组 RL 相向对, got ' + pairsC.length);
+  var dBefore = s3.tiles.map(function (t) { return t.d; });
+  var healRes = RE.healHeadOnCollisions(s3);
+  assert(healRes.healed === 1, '自愈: 1 组相向对全部治愈, got ' + healRes.healed);
+  var rotatedC = 0, removedC = 0;
+  for (var ci = 0; ci < s3.tiles.length; ci++) {
+    if (s3.tiles[ci].d !== dBefore[ci]) rotatedC++;
+    if (s3.tiles[ci].removed) removedC++;
+  }
+  assert(rotatedC === 1, '自愈: 仅旋转 1 张牌（不连带改动其它牌）, got ' + rotatedC);
+  assert(removedC === 0 && s3.tiles.length === dBefore.length, '自愈: 零删牌（只旋转不消除）');
+  assert(RE.findHeadOnDeadlocks(s3).length === 0, '自愈后: 相向对清零');
+  assert(RE.deadlockSuspect(s3) === false, '自愈后: 谓词转「非疑」（已存在飞出型 tap）');
 }
 
 function engineSelftest() {

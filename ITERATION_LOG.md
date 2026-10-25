@@ -1360,3 +1360,72 @@ $ node tools/render-selftest.js
 - `tasks.md` T105~T113 全项勾选。
 
 
+
+## Δ22d 测试债清理（T114：12 项陈旧断言按现行口径重写）
+
+**背景**：M9 终验（T113）时发现 `render-selftest` 11 项 + `--engine-selftest` 1 项（T028）常年失败。
+用 `git stash` 在 `7071a09`（本批之前）上跑同一套测试，失败项**逐条字符串完全一致**，确认属基线遗留、
+与 Δ22 零关系。但长期红会让真回归被「又是那几条老的」掩盖，故单开一批按现行口径重写。
+**本批零功能改动**——只改断言与文档。
+
+### 1. 场景 D 图鉴体系（8 项）
+
+| 断言旧口径（Δ16 时期） | 现行实现 | 处置 |
+|---|---|---|
+| 图鉴 45 种（Suit 0~44） | `BESTIARY.length === 96` | 改为 96 种（0~95） |
+| 三阶段各 15 种 | 6 阶段 × 12 关，`poolMax` 15/30/45/60/75/96 | 改为六阶段梯度断言 + 末阶段收敛到图鉴总量 |
+| 阶段边界 L24∈一/L25∈二/L48∈二/L49∈三 | `stageOf` 已按 12 关一段重划 | 改为**逐关**校验 `stageOf` 与 `STAGES.from/to` 一致（零抽样、零越界） |
+| 72 关图案落在阶段池内（`[15,30,45][st-1]`） | `STAGES[st-1].poolMax` | 改为读常量，不再硬编码三元数组 |
+| L21 图案全在 0~14 | L21 属阶段二 → 0~29 | 修正上限为 30 |
+| L22 图案全在 0~29 | 与 L21 同池，断言重复 | 换成 **L24（阶段二末 0~29）/ L25（阶段三首 0~44）边界换装** |
+| Emoji 45 条 | `EMOJI.length === 90`（45~89 由 `EMOJI[i%45]` 占位填充） | 改为 90 条 + 新增「45~89 为占位复用」断言 |
+| 60 关累计可见 ≥30 种 | 72 关实测覆盖 96 种（`distinct === 96`） | 改为 72 关覆盖全量 96 种 |
+
+### 2. 场景 F 开机动画（3 项）—— 认代码为准
+
+证据（`git log -L`）：提交 `55542f0 feat: splash quote preload transition to lobby` 刻意把
+`TOTAL_MS` 由 2000 改为 **1600**、开机底色由 `#181E29 → #0B0E14 → #05070A` 改为
+**`#151A26 → #0A0D14`**（光心 `50% 42%` → `50% 40%`）。断言与 spec 都还写旧值。
+**裁定：认代码为准**（1.6s 是刻意的体验提速，回退会把刚上线的引语预加载打回去）。
+- 断言：`TOTAL_MS === 1600`、`radial-gradient(circle at 50% 40%`、`#151A26` + `#0A0D14`。
+- 文档同步 8 处：`spec.md`（FR-038 §1 色值）、`plan.md`（性能预算 / Δ16d 行 / 目录树 / 实现要点 / 数据流图）、
+  `tasks.md`（增量表 / Independent Test / T066 全条）。
+
+### 3. T028 死锁谓词（1 项）—— 旧构造已被 Δ21 自愈打穿
+
+旧断言用「清空自由滑块后仅剩互挡对」构造死锁。但 Δ21 引入 `healHeadOnCollisions` 后，
+**清空那两次 flyout 本身就会把相向对转开**（实测 `tile0.d: 1 → 3`），断言执行时局面已非死锁，
+`deadlockSuspect` 返回 `false` 而非 `true`——不是谓词退化，是前提失效。
+
+改法：
+- **场景 B** 换成 **2×2 闭环互挡**（四张牌射线互锁，`healHeadOnCollisions` 也找不到自由方向），
+  死锁稳定保留；先断言「4 张均可 tap 且零飞出型 tap」证明前提成立，再断言 `deadlockSuspect === true`。
+- **场景 C（新增）** 直接测自愈语义：`findHeadOnDeadlocks` 识别 1 组 RL 相向对 →
+  `healHeadOnCollisions` 治愈 1 组、**仅旋转 1 张牌**、**零删牌**、治愈后相向对清零且谓词转「非疑」。
+
+### 4. BGM 音量口径（30 处）—— 认代码为准
+
+代码现值（`src/audio/SoundManager.js`）：`bgm_lobby` **0.26** / `bgm_game` **0.20** /
+`FADE_MS = 350`（`audio-smoke` 已按此断言）。spec 侧写的是 0.28 / 0.22 / 400ms。
+同步范围：`spec.md` 9 / `plan.md` 10 / `tasks.md` 5 / `quickstart.md` 3 / `data-model.md` 1 /
+`contracts/game-session.md` 2。**未动**的 `0.28` 均为 `rgba(15,23,42,0.28)` 变暗遮罩与
+`0.22 cell` 层高偏移，`400ms` 均为点击时点与 Δ10 兜底 setTimeout，与 BGM 无关。
+
+### 5. FR-052 口径锚（新增条文）
+
+`spec.md` FR-052 §1 补「时长口径（MUST）」：四个时序常量（180 / 340 / 55*z / 260）为**唯一权威来源**，
+总时长 MUST 由实际落牌计划 `max(delay + 260ms)` 算出、MUST NOT 硬编码——
+z=0 约 780ms / z=2 约 890ms / z=4 满载 1000ms，故 **1000ms 是上限而非固定值**；
+横幅与教学闸门 MUST 读 `dealRemainingMs()` 而非常量（避免提前放行或空窗），点击快进时同帧放行。
+
+### 6. 门禁结果
+
+| 命令 | 结果 |
+|---|---|
+| `node tools/render-selftest.js` | **264 通过 / 0 失败**（原 11 失败） |
+| `node tools/solver.js --engine-selftest` | **15/15 all green**（原 T028 失败） |
+| `node tools/solver.js` | **72/72 solvable**，61.13s |
+| `node tools/audio-smoke.js` | **77 通过 / 0 失败** |
+| `node tools/deal-smoke.js` | all green（27 项） |
+
+`tasks.md` 新增 Batch 4 / T114 并勾选。

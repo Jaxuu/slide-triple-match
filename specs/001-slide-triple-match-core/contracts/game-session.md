@@ -118,7 +118,7 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 | 方法 | 参数 | 行为与约束 |
 |---|---|---|
 | `preload()` | — | 预载 8 个外部资产，返回 `Promise<{ready: string[], failed: string[]}>`；失败不抛错 |
-| `playBgm(which)` | `'lobby' \| 'game' \| null` | `lobby` → 音量 `0.28`；`game` → `0.22`；切换时 **`400ms` 交叉淡变**（音量渐变，非硬切）；`null` = 全部淡出。快速回切 MUST 平滑、**MUST NOT 叠音** |
+| `playBgm(which)` | `'lobby' \| 'game' \| null` | `lobby` → 音量 `0.26`；`game` → `0.20`；切换时 **`350ms` 交叉淡变**（音量渐变，非硬切）；`null` = 全部淡出。快速回切 MUST 平滑、**MUST NOT 叠音** |
 | `playSfx(name, opts)` | `name`（外部轨音效名）, `opts = {rate = 1.0, delay = 0}` | 瞬发（`sfx_shatter` 为 0ms）；`rate` 写入 `playbackRate` 并设 `preservesPitch = false`；`delay` 为毫秒延迟（**静音时 MUST 一并取消**） |
 | `playVoice(tier)` | `'good' \| 'great' \| 'unbelievable'` | 内部固定延迟 **`120ms`** 播放；连击升级时**取消上一档未播语音**（只播最终档） |
 | `playSynth(name, opts)` | `name` = `'tap' \| 'blocked' \| 'dealTick' \| 'splashChord'`, `opts` | **同帧起音**（`pointerdown` 判合法后立即，不等动画）；`dealTick` 受 `>= 22ms` 节流 |

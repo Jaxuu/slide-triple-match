@@ -231,19 +231,27 @@ function scenarioPrismBlocked() {
 
 /* ---- 场景 D: Δ14/T052c 阶段花色映射断言组（60 关——纯渲染层，levels.js 零写回） ---- */
 function scenarioSuitMapping() {
-  console.log('场景 D: 60 关花色→图鉴映射（Δ14a/FR-033 §3——确定性/唯一性/阶段边界）');
+  console.log('场景 D: 72 关花色→图鉴映射（Δ14a/FR-033 §3——确定性/唯一性/阶段边界）');
   var B = STM.Bestiary;
   check('Bestiary 挂载于 STM（装载序 BoardRenderer 前）', !!B && Array.isArray(B.BESTIARY));
-  check('图鉴总量 45 种（Suit 0~44）', B.BESTIARY.length === 45);
-  check('三阶段各 15 种（0~14/15~29/30~44）',
-    B.BESTIARY.filter(function (e) { return e.id < 15; }).length === 15 &&
-    B.BESTIARY.filter(function (e) { return e.id >= 15 && e.id < 30; }).length === 15 &&
-    B.BESTIARY.filter(function (e) { return e.id >= 30; }).length === 15);
+  /* Δ21: 图鉴由 45 种扩容至 96 种（Suit 0~95）——断言随口径同步 */
+  check('图鉴总量 96 种（Suit 0~95）', B.BESTIARY.length === 96);
+  /* Δ21: 阶段由 3×24 重划为 6×12，池上限 15/30/45/60/75/96 */
+  check('六阶段 × 各 12 关（L1~12/13~24/25~36/37~48/49~60/61~72）',
+    Array.isArray(B.STAGES) && B.STAGES.length === 6 &&
+    B.STAGES.every(function (s, i) {
+      return s.stage === i + 1 && s.to - s.from + 1 === 12 &&
+        s.from === i * 12 + 1 && s.to === (i + 1) * 12;
+    }));
+  check('阶段池上限梯度 15/30/45/60/75/96（末阶段收敛到图鉴总量）',
+    B.STAGES.map(function (s) { return s.poolMax; }).join(',') === '15,30,45,60,75,96' &&
+    B.STAGES[5].poolMax === B.BESTIARY.length);
 
   var i, lv, map, key, keys;
-  var stage1Ok = true, stage2Ok = true, stage3Ok = true;
   var uniqueOk = true, kOk = true, detOk = true, sameSuitOk = true;
   var inPoolOk = true;
+  /* Δ21: 阶段边界 6×12——逐关校验 stageOf 与 STAGES.from/to 一致 */
+  var boundaryBad = [];
   /* 纯只读快照（Δ15 注: L1 花 Δ15a 重打散后首块 suit 非必 0——只读断言
    * 须取映射前后快照对照，不得断言迁移前的具体花色值） */
   var snapBefore = JSON.stringify(LEVELS[0].tiles);
@@ -255,17 +263,15 @@ function scenarioSuitMapping() {
     for (key in map) keys.push(parseInt(key, 10));
     /* K ≤ 池大小恒真 + 映射数 = 关卡花色数 */
     if (keys.length === 0 || keys.length > B.STAGES[B.stageOf(lv.id) - 1].poolMax) kOk = false;
-    /* Δ16a 阶段边界重划为 3×24: L24∈一 / L25∈二 / L48∈二 / L49∈三
-     * （spec FR-033 Δ16 修订: 阶段一 L1~L24 / 阶段二 L25~L48 / 阶段三 L49~L72；
-     *  区间按 level.id 判定，非 chapter） */
+    /* Δ21 阶段重划为 6×12（L1~12 / 13~24 / 25~36 / 37~48 / 49~60 / 61~72；
+     *  区间按 level.id 判定，非 chapter）——逐关校验，不抽样 */
     var st = B.stageOf(lv.id);
-    if (lv.id === 24 && st !== 1) stage1Ok = false;
-    if (lv.id === 25 && st !== 2) stage2Ok = false;
-    if (lv.id === 48 && st !== 2) stage2Ok = false;
-    if (lv.id === 49 && st !== 3) stage3Ok = false;
-    if (lv.id === 72 && st !== 3) stage3Ok = false;
-    /* 阶段池包含: 图案 id < 阶段池上限（阶段一 ≤14 / 二 ≤29 / 三 ≤44） */
-    var poolCap = [15, 30, 45][st - 1];
+    var seg = B.STAGES[st - 1];
+    if (!seg || !(lv.id >= seg.from && lv.id <= seg.to)) {
+      boundaryBad.push('L' + lv.id + '→阶段' + st);
+    }
+    /* 阶段池包含: 图案 id < 阶段池上限（一 ≤14 / 二 ≤29 / 三 ≤44 / 四 ≤59 / 五 ≤74 / 六 ≤95） */
+    var poolCap = seg.poolMax;
     var inPool = true;
     for (key in map) { if (!(map[key] >= 0 && map[key] < poolCap)) inPool = false; }
     if (!inPool) inPoolOk = false;
@@ -280,8 +286,8 @@ function scenarioSuitMapping() {
     for (key in map) { if (map[key] !== map2[key]) sameSuitOk = false; }
   }
   check('72 关 K ≤ 阶段池大小恒真 + 映射数 = 花色数', kOk);
-  check('Δ16a 阶段边界正确（L24∈一/L25∈二/L48∈二/L49∈三/L72∈三——spec FR-033 3×24 id 区间非 chapter）',
-    stage1Ok && stage2Ok && stage3Ok);
+  check('Δ21 阶段边界正确（6×12 逐关校验，零越界）', boundaryBad.length === 0);
+  if (boundaryBad.length) console.log('    [' + boundaryBad.slice(0, 6).join(' / ') + ']');
   check('72 关图案均落在对应阶段池内', inPoolOk);
   check('同关内 suit→图案单射（唯一）', uniqueOk);
   check('同关同 suit 恒同图案（会话级缓存一致）', sameSuitOk);
@@ -297,25 +303,29 @@ function scenarioSuitMapping() {
   }
   check('72 关映射确定性（清缓存二次计算一致——SC-007）', detOk);
 
-  /* 跳关/Undo 后以当前关 id 重算阶段（Edge Case「阶段边界换装」） */
-  check('跳关重算: L21→阶段一池（≠chapter 2 错位）',
-    B.mappingForLevel(LEVELS[20]).s !== undefined || Object.keys(B.mappingForLevel(LEVELS[20])).length > 0);
+  /* 跳关/Undo 后以当前关 id 重算阶段（Edge Case「阶段边界换装」）
+   * Δ21: L21 属阶段二（L13~24），池上限 30——旧断言的「0~14」是 3×24 口径残留 */
   var map21 = B.mappingForLevel(LEVELS[20]);
-  var map22 = B.mappingForLevel(LEVELS[21]);
-  var cross21 = 0, cross22 = 0;
-  for (key in map21) { if (map21[key] >= 15) cross21++; }
-  for (key in map22) { if (map22[key] > 29) cross22++; }
-  check('L21 图案全在陆地萌宠池（0~14）', cross21 === 0);
-  check('L22 图案全在合并池（0~29——含新图鉴可能）', cross22 === 0);
+  var cross21 = 0;
+  for (key in map21) { if (map21[key] >= 30) cross21++; }
+  check('L21 图案全在阶段二池（0~29——按 id 判阶段，非 chapter）', cross21 === 0);
+  /* 边界换装: L24（阶段二末）与 L25（阶段三首）池上限分别为 30 / 45 */
+  var map24 = B.mappingForLevel(LEVELS[23]);
+  var map25 = B.mappingForLevel(LEVELS[24]);
+  var cross24 = 0, cross25 = 0;
+  for (key in map24) { if (map24[key] >= 30) cross24++; }
+  for (key in map25) { if (map25[key] >= 45) cross25++; }
+  check('L24 图案全在阶段二池（0~29）', cross24 === 0);
+  check('L25 图案全在阶段三池（0~44）', cross25 === 0);
 
-  /* 渐进解锁语义: 跨关累计可见图案随阶段推进不缩减（展示池目标口径） */
+  /* 渐进解锁语义: 72 关累计可见图案覆盖全量图鉴（展示池目标口径） */
   var seenAll = {};
-  for (i = 0; i < 60; i++) {
+  for (i = 0; i < LEVELS.length; i++) {
     map = B.mappingForLevel(LEVELS[i]);
     for (key in map) seenAll[map[key]] = true;
   }
   var seenCount = Object.keys(seenAll).length;
-  check('60 关累计可见图鉴 ≥30 种（渐进解锁展示池）', seenCount >= 30);
+  check('72 关累计可见图鉴覆盖全量 96 种（渐进解锁展示池）', seenCount >= 96);
 
   /* 不触碰 tiles 坐标/solutionMoves 有效性（映射纯只读——Δ15a 迁移后快照对照） */
   check('映射不修改关卡 tiles（纯只读）', JSON.stringify(LEVELS[0].tiles) === snapBefore);
@@ -424,8 +434,8 @@ function scenarioSpriteSheets() {
   var B = STM.Bestiary;
   check('IconAssets 挂载于 STM（BoardRenderer 导出）', !!IA && typeof IA.ensureLoaded === 'function');
 
-  /* Emoji 码点表: 45 条全覆盖且无重复（FR-033 §6 兜底渲染源） */
-  check('Emoji 码点表 45 条全覆盖', Array.isArray(B.EMOJI) && B.EMOJI.length === 45);
+  /* Emoji 码点表: 90 条（Δ21 扩容——前 45 条唯一，45~89 占位复用前 45 作兜底） */
+  check('Emoji 码点表 90 条（Suit 0~89）', Array.isArray(B.EMOJI) && B.EMOJI.length === 90);
   var emSet = {};
   var emUniq = true;
   for (var ei = 0; ei < 45; ei++) {
@@ -433,7 +443,10 @@ function scenarioSpriteSheets() {
     if (emSet[B.EMOJI[ei]]) emUniq = false;
     emSet[B.EMOJI[ei]] = true;
   }
-  check('Emoji 码点无重复且均为非空字符串', emUniq);
+  check('Emoji 码点 0~44 无重复且均为非空字符串', emUniq);
+  var emPad = true;
+  for (var ej = 45; ej < 90; ej++) { if (B.EMOJI[ej] !== B.EMOJI[ej % 45]) emPad = false; }
+  check('Emoji 码点 45~89 为占位复用（EMOJI[i] === EMOJI[i % 45]）', emPad);
 
   /* Node 无 DOM/无 Image → ensureLoaded 空转不抛（file:// 之外环境安全） */
   var loadOk = true;
@@ -492,27 +505,26 @@ function scenarioSpriteSheets() {
     var fakeImg = { width: 2048, height: 2048 };
     var T = IA._test;
     T.registerSheet(fakeImg, 0);
-    /* 断言: 15 格注册、第 16 格（index 15）未注册（跳过右下角水印格） */
+    /* 断言: 16 格全注册（Δ21 起取消右下角水印格跳过——4×4 满格切片） */
     var n = 0;
     for (var bi = 0; bi < 16; bi++) if (T.slices[bi]) n++;
-    if (n !== 15) { sliceOk = false; sliceMsg = '注册格数=' + n + '（应 15——跳过第 16 格）'; }
-    if (T.slices[15]) { sliceOk = false; sliceMsg = '第 16 格（水印格）被误注册'; }
+    if (n !== 16) { sliceOk = false; sliceMsg = '注册格数=' + n + '（应 16——4×4 满格）'; }
   } catch (err) {
     sliceOk = false; sliceMsg = err.message;
   } finally {
     if (origCreate !== undefined && origCreate !== null) globalThis.document = origCreate && globalThis.document;
     else delete globalThis.document;
   }
-  check('sheet 切片: 15 格注册 + 第 16 格（row3,col3 水印格）跳过', sliceOk && sliceMsg === '');
+  check('sheet 切片: 16 格全注册（4×4 满格——Δ21 起取消水印格跳过）', sliceOk && sliceMsg === '');
   if (sliceMsg) console.log('    [' + sliceMsg + ']');
 
-  /* sheet 定义: 3 张 × 15 格 = 45 覆盖 + 基址 0/15/30 */
-  var sheetsOk = IA.SHEETS.length === 3 &&
-    IA.SHEETS[0].base === 0 && IA.SHEETS[1].base === 15 && IA.SHEETS[2].base === 30 &&
-    IA.SHEETS.every(function (sh) { return sh.count === 15; });
-  check('SHEETS 配置: 3 张 × 基址 0/15/30 × 15 格（45 全覆盖）', sheetsOk);
+  /* sheet 定义: 6 张 × 16 格，基址 0/15/30/45/60/75（相邻张首尾重叠 1 格，覆盖 0~90） */
+  var sheetBases = [0, 15, 30, 45, 60, 75];
+  var sheetsOk = IA.SHEETS.length === 6 &&
+    IA.SHEETS.every(function (sh, i) { return sh.base === sheetBases[i] && sh.count === 16; });
+  check('SHEETS 配置: 6 张 × 基址 0/15/30/45/60/75 × 16 格（覆盖 0~90）', sheetsOk);
   var pathsOk = IA.SHEETS.every(function (sh) { return sh.file.indexOf('assets/icons/sheet') === 0; });
-  check('sheet 路径约定 assets/icons/sheet{1..3}.png（相对路径）', pathsOk);
+  check('sheet 路径约定 assets/icons/sheet{1..6}.png（相对路径）', pathsOk);
 
   /* statusOf 兜底链: 未注册 bid → 'emoji'（贴图缺失降级口径） */
   var stOk = IA.statusOf(0) === 'emoji' || IA.statusOf(0) === 'sheet';
@@ -786,7 +798,8 @@ function scenarioDelta16() {
   /* ---------- H6: 开机动画时序常量（FR-038） ---------- */
   var SP = STM.Splash;
   check('Δ16d: STM.Splash 挂载且 show 可调用', !!SP && typeof SP.show === 'function');
-  check('Δ16d: 开机动画总时长 ≈2.0s（TOTAL_MS === 2000）', SP.TOTAL_MS === 2000);
+  /* Δ22 口径同步: 开机总时长 1.6s（原 2.0s 于 55542f0 提速——字母碰撞与眨眼收在 1.6s 内） */
+  check('Δ16d: 开机动画总时长 1.6s（TOTAL_MS === 1600）', SP.TOTAL_MS === 1600);
   check('Δ16d: 淡出时长常量为正且 ≤ 总时长（平滑淡出）',
     SP.FADE_MS > 0 && SP.FADE_MS <= SP.TOTAL_MS);
   check('Δ16d: 和弦音触发时刻在动画时序窗口内（0 < CHIME_AT < TOTAL_MS）',
@@ -830,11 +843,11 @@ function scenarioDelta16() {
     html.indexOf('src/core/profile.js') < html.indexOf('src/ui/splash.js') &&
     html.indexOf('src/ui/splash.js') < html.indexOf('src/main.js'));
   var splashCss = require('fs').readFileSync(__dirname + '/../css/style.css', 'utf8');
+  /* Δ22 口径同步: 背景于 55542f0 由 #181E29→#0B0E14→#05070A 调整为 #151A26→#0A0D14，光心 42%→40% */
   check('Δ16d: 开机背景为高级黑径向渐变（绝不用纯黑 #000000）',
-    /#splash-screen\s*\{[^}]*radial-gradient\(circle at 50% 42%/.test(splashCss));
-  check('Δ16d: 开机背景含黑曜石微光口径 #181E29 → #0B0E14 → #05070A',
-    splashCss.indexOf('#181E29') !== -1 && splashCss.indexOf('#0B0E14') !== -1 &&
-    splashCss.indexOf('#05070A') !== -1);
+    /#splash-screen\s*\{[^}]*radial-gradient\(circle at 50% 40%/.test(splashCss));
+  check('Δ16d: 开机背景含黑曜石微光口径 #151A26 → #0A0D14',
+    splashCss.indexOf('#151A26') !== -1 && splashCss.indexOf('#0A0D14') !== -1);
   check('Δ16d: 白金流光扫掠由 --sweep 驱动（渐变遮罩，非整体闪烁）',
     /--sweep/.test(splashCss));
 }
