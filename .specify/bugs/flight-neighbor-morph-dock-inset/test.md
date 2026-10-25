@@ -132,6 +132,10 @@ marginNonWhite = 973 / 4746   minChannel = 205   maxDeviation = 50   bbox = [37,
 
 ### 8x 放大截图（人工可复核）
 
+> **注**：`frames/` 与 `probes/` 属取证中间产物，已由 `.gitignore` 排除，**不入库**。
+> 仓库只保留本文件与 `assessment.md` / `fix.md`。下列截图与探针脚本仅存在于取证当时的
+> 本地工作副本；如需复核，用上表命令重新运行探针即可在原路径重新生成。
+
 - `frames/profile-dock-chip-8x.png`（修复后）：白卡内**只有居中狐狸**，无任何框线
 - `frames/profile-dock-chip-8x-filterback.png`（A/B 加回投影）：可见一圈清晰的灰色矩形描边
 - `frames/verify-dock-chip-4x.png` / `verify-dock-chip-filterback-4x.png`：4x 同款对照

@@ -1,2 +1,30 @@
 # 截图取证产物（由 tools/lobby-shots.js 现场生成，非源码）
 shots/
+
+# ─────────────────────────────────────────────────────────────
+# speckit bug 流程：仓库只保留三份结论文档
+#   assessment.md / fix.md / test.md
+# 其余一律视为「实现中途产物」，仅留在本地，不入库、不推送：
+#   - 取证截图（frames/、after/、before/、*.png ...）
+#   - CDP 探针脚本（probes/、*.probe.js ...）
+#   - 探针临时输出（_*.json、_*.txt、_*.log ...）
+#   - 一次性实验页面（*.html）
+# 需要复现时在本地重新运行探针即可，脚本本身可随时重建。
+# ─────────────────────────────────────────────────────────────
+.specify/bugs/**/frames/
+.specify/bugs/**/shots/
+.specify/bugs/**/after/
+.specify/bugs/**/before/
+.specify/bugs/**/probes/
+.specify/bugs/**/*.png
+.specify/bugs/**/*.jpg
+.specify/bugs/**/*.jpeg
+.specify/bugs/**/*.webp
+.specify/bugs/**/*.gif
+.specify/bugs/**/*.html
+.specify/bugs/**/*.js
+.specify/bugs/**/_*
+.specify/bugs/_*
+
+# AI 助手的工作记忆 / 会话状态，属本机临时产物
+.workbuddy-ai/
