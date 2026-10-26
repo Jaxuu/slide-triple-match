@@ -645,6 +645,135 @@ async function main() {
     check('⑤ 爆心辉光采样成功', false, glow ? JSON.stringify(glow.err || glow) : 'null');
   }
 
+  /* ---------- ⑥ 碎裂出生点定位（Δ28e：碎片必须从三消所在槽位崩出） ----------
+   * 为什么需要这一步：`applyTap` 是原子结算，`match` 时那 3 张牌已从 `state.dock`
+   * 移除，`lastDockSnapshot` 也被刷成移除后形态。旧实现只能退化成「取最左边 3 个
+   * 有牌槽」→ 碎片恒定从左侧爆开。若只在空槽上凑三消（槽 0,1,2），错误实现与正确
+   * 实现结果**相同**，测不出来。故此处先在槽 0,1 预置两张异花色牌，把三消块挤到
+   * 槽 2,3,4——两种实现相差整整 2 个槽宽，可确定性区分。 */
+  console.log('\n⑥ 碎裂出生点定位（Δ28e）');
+  var birth = await ev(`(async function(){
+    var sleep = function(ms){ return new Promise(function(z){ setTimeout(z, ms); }); };
+    var r = window.__D27.rnd(), s = window.__D27.sess(), RE = window.STM.RulesEngine;
+    s.reset();
+    await sleep(120);
+
+    function tappableBySuit(exclude) {
+      var st = s.state(), eng = s.engineState(), by = {};
+      for (var i = 0; i < st.board.length; i++) {
+        var t = st.board[i];
+        if (!t || !RE.canTap(eng, t.id)) continue;
+        var k = t.s | 0;
+        if (k === exclude) continue;
+        (by[k] = by[k] || []).push(t.id);
+      }
+      return by;
+    }
+    function firstOf(suit) {
+      var st = s.state(), eng = s.engineState();
+      for (var i = 0; i < st.board.length; i++) {
+        var t = st.board[i];
+        if (!t || (t.s | 0) !== suit) continue;
+        if (!RE.canTap(eng, t.id)) continue;
+        return t.id;
+      }
+      return null;
+    }
+
+    /* 目标花色 = 可点数量最多的花色 */
+    var st0 = s.state(), eng0 = s.engineState(), cnt = {};
+    for (var i0 = 0; i0 < st0.board.length; i0++) {
+      var b0 = st0.board[i0];
+      if (!b0 || !RE.canTap(eng0, b0.id)) continue;
+      var k0 = b0.s | 0;
+      cnt[k0] = (cnt[k0] || 0) + 1;
+    }
+    var target = -1, bestN = 0;
+    for (var kk in cnt) if (cnt[kk] > bestN) { bestN = cnt[kk]; target = kk | 0; }
+    if (target < 0 || bestN < 3) return { err: 'no triple suit' };
+
+    /* 预置 2 张异花色（占用槽 0,1） */
+    var pre = tappableBySuit(target);
+    var preSuit = -1, preN = 0;
+    for (var pk in pre) if (pre[pk].length > preN) { preN = pre[pk].length; preSuit = pk | 0; }
+    var preTapped = 0;
+    for (var pv = 0; pv < 2; pv++) {
+      var pid = firstOf(preSuit);
+      if (pid == null) break;
+      s.tap(pid); preTapped++;
+      await sleep(100);
+    }
+    var preDock = s.state().dock.map(function(t){ return t.s; });
+
+    /* 凑目标花色三消 */
+    var tapped = 0;
+    while (tapped < 8) {
+      var stc = s.state(), c = 0;
+      for (var ci = 0; ci < stc.dock.length; ci++) if ((stc.dock[ci].s | 0) === target) c++;
+      if (c >= 3) break;
+      var tid = firstOf(target);
+      if (tid == null) break;
+      s.tap(tid); tapped++;
+      await sleep(100);
+    }
+
+    /* 等碎裂首帧，采「震颤槽位」与碎片 x 分布 */
+    var t0 = performance.now(), snap = null;
+    while (performance.now() - t0 < 2000) {
+      if (r.vfxShardsOf().length > 0) {
+        var nodes = document.querySelectorAll('#dock .slot');
+        var shat = [], slotRects = [];
+        for (var q = 0; q < nodes.length; q++) {
+          var bq = nodes[q].getBoundingClientRect();
+          slotRects.push({ i: q, l: Math.round(bq.left), r: Math.round(bq.right), w: Math.round(bq.width) });
+          if ((nodes[q].className || '').indexOf('slot-shattering') >= 0) shat.push(q);
+        }
+        var xs = r.vfxShardsOf().map(function(a){ return a.x; }).sort(function(a,b){ return a-b; });
+        snap = {
+          shat: shat, slots: slotRects,
+          xMin: Math.round(xs[0]),
+          xMax: Math.round(xs[xs.length - 1]),
+          xP10: Math.round(xs[Math.floor(xs.length * 0.10)]),
+          xP90: Math.round(xs[Math.floor(xs.length * 0.90)])
+        };
+        break;
+      }
+      await sleep(8);
+    }
+    return { target: target, preSuit: preSuit, preTapped: preTapped,
+             preDock: preDock, tapped: tapped, snap: snap };
+  })()`);
+
+  if (birth && !birth.err && birth.snap && birth.snap.shat.length) {
+    var bs = birth.snap, slots = bs.slots;
+    check('⑥ 预置 2 张异花色占住槽 0,1（把三消块挤到右侧）',
+      birth.preTapped === 2 && birth.preDock.length >= 2, JSON.stringify(birth.preDock));
+    check('⑥ 震颤槽位恰为 3 个', bs.shat.length === 3, JSON.stringify(bs.shat));
+    /* 核心：槽位 MUST NOT 退化成「最左 3 个有牌槽」 */
+    var isLeftmost = bs.shat.length === 3 && bs.shat[0] === 0 && bs.shat[1] === 1 && bs.shat[2] === 2;
+    check('⑥ 爆发槽位不是「最左 3 槽」（MUST 为本轮三消真实所在槽位）',
+      !isLeftmost, 'shat=' + JSON.stringify(bs.shat) + ' preDock=' + JSON.stringify(birth.preDock));
+    /* 出生 x 必须落在 3 槽并集 ± 0.9 槽宽内 */
+    var s0 = slots[bs.shat[0]], s2 = slots[bs.shat[bs.shat.length - 1]];
+    if (s0 && s2) {
+      var pad = s0.w * 0.9;
+      var lo = s0.l - pad, hi = s2.r + pad;
+      check('⑥ 碎片出生 x 落在 3 槽并集 ± 0.9 槽宽内（p10/p90）',
+        bs.xP10 >= lo && bs.xP90 <= hi,
+        'p10=' + bs.xP10 + ' p90=' + bs.xP90 + ' 允许 [' + Math.round(lo) + ',' + Math.round(hi) + ']');
+      var unionCX = (s0.l + s2.r) / 2;
+      /* 用 p10~p90 中点而非 min/max——极少数离群碎片（拒绝采样的 bestX 兜底）
+       * 会把 min/max 拉偏，p10/p90 才是「出生云主体」的稳定估计。 */
+      var cloudCX = (bs.xP10 + bs.xP90) / 2;
+      check('⑥ 碎片云主体中心与 3 槽并集中心偏差 <= 1 槽宽',
+        Math.abs(cloudCX - unionCX) <= s0.w,
+        'cloud(p10~p90)=' + Math.round(cloudCX) + ' union=' + Math.round(unionCX) + ' slotW=' + s0.w);
+    }
+    await shot('shatter-birth.png');
+  } else {
+    check('⑥ 出生点采样成功', false, birth ? JSON.stringify(birth.err || birth) : 'null');
+  }
+
   var errCount = await ev('(function(){return (window.__D27ERR||0);})()');
   check('③ 全程零未捕获异常', !errCount, errCount);
 
@@ -655,7 +784,7 @@ async function main() {
     console.log('delta27-verify: FAILED — ' + fails.length + ' 失败项: ' + fails.join('; '));
     process.exit(1);
   } else {
-    console.log('delta27-verify: all green（编舞在途<=22 / 槽位零抖动 / 图层不反转 / 碎块 120~150 枚 + 图集命中>=90%）');
+    console.log('delta27-verify: all green（编舞在途<=22 / 槽位零抖动 / 图层不反转 / 碎块 120~150 枚 + 图集命中>=90% / 碎裂出生点定位）');
     console.log('取证帧目录：shots/delta27/');
   }
 }

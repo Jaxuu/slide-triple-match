@@ -39,6 +39,10 @@
    * 换关后「相邻两次不重复」与「评委锁定」都会失效。故提升到模块作用域。 */
   var introLastModeGlobal = -1;
   var dealModeLockGlobal = null;
+  /* Δ28e: 开局编舞是否正在进行（模块作用域——`ShardAtlas.process` 在工厂外，
+   * 拿不到实例状态）。碎块图集键控是 150~250ms 的同步重活，若正好落在编舞窗口里，
+   * 落子动画会整段卡住（用户实测「落子很慢而且很卡」）。键控发现编舞在跑就推迟。 */
+  var dealBusyGlobal = false;
   var RE = STM.RulesEngine;
   var Bestiary = STM.Bestiary; /* Δ14: 装载序保证先于 BoardRenderer */
 
@@ -675,6 +679,7 @@
     var tried = 0;
     var listeners = [];
     var keyMs = 0;
+    var processRetries = 0;    /* Δ28e: 编舞期间让路的重试计数 */
 
     function notify() {
       for (var i = 0; i < listeners.length; i++) {
@@ -941,6 +946,18 @@
     }
 
     function process(img) {
+      /* Δ28e: 键控是 150~250ms 的**同步**重活（27 张 256² 的染色 + 柔光晕）。
+       * 它在渲染器创建时异步启动，图片 onload 落点不确定——实测常常正好落在
+       * 开局编舞窗口里，把落子动画整段冻住（用户反馈「落子很慢而且很卡」）。
+       * 编舞期间一律推迟重试；编舞最多 2.4s，故 60 次 × 80ms = 4.8s 上限足够。
+       * 推迟期间 `state` 保持 'loading'，首次三消若仍未就绪 → 走程序化折面兜底
+       * （FR-049 §3，设计内行为，不会掉帧）。 */
+      if (dealBusyGlobal && processRetries < 60) {
+        processRetries++;
+        setTimeout(function () { process(img); }, 80);
+        return;
+      }
+      processRetries = 0;
       var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       var W = img.naturalWidth || img.width || 0;
       var H = img.naturalHeight || img.height || 0;
@@ -1056,17 +1073,25 @@ var DOCK_SHARD_TOTAL_MAX = 150;
 var DOCK_SHARD_LIFE_MIN = 420;
 var DOCK_SHARD_LIFE_MAX = 620;
 var DOCK_SHARD_GRAVITY = 2600;      /* px/s²（Δ27c：原 920 太飘） */
-/* Δ28c: 「纸片往下掉」的根因是初速恒向下（vy >= 300）。真实的碎裂是**径向迸射**
- * ——先向四周炸开（允许向上分量），再由 2600 的重力在 0.3s 内压成下落。
- * 重力不变 → 依旧「干脆直落」，但起手有爆开的张力。
- * Δ28c-2: 初版 260~780 px/s 太爆（70ms 就铺满全屏，像礼花不像碎裂）→
- * 收敛到 140~460，并让水平/垂直增益接近 1，保证前 200ms 仍是「贴着槽位的一团」。 */
-var DOCK_SHARD_SPEED_MIN = 140;     /* 迸射初速下限 px/s */
-var DOCK_SHARD_SPEED_MAX = 460;     /* 迸射初速上限 px/s */
-var DOCK_SHARD_VX_GAIN = 1.05;      /* 水平分量增益 */
-var DOCK_SHARD_VY_GAIN = 0.85;      /* 垂直分量增益 */
-var DOCK_SHARD_UP_MAX = 300;        /* 向上分量上限 px/s（0.35s 内必被重力拉回） */
-var DOCK_SHARD_DOWN_BIAS = 140;     /* 向下偏置 px/s */
+/* Δ28e: 运动模型从「径向爆开」改为「**斜向抛物线**」。
+ *
+ * 为什么改：Δ28c 的全周角迸射（含向上分量）在观感上是「礼花」——碎片先向四周
+ * 炸散，再被重力压下来，轨迹看不出方向；而参考效果是「顺着一个斜角被扫下去」，
+ * 起手就有明确的水平去向，重力只负责把弧线压弯。
+ *
+ * 新口径：初速**恒向下**（vy > 0，MUST NOT 有向上分量），水平分量按「远离爆心」
+ * 定向（左槽向左、右槽向右），因此整团碎片呈扇形斜落；重力 2600 把直线压成
+ * 抛物线，落地干脆。
+ *
+ * Δ28e-2: 首版水平 200~520 / 垂直 30~150 的**初始切角只有 10~30°**，实测像
+ * 「横向喷出去」而不是「斜着落下」。垂直分量必须够大，起手才是斜的——
+ * 现取水平 160~420 / 垂直 120~300，初始切角 16~59°（均值 ~35°），
+ * 之后重力持续加速 → 越落越陡的抛物线。 */
+var DOCK_SHARD_VX_MIN = 160;        /* 水平初速下限 px/s（斜角来源） */
+var DOCK_SHARD_VX_MAX = 420;        /* 水平初速上限 px/s */
+var DOCK_SHARD_VY_MIN = 120;        /* 垂直初速下限 px/s（恒 > 0：绝不上飘） */
+var DOCK_SHARD_VY_MAX = 300;        /* 垂直初速上限 px/s（余下交给重力） */
+var DOCK_SHARD_VX_DEAD = 0.12;      /* 落在爆心中轴 ±12% 的碎片几乎直落（避免全团同向） */
 var DOCK_SHARD_ALPHA_MIN = 0.84;    /* Δ28c: 半透明玻璃感（原为全不透明 1.0） */
 var DOCK_SHARD_ALPHA_MAX = 0.96;
 var DOCK_SHARD_VR_MIN = 4;          /* 角速度下限 rad/s */
@@ -2035,6 +2060,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       introAnim = { startTime: nowMs(), mode: m, active: true, totalMs: 0 };
       introPlan = null;
       introTicked = {};
+      dealBusyGlobal = true; /* Δ28e: 编舞期间禁止做重活（碎块图集键控） */
       markDirty();
       return m;
     }
@@ -2044,6 +2070,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       var wasActive = !!(introAnim && introAnim.active);
       if (introAnim) introAnim.active = false;
       introPlan = null;
+      dealBusyGlobal = false; /* Δ28e: 编舞结束 → 放行重活 */
       dirty = true;
       markDirty();
       return wasActive;
@@ -2239,6 +2266,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       if (allDone) {
         introAnim.active = false;
         introPlan = null;
+        dealBusyGlobal = false; /* Δ28e: 编舞结束 → 放行碎块图集键控 */
         dirty = true;
         return false;
       }
@@ -2540,18 +2568,22 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         var rw = Math.max(1, maxX - minX);
         var rh = Math.max(1, maxY - minY);
         /* 出生半径 <= 槽宽（槽宽 = 联合矩形高，即单槽边长）
-         * Δ28c: padding 由 1.0 → 1.35 槽宽，容纳上调后的三级尺寸（否则拒绝采样
-         * 会挤成白团，失去「粒粒分明」）。 */
+         * Δ28e: 出生区改为「贴着 3 个槽位的一横条」——水平方向比 3 槽并集各外扩
+         * 0.75 槽宽，垂直方向只外扩 0.85 槽宽。旧口径 1.35 槽宽四周等距外扩，
+         * 出生云是个大方块，碎片看起来「凭空出现在槽位附近」而不是「从牌里崩出来」。 */
         var slotW = Math.max(28, Math.min(rh, rw / 3));
-        var padW = slotW * 1.35;
-        var bx0 = minX - padW, bx1 = maxX + padW;
-        var by0 = minY - padW, by1 = maxY + padW;
+        var padX = slotW * 0.75;
+        var padY = slotW * 0.62;
+        var bx0 = minX - padX, bx1 = maxX + padX;
+        var by0 = minY - padY, by1 = maxY + padY;
         var bboxW = Math.max(1, bx1 - bx0);
         var bboxH = Math.max(1, by1 - by0);
-        /* Δ28d: 爆心辉光定位在包围盒中心 */
+        /* 爆心 = 3 槽并集中心（不是出生盒中心——盒在垂直方向不对称于槽位行） */
+        var burstCX = (minX + maxX) / 2;
+        /* Δ28d: 爆心辉光定位在 3 槽中心 */
         vfxFlash = {
-          x: (bx0 + bx1) / 2,
-          y: (by0 + by1) / 2,
+          x: burstCX,
+          y: (minY + maxY) / 2,
           r: Math.max(bboxW, bboxH) * 0.52,
           t0: nowMs(),
           dur: 180
@@ -2625,12 +2657,18 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
             atlas = (ki < SHARD_ATLAS_TOTAL) ? ki : Math.floor(Math.random() * SHARD_ATLAS_TOTAL);
             if (picked.indexOf(atlas) < 0) picked.push(atlas);
           }
-          /* Δ28c: 径向迸射——全周角随机 + 水平放大 + 垂直收窄 + 向下偏置 */
-          var ang0 = Math.random() * Math.PI * 2;
-          var spd = DOCK_SHARD_SPEED_MIN + Math.random() * (DOCK_SHARD_SPEED_MAX - DOCK_SHARD_SPEED_MIN);
-          var vx = Math.cos(ang0) * spd * DOCK_SHARD_VX_GAIN;
-          var vy = Math.sin(ang0) * spd * DOCK_SHARD_VY_GAIN + DOCK_SHARD_DOWN_BIAS;
-          if (vy < -DOCK_SHARD_UP_MAX) vy = -DOCK_SHARD_UP_MAX;
+          /* Δ28e: 斜向抛物线——水平分量按「远离爆心中轴」定向（左半向左、右半向右），
+           * 垂直分量恒为正（绝不上飘）。重力 2600 把直线压成弧，观感是「被扫下去」
+           * 而不是「炸开后飘落」。落在中轴附近的碎片给极小水平速度 → 直落，
+           * 让扇形不是死板的左右对称。 */
+          var offX = px - burstCX;
+          var dir = offX < 0 ? -1 : 1;
+          if (Math.abs(offX) < bboxW * DOCK_SHARD_VX_DEAD) {
+            dir = (Math.random() < 0.5 ? -1 : 1) * 0.18;
+          }
+          var vxMag = DOCK_SHARD_VX_MIN + Math.random() * (DOCK_SHARD_VX_MAX - DOCK_SHARD_VX_MIN);
+          var vx = dir * vxMag;
+          var vy = DOCK_SHARD_VY_MIN + Math.random() * (DOCK_SHARD_VY_MAX - DOCK_SHARD_VY_MIN);
           var vrMag = DOCK_SHARD_VR_MIN + Math.random() * 8;
           var vr = (Math.random() < 0.5 ? -1 : 1) * vrMag;
           var life = DOCK_SHARD_LIFE_MIN +
@@ -3318,6 +3356,9 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     /* Δ27c/T134 ③: 碎块图集键控 MUST 在 startDeal() 之前完成——渲染器一创建
      * 就启动加载（一次性 ~150ms），MUST NOT 把 2048² 的回读压在开局编舞窗口上。
      * 若首组三消时仍未就绪 → 该次静默走程序化 Low-Poly 兜底（不等、不掉帧）。 */
+    /* Δ28e: 新实例没有在跑的编舞——清掉上一实例可能遗留的「忙」标记，
+     * 否则碎块图集键控会一直被推迟（最坏要等满 60 次重试）。 */
+    dealBusyGlobal = false;
     ShardAtlas.ensureLoaded();
     IconAssets.onSpritesReady(function () {
       markDirty();
@@ -3960,13 +4001,12 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     lifeMin: DOCK_SHARD_LIFE_MIN,
     lifeMax: DOCK_SHARD_LIFE_MAX,
     gravity: DOCK_SHARD_GRAVITY,
-    /* Δ28c: 径向迸射参数（取代旧的 vyMin/vxMin/vxMax 恒向下口径） */
-    speedMin: DOCK_SHARD_SPEED_MIN,
-    speedMax: DOCK_SHARD_SPEED_MAX,
-    vxGain: DOCK_SHARD_VX_GAIN,
-    vyGain: DOCK_SHARD_VY_GAIN,
-    upMax: DOCK_SHARD_UP_MAX,
-    downBias: DOCK_SHARD_DOWN_BIAS,
+    /* Δ28e: 斜向抛物线参数（取代 Δ28c 的全周角径向迸射） */
+    vxMin: DOCK_SHARD_VX_MIN,
+    vxMax: DOCK_SHARD_VX_MAX,
+    vyMin: DOCK_SHARD_VY_MIN,
+    vyMax: DOCK_SHARD_VY_MAX,
+    vxDead: DOCK_SHARD_VX_DEAD,
     alphaMin: DOCK_SHARD_ALPHA_MIN,
     alphaMax: DOCK_SHARD_ALPHA_MAX,
     vrMin: DOCK_SHARD_VR_MIN,

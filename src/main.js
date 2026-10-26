@@ -28,6 +28,19 @@ var dockFreezeTimer = null;
  * 全部落定再爆发。`dockGhost` 只影响 DOM 渲染，不碰引擎态。 */
 var pendingShatter = null;
 var pendingShatterTimer = null;
+/* Δ28e: 待消槽「id → 槽序号」镜像。
+ *
+ * 为什么必须有它：`RulesEngine.applyTap` 是**原子结算**——`applyTap` 返回时
+ * `state.dock` 里 3 张牌已经被移除，`match` 事件此刻才下发。所以无论 `match`
+ * 处理器怎么读 `session.state().dock` 或 `lastDockSnapshot`（由 renderDock 写、
+ * 而 renderDock 已被 `dock`/`flyout` 事件刷成移除后的样子），**都拿不到这 3 张
+ * 牌原本落在哪 3 个槽位**——旧实现只能退化成「取最左边 3 个有牌槽」，于是碎片
+ * 恒定从左侧爆开（用户实测「都是统一在左侧落下」）。
+ *
+ * 修法：按事件序在本地重放 `dockInsert` / `remove` 语义，`match` 时镜像里仍是
+ * 移除前的序列，`indexOf` 即为真实槽位。镜像 MUST 与引擎同步更新，
+ * 任何漏更（换关 / 重置 / Undo / 洗牌）都会让它漂移。 */
+var dockMirror = [];
 var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽位的有牌态 */
 
   /* =========================================================
@@ -890,6 +903,7 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
     dockFreezeUntil = 0;
     pendingShatter = null;
     dockGhost = null;
+    resyncDockMirror(); /* Δ28e: 新一关的待消槽镜像（通常为空） */
 
     renderer = STM.createBoardRenderer(els.board, session, {
       onShake: shakeBoard,
@@ -1229,6 +1243,31 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
    * ========================================================= */
 
   /* 从引擎 dock 快照里定位本次三消的 3 个槽位（顺序 = 左→右） */
+  /* Δ28e: 镜像与引擎真值对齐（换关 / 重置 / Undo 后调用）。
+   * `state.dock` 是密集数组，下标即槽位序号，故可直接重建。 */
+  function resyncDockMirror() {
+    dockMirror = [];
+    if (!session) return;
+    try {
+      var d = session.state().dock || [];
+      for (var i = 0; i < d.length; i++) dockMirror.push(d[i].id);
+    } catch (eRs) { dockMirror = []; }
+  }
+
+  /* Δ28e: 权威槽位来源——按 id 在镜像里查序号（`match` 时镜像仍是移除前序列）。
+   * 只有当镜像漂移（漏更新）导致查不全 3 个时才退回 `locateShatterSlots` 的启发式。 */
+  function shatterSlotsOf(ids) {
+    var out = [];
+    var list = ids || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] == null) continue;
+      var idx = dockMirror.indexOf(list[i]);
+      if (idx >= 0 && out.indexOf(idx) < 0) out.push(idx);
+    }
+    out.sort(function (a, b) { return a - b; });
+    return out;
+  }
+
   function locateShatterSlots(suit) {
     var out = [];
     if (!lastDockSnapshot) return out;
@@ -1503,6 +1542,7 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
       dockFreezeUntil = 0;
       pendingShatter = null;
       dockGhost = null;
+      dockMirror = []; /* Δ28e: 镜像随重置清空 */
       resetIq();
       renderer.refresh(); renderHud(); renderDock(); renderItems();
       return;
@@ -1540,6 +1580,22 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
       return;
     }
     if (e.e === 'dock' || e.e === 'match' || e.e === 'remove') {
+      /* Δ28e: 镜像重放——`dock` 的 slotIndex 与引擎 `dockInsert` 同语义（插入到该位），
+       * `remove` 与 `settleMatches` 同语义（按 id 剔除）。事件序为 dock → match → remove，
+       * 故 `match` 处理时镜像仍是移除前序列。 */
+      if (e.e === 'dock' && e.id != null) {
+        var dIns = (e.slotIndex != null && e.slotIndex >= 0) ? e.slotIndex : dockMirror.length;
+        if (dockMirror.indexOf(e.id) < 0) {
+          if (dIns > dockMirror.length) dIns = dockMirror.length;
+          dockMirror.splice(dIns, 0, e.id);
+        }
+      } else if (e.e === 'remove') {
+        var rIds = e.ids || [];
+        for (var ri = 0; ri < rIds.length; ri++) {
+          var rk = dockMirror.indexOf(rIds[ri]);
+          if (rk >= 0) dockMirror.splice(rk, 1);
+        }
+      }
       if (e.e === 'match') {
         /* Δ22b/T109: 碎裂音效已上移至 comboChanged（需带 playbackRate），
          * 此处只负责 IQ 记账与碎片瀑布 VFX，避免同一次三消双重起音。 */
@@ -1549,13 +1605,14 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
          * `match` 在点击结算瞬间下发，此时第 3 张往往还在飞（U 向 220ms /
          * L/R/D 最长 320ms），旧实现直接爆发 → 观感「牌没到就碎」。 */
         try {
-          var slotIndices = locateShatterSlots(e.suit);
-          var suits = [];
-          for (var sq = 0; sq < slotIndices.length; sq++) {
-            var sn0 = lastDockSnapshot ? lastDockSnapshot[slotIndices[sq]] : null;
-            suits.push(sn0 && sn0.s != null ? sn0.s : e.suit);
-          }
           var ids = (e.ids || []).slice();
+          /* Δ28e: 槽位以「镜像反查」为权威——3 张牌落定前所在的真实槽位。
+           * 镜像查不全（理论上只在漏更新时发生）才退回启发式，绝不再默认取最左 3 槽。 */
+          var slotIndices = shatterSlotsOf(ids);
+          if (slotIndices.length !== ids.length) slotIndices = locateShatterSlots(e.suit);
+          /* 三张牌必然同花色 → 直接用事件花色，不再读已被刷新的快照 */
+          var suits = [];
+          for (var sq = 0; sq < slotIndices.length; sq++) suits.push(e.suit);
           var stillFlying = false;
           if (renderer && renderer.dockPending) {
             for (var qi = 0; qi < ids.length; qi++) {
@@ -1588,7 +1645,11 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
     if (e.e === 'unlock') { sound.play('unlock'); renderer.handleEvent(e); renderer.refresh(); return; }
     if (e.e === 'ice') { sound.play('iceBreak'); renderer.handleEvent(e); renderer.refresh(); return; }
     if (e.e === 'prism') { sound.play('prism'); renderer.handleEvent(e); renderer.refresh(); return; }
-    if (e.e === 'undo') { renderer.refresh(); renderDock(); renderHud(); renderItems(); return; }
+    if (e.e === 'undo') {
+      /* Δ28e: Undo 会把待消槽整体回滚，镜像无法按增量重放 → 直接从真值重建 */
+      resyncDockMirror();
+      renderer.refresh(); renderDock(); renderHud(); renderItems(); return;
+    }
     renderer.handleEvent(e);
     renderer.refresh();
   }

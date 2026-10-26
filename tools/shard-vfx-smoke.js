@@ -84,8 +84,10 @@ console.log('① 常量口径');
 check('数量区间 120~150 枚', D.min === 120 && D.max === 150);
 check('生命周期 420~620ms', D.lifeMin === 420 && D.lifeMax === 620);
 check('重力 2600 px/s²（原 920 太飘）', D.gravity === 2600);
-check('Δ28c 径向迸射初速 140~460 px/s', D.speedMin === 140 && D.speedMax === 460);
-check('Δ28c 向上分量上限 300 px/s（0.35s 内被重力拉回）', D.upMax === 300);
+check('Δ28e 斜向抛物线：水平初速 160~420 px/s（弧线的「斜」来自这里）',
+  D.vxMin === 160 && D.vxMax === 420, D.vxMin + '~' + D.vxMax);
+check('Δ28e 垂直初速 120~300 px/s 且恒为正（起手即斜落，MUST NOT 横飘/上飘）',
+  D.vyMin === 120 && D.vyMax === 300, D.vyMin + '~' + D.vyMax);
 check('Δ28c 半透明玻璃 alpha 0.84~0.96', D.alphaMin === 0.84 && D.alphaMax === 0.96);
 check('角速度下限 4 rad/s', D.vrMin === 4);
 check('三级配比 15% / 45% / 40%',
@@ -139,8 +141,7 @@ var RECTS = [
 ];
 
 var cntOk = true, ratioOk = true, sizeOk = true, vyOk = true, vxOk = true, vrOk = true, lifeOk = true, alphaOk = true;
-var totalSeen = [], ratioSeen = [], upSeen = [];
-for (var trial = 0; trial < 3; trial++) {
+var totalSeen = [], ratioSeen = [], upSeen = [];for (var trial = 0; trial < 3; trial++) {
   rnd.cancelFlights();
   var beforeN = rnd.vfxShardsOf().length;
   var ret = rnd.spawnDockShatter(RECTS);
@@ -156,11 +157,11 @@ for (var trial = 0; trial < 3; trial++) {
     /* 尺寸必须落在该级区间 */
     var rg = s.kind === 'large' ? D.size.large : (s.kind === 'medium' ? D.size.medium : D.size.small);
     if (!(s.size >= rg[0] - 1e-9 && s.size <= rg[1] + 1e-9)) sizeOk = false;
-    /* Δ28c: 径向迸射——vy 允许为负（向上炸开），但不得突破向上分量上限 */
-    if (!(s.vy >= -D.upMax - 1e-9)) vyOk = false;
-    if (s.vy < 0) upCnt++;
-    /* 水平分量 = cos(ang) × spd × 1.35，理论 |vx| <= 780 × 1.35 = 1053 */
-    if (!(Math.abs(s.vx) <= D.speedMax * D.vxGain + 1e-6)) vxOk = false;
+    /* Δ28e: 斜向抛物线——vy 恒为正（30~150），绝无向上分量 */
+    if (!(s.vy >= D.vyMin - 1e-9 && s.vy <= D.vyMax + 1e-9)) vyOk = false;
+    if (s.vy <= 0) upCnt++;
+    /* 水平分量 = dir × (200~520)，dir ∈ [-1, 1] → |vx| <= 520 */
+    if (!(Math.abs(s.vx) <= D.vxMax + 1e-6)) vxOk = false;
     if (!(Math.abs(s.vr) >= D.vrMin - 1e-9)) vrOk = false;
     if (!(s.life >= D.lifeMin && s.life <= D.lifeMax)) lifeOk = false;
     if (!(s.alpha0 >= D.alphaMin - 1e-9 && s.alpha0 <= D.alphaMax + 1e-9)) alphaOk = false;
@@ -174,10 +175,10 @@ check('单次爆发数量恒落 120~150', cntOk, totalSeen.join('/'));
 check('三级配比贴近 15/45/40（±3~4%）', ratioOk,
   ratioSeen.map(function (r) { return r.map(function (v) { return v.toFixed(2); }).join('/'); }).join(' | '));
 check('每枚可见长边落在所属级区间', sizeOk);
-check('Δ28c 向上分量不超上限（vy >= -300）', vyOk);
-check('Δ28c 确有向上迸射的碎片（径向炸开，非单纯下落）',
-  upSeen.every(function (n) { return n > 0; }), '向上枚数 ' + upSeen.join('/'));
-check('水平分量 |vx| <= speedMax × vxGain', vxOk);
+check('Δ28e 垂直初速恒落 30~150 px/s（无向上分量）', vyOk);
+check('Δ28e 全帧零向上分量（抛物线只有下坠弧，不是礼花）',
+  upSeen.every(function (n) { return n === 0; }), '违例枚数 ' + upSeen.join('/'));
+check('水平分量 |vx| <= vxMax（520 px/s）', vxOk);
 check('角速度 |vr| >= 4 rad/s（翻滚感）', vrOk);
 check('生命周期恒落 420~620ms', lifeOk);
 check('Δ28c 半透明 alpha 落 0.84~0.96（玻璃通透）', alphaOk);
