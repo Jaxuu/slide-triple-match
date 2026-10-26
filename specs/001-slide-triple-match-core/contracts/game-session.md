@@ -4,6 +4,8 @@
 >
 > **仍未同步项（明确记录，勿误认为已补齐）**：本契约仍未覆盖 ① **Δ16** 的 `src/ui/*` 五模块（`splash.js` / `lobby.js` / `modals.js` / `result.js` / `fail.js`）与 `src/core/profile.js` 的接口契约；② **Δ19** 的 `src/render/shape-masks.js` 掩码契约、`RulesEngine` 自愈 API（`findHeadOnDeadlocks` / `selfHealDeadlocks`）、顶部导航栏与 IQ 条 DOM 契约、三大道具 `useItem` 签名变更（`wrench` 已下线）；③ **Δ21** 的 `#vfx-canvas` 碎片渲染契约与 `findBestNextMove(state)` 完整签名。上述三项在 [plan.md](../plan.md) 的「Project Structure」与 [tasks.md](../tasks.md) 的 T064~T104 中已有权威定义，**实现期以那里为准**；本契约待后续 `refine.propagate` 补齐。
 
+> **Propagated**: 2026-10-26 — **Δ28（三消碎裂两处返修：爆发时序 + 材质质感）** refine 传播：**§4.2 就地修订**——`slices[9]` → `slices[27]`（9 形状 × 3 色系，`themeOf(i) = i % 3`），新增 4 行契约：**「染色与方向光」**（`p5/p97` 归一化 → `^1.62` 拉伸 → 三段 ramp → `source-atop` 方向光 `0.34`，**MUST NOT 用 `multiply`**）、**「材质不变量」**（暗部占比 `>= 15%` / 同色系色相极差 `<= 40°` / 三色系跨度 `>= 15°`）、**「碎裂时序」**（`match` 挂起 + ghost 逐张揭示 + 全部落定后统一爆发 + `700ms` 兜底，MUST NOT 在 `match` 里同步爆发）、**「爆心辉光」**（`180ms` 径向辉光 + `vfxFlashInfo()` 只读访问器）；另新增 **「VFX 层清屏」** 契约（池由「有」转「空」时 MUST 强制补一次 `drawVfx()`，否则最后一帧碎片被永久冻结）。§6 `main.js` 补 `pendingShatter` / `dockGhost` / `locateShatterSlots` / `advancePendingShatter` / `flushPendingShatter` / `fireDockShatter` 六个表现态职责。**边界不变**：全部为**纯表现层**，`dockGhost` MUST NOT 写回 `session.state().dock`。
+>
 > **Propagated**: 2026-10-26 — **Δ27（方向性飞行轨迹 + 进场清晰度与逐张节奏 + `shards` 3D 碎块）** refine 传播：§4 编舞契约表**就地修订**（时序改按 `180 + max(260,(N-1)×12) + 260 + 55×zMax` 自适应，原 `<= 1000ms` 上限作废；新增「逐牌节奏」「同坐标层序锁」「入场清晰度」三行）；新增 **§4.1 卡牌飞行轨迹契约**（`startFlight` / `flightOf` / `dockPending` / `flightsOf` / `cancelFlights` / `invalidateDockGeometry` / `dockSlotCentersOf` / `drawOrderOf` + 四向轨迹 + **绘制序铁律** + 落定回调顺序）与 **§4.2 碎块图集与三消碎裂契约**（`STM.spawnDockShatter` / `vfxShardsOf` / `ShardAtlas` + 键控双阈值 + 发射参数 + 降级 + 槽内 `180ms` 保留期）；§6 main.js 补 `pendingDock` 配对与 `onFlightLand` 揭示门控职责。**边界不变**：飞行与碎块均为**纯表现层**，MUST NOT 触碰规则语义、关卡数据与持久化。
 
 **Feature**: `001-slide-triple-match-core` | **文件**: `index.html`, `css/style.css`, `src/main.js`, `src/core/GameState.js`, `src/render/BoardRenderer.js`, `src/audio/SoundManager.js`
@@ -127,15 +129,21 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 | 兜底 | `<= 400ms` 兜底定时器防异常滞留；`prefers-reduced-motion: reduce` → 零位移直接落定（`90ms`，保留落槽音与槽位揭示） |
 | 纯表现层 | MUST NOT 影响归拢顺序、命中判定与可解性；MUST NOT 触发 Solver / 持久化；MUST NOT 持久化飞行态 |
 
-### 4.2 碎块图集与三消碎裂契约（Δ27 / FR-049 §8~§13）
+### 4.2 碎块图集与三消碎裂契约（Δ27 / FR-049 §8~§13，Δ28 修订材质与时序）
 
 | 项 | 契约 |
 |---|---|
 | `STM.spawnDockShatter(slotRects)` | 全局入口；`slotRects` = 3 个消除槽的 `DOMRect` 数组。委托给最近一次 `createBoardRenderer` 的实例方法 |
-| `vfxShardsOf()` | 返回当前存活碎片数组（`{ x, y, vx, vy, rot, vr, life, maxLife, size, kind }`），供 `shard-vfx-smoke` / `delta27-verify` 断言数量、配比与物理 |
-| `ShardAtlas` | `{ src, size: 2048, grid: 3, cellPx: 2048/3, slices[9], bbox[9], keyState: 'idle'\|'ready'\|'failed', keyMs }`；`rendererTest.ShardAtlas` 外露只读视图 |
+| `vfxShardsOf()` | 返回当前存活碎片数组（`{ x, y, vx, vy, rot, vr, life, life0, size, kind, atlas, alpha0 }`），供 `shard-vfx-smoke` / `delta27-verify` 断言数量、配比与物理 |
+| `vfxFlashInfo()`（Δ28d） | 爆心辉光描述符 `{ x, y, r, t0, dur }`，过期后返回 `null`（与绘制路径同步置空）。供 `delta27-verify` ⑤ 断言「`0~180ms` 有辉光 / 之后无残留」 |
+| `ShardAtlas` | `{ src, size: 2048, grid: 3, cellPx: 2048/3, slices[27], bbox[9], keyState: 'idle'\|'ready'\|'failed', keyMs }`；**`slices` 索引序 = 形状主序 / 色系次序（`themeOf(i) = i % 3`）**；`rendererTest.ShardAtlas` 外露只读视图（含 `THEMES` / `TOTAL` / `RAMP_MID` / `RAMP_GAMMA`） |
 | 素材与路径 | 权威路径 **`assets/icons/shards.jpg`**（用户确认的唯一素材：`2048×2048`、3×3 = 9 枚白瓷 3D 碎块、纯黑底、无 alpha）；按 `.png → .jpg` 探测链加载；`.png` 仅作可选增强 |
-| 键控（MUST） | 双阈值：`max(R,G,B) <= 24` → alpha `0`；`24 < max <= 40` → alpha 线性渐变 + RGB 提亮消暗边；`> 40` → alpha `255`。MUST 用 `{ willReadFrequently: true }` 上下文做**单次**回读，MUST 早于 `startDeal()`（实测 `114~124ms`，近黑残留 `< 2%`） |
+| 键控（MUST） | 双阈值：`max(R,G,B) <= 24` → alpha `0`；`24 < max <= 40` → alpha 线性渐变 + RGB 提亮消暗边；`> 40` → alpha `255`。MUST 用 `{ willReadFrequently: true }` 上下文做**单次**回读，MUST 早于 `startDeal()`（实测 `158~242ms`，近黑残留 `< 2%`） |
+| 染色与方向光（Δ28b-2，MUST） | 每切片每色系一张 **256 项一级 LUT**：按切片 `p5/p97` 归一化 → `^1.62` 对比拉伸 → 三段 ramp（`t < 0.55` 走 `sh → mid`，否则 `mid → hi`）→ 键控渐变带以 `RIM_MIX = 0.52` 推向 `hi`（**MUST NOT 直接置为 `hi`**）→ 预烘焙柔光晕（`72²` 降采样 `blur`）→ **`source-atop`** 方向光（左上透明 → 右下 `rgba(14,22,48,0.34)`）。**MUST NOT 用 `multiply`**（透明区结果 alpha = `1`，会把 `256²` 画框填成方块）。逐帧路径 MUST 保持「单枚一次 `drawImage`」 |
+| 材质不变量（Δ28b-2） | 每张切片暗部（`max(R,G,B) <= 190`）占比 MUST `>= 15%`；同色系 9 张平均色相极差 `<= 40°`；三色系两两色相跨度 `>= 15°`（保证「同帧 `>= 2` 色系」在观感上可辨） |
+| 碎裂时序（Δ28a，MUST） | `match` 事件到达时 MUST 以 `renderer.dockPending(id)` 探测在途；有在途 → **挂起**（`pendingShatter`），`onFlightLand` 逐张以 **ghost 槽位**（`dockGhost = { map, shatter }`）把槽画成有牌态，全部落定后统一 `fireDockShatter`；`700ms` 兜底强制爆发。MUST NOT 在 `match` 里同步爆发（会「牌没到就碎」），MUST NOT 用固定 `setTimeout` 糊（飞行时长随方向不同） |
+| 爆心辉光（Δ28d，MUST） | 碎裂瞬间在 3 槽包围盒中心打一次 `180ms` 径向辉光（`lighter` + `createRadialGradient`，半径 `0.55× → 1.4×`，alpha 按 `(1-p)²` 衰减）；半径基准 `max(包围盒宽, 高) × 0.52` |
+| VFX 层清屏（Δ28d，MUST） | `tick` 尾部维护 `vfxWasLive`；碎块池 / 粒子 / 辉光由「有」转「空」的那一帧 MUST 强制 `dirty = true` 补一次 `drawVfx()` 清屏——否则最后一帧碎片被永久冻结（实测残留 `15~16 万` 像素 ≈ 画布 `10%`） |
 | 九宫格边界 | 格宽 `2048/3 ≈ 682.67`，取格 MUST 允许小数边界（`Math.floor/ceil`），**MUST NOT 向下取整丢边缘**；9 枚 MUST 全部可用 |
 | 发射（MUST） | 每次三消 `120~150` 枚（旧实现固定 `90` 枚，不符）；同帧 `>= 6` 种切片；重力 `>= 2600 px/s²`、向下初速 `>= 300 px/s`、水平 `120~520 px/s`、角速度 `>= 4 rad/s`、生命 `420~620ms` 随机；MUST NOT 加阻力或终速限制（「纸片慢飘」的成因是低重力 + 恒定 `480ms`） |
 | 性能（MUST） | 单枚一次 `drawImage`；MUST NOT 用 `ctx.filter`、MUST NOT 逐枚 `clip`；三消峰值帧 `p95 <= 20ms / max <= 34ms` |

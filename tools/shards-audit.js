@@ -111,6 +111,10 @@ function auditExpr() {
       catch (e) { return { err: 'getImageData: ' + e.message }; }
       var W = cv.width, H = cv.height, N = W * H;
       var opaque = 0, nearBlack = 0, sum = 0;
+      /* Δ28b: SC-023 ⑧ 材质断言所需——暗部占比（max(R,G,B) <= 190）与平均色相 */
+      var dark = 0, sumR = 0, sumG = 0, sumB = 0;
+      var hist = new Array(256);
+      for (var hi0 = 0; hi0 < 256; hi0++) hist[hi0] = 0;
       var minX = W, maxX = -1, minY = H, maxY = -1;
       var fp = 0;
       for (var y = 0; y < H; y++) {
@@ -122,7 +126,10 @@ function auditExpr() {
             var r = d[o], g = d[o + 1], b = d[o + 2];
             var mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
             if (mx <= 40) nearBlack++;
+            if (mx <= 190) dark++;
             sum += mx;
+            sumR += r; sumG += g; sumB += b;
+            hist[(0.299 * r + 0.587 * g + 0.114 * b) | 0]++;
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
             if (y < minY) minY = y;
@@ -135,7 +142,22 @@ function auditExpr() {
         w: W, h: H,
         opaqueRatio: opaque / N,
         nearBlackRatio: opaque > 0 ? nearBlack / opaque : 1,
+        darkRatio: opaque > 0 ? dark / opaque : 0,
         meanBright: opaque > 0 ? sum / opaque : 0,
+        meanRGB: opaque > 0
+          ? [sumR / opaque, sumG / opaque, sumB / opaque]
+          : [0, 0, 0],
+        /* 亮度分位（诊断用：判断素材动态范围是否够染色展开） */
+        lumP: (function () {
+          if (!opaque) return [0, 0, 0, 0, 0];
+          var want = [0.02, 0.10, 0.50, 0.90, 0.98], got = [], acc = 0, wi = 0;
+          for (var q = 0; q < 256 && wi < want.length; q++) {
+            acc += hist[q];
+            while (wi < want.length && acc >= want[wi] * opaque) { got.push(q); wi++; }
+          }
+          while (got.length < want.length) got.push(255);
+          return got;
+        })(),
         bbox: opaque > 0 ? { x0: minX, x1: maxX, y0: minY, y1: maxY } : null,
         fp: fp
       });
@@ -204,57 +226,127 @@ async function main() {
     process.exit(1);
   }
 
-  console.log('  状态 ' + res.state + ' · 有效格 ' + res.validCount + '/9 · 键控耗时 ' + Math.round(res.keyMs) + 'ms\n');
+  console.log('  状态 ' + res.state + ' · 有效格 ' + res.validCount + '/9 · 切片 ' + (res.slices || []).length + ' 张 · 键控耗时 ' + Math.round(res.keyMs) + 'ms');
+  /* 诊断：素材亮度分位（p2/p10/p50/p90/p98）——决定 ramp 能否展开出暗面 */
+  if (res.slices && res.slices.length) {
+    console.log('  亮度分位 p2/p10/p50/p90/p98：' + res.slices.map(function (s, i2) {
+      return (i2 % 3 === 0 ? '形状' + (i2 / 3) + '[' : '') + (s.lumP || []).join('/') + (i2 % 3 === 2 ? ']' : '');
+    }).join(' ') + '\n');
+  } else {
+    console.log('');
+  }
 
   check('① 图集加载成功（state=ready）', res.state === 'ready', res.state);
   check('① 3×3 九宫格全部切出有效主体（9/9）', res.validCount === 9, res.validCount);
   check('⑥ 键控耗时 < 400ms', res.keyMs < 400, Math.round(res.keyMs) + 'ms');
 
   var sl = res.slices || [];
-  var allPresent = sl.length === 9 && sl.every(function (s) { return !!s; });
-  check('② 九格像素全部可回读（无跨源污染）', allPresent);
+  /* Δ28b: 9 形状 × 3 色系 = 27 张切片 */
+  var allPresent = sl.length === 27 && sl.every(function (s) { return !!s; });
+  check('② 27 张切片（9 形状 × 3 色系）像素全部可回读（无跨源污染）', allPresent,
+    sl.length + ' 张');
 
   if (allPresent) {
     var worstBlack = 0, worstIdx = -1;
-    for (var i = 0; i < 9; i++) {
+    for (var i = 0; i < sl.length; i++) {
       if (sl[i].nearBlackRatio > worstBlack) { worstBlack = sl[i].nearBlackRatio; worstIdx = i; }
     }
     check('② 黑底已键掉：近黑不透明像素占比 < 2%',
       worstBlack < 0.02, 'worst=' + (100 * worstBlack).toFixed(2) + '% (格' + worstIdx + ')');
 
     var ratioOk = true, ratioWorst = '';
-    for (var j = 0; j < 9; j++) {
+    for (var j = 0; j < sl.length; j++) {
       var rr = sl[j].opaqueRatio;
-      if (!(rr >= 0.15 && rr <= 0.80)) { ratioOk = false; ratioWorst += '格' + j + '=' + rr.toFixed(2) + ' '; }
+      if (!(rr >= 0.10 && rr <= 0.80)) { ratioOk = false; ratioWorst += '格' + j + '=' + rr.toFixed(2) + ' '; }
     }
-    check('④ 每格不透明占比 0.15~0.80（是碎块而非实心矩形）', ratioOk, ratioWorst);
+    check('④ 每格不透明占比 0.10~0.80（是碎块而非实心矩形）', ratioOk, ratioWorst);
 
     var bboxOk = true, bboxWorst = '';
-    for (var k = 0; k < 9; k++) {
+    for (var k = 0; k < sl.length; k++) {
       var bb = sl[k].bbox;
       if (!bb) { bboxOk = false; continue; }
       var bw = bb.x1 - bb.x0 + 1, bh = bb.y1 - bb.y0 + 1;
-      /* 长边必须吃满 92% 画框（256 × 0.92 ≈ 235）；短边随碎块形状自由 */
-      if (Math.max(bw, bh) < 256 * 0.85) { bboxOk = false; bboxWorst += '格' + k + '长边' + Math.max(bw, bh) + ' '; }
-      /* 居中：左右 / 上下留白差 <= 4px（实测 <= 1px） */
+      /* Δ28b: 主体占比 0.92 → 0.70（留 30% 给预烘焙柔光晕），故长边应落
+       * 256 × 0.70 ≈ 179 附近；带 ±8% 容差（键控 alpha 渐变带会略微外扩）。 */
+      var longEdge = Math.max(bw, bh);
+      if (longEdge < 256 * 0.62 || longEdge > 256 * 0.80) {
+        bboxOk = false; bboxWorst += '格' + k + '长边' + longEdge + ' ';
+      }
+      /* 居中：左右 / 上下留白差 <= 4px */
       var padL = bb.x0, padR = 255 - bb.x1, padT = bb.y0, padB = 255 - bb.y1;
       if (Math.abs(padL - padR) > 4 || Math.abs(padT - padB) > 4) {
         bboxOk = false; bboxWorst += '格' + k + '偏移(' + padL + '/' + padR + ',' + padT + '/' + padB + ') ';
       }
     }
-    check('③ 主体长边 >= 85% 画框且四边留白对称（无裁切、居中）', bboxOk, bboxWorst);
+    check('③ 主体长边落 0.62~0.80 画框（含柔光晕留白）且居中', bboxOk, bboxWorst);
 
     var fps = {}, dup = 0;
-    for (var m = 0; m < 9; m++) {
+    for (var m = 0; m < sl.length; m++) {
       if (fps[sl[m].fp]) dup++;
       fps[sl[m].fp] = 1;
     }
-    check('⑤ 九格内容两两不同（指纹互异，不是复制同一块）', dup === 0, 'dup=' + dup);
+    check('⑤ 各格内容两两不同（指纹互异，不是复制同一块）', dup === 0, 'dup=' + dup);
 
     var brightOk = true;
-    for (var n2 = 0; n2 < 9; n2++) if (sl[n2].meanBright < 120) brightOk = false;
-    check('② 主体亮度均值 >= 120（白瓷材质，非灰黑残留）', brightOk,
+    for (var n2 = 0; n2 < sl.length; n2++) if (sl[n2].meanBright < 120) brightOk = false;
+    check('② 主体亮度均值 >= 120（白瓷/玻璃材质，非灰黑残留）', brightOk,
       sl.map(function (s) { return Math.round(s.meanBright); }).join(','));
+
+    /* ---- Δ28b / SC-023 ⑧ 材质与色系 ---- */
+    var darkOk = true, darkWorst = '', darkMin = 1;
+    for (var p2 = 0; p2 < sl.length; p2++) {
+      var dr = sl[p2].darkRatio;
+      if (dr < darkMin) darkMin = dr;
+      if (!(dr >= 0.15)) { darkOk = false; darkWorst += '格' + p2 + '=' + (100 * dr).toFixed(1) + '% '; }
+    }
+    check('⑧ 每张切片暗部（max(R,G,B) <= 190）占比 >= 15%（有明暗梯度，非纯白）',
+      darkOk, darkWorst);
+    console.log('    暗部占比 min=' + (100 * darkMin).toFixed(1) + '% · max=' +
+      (100 * Math.max.apply(null, sl.map(function (s3) { return s3.darkRatio; }))).toFixed(1) + '%');
+
+    /* 色系互异：切片序为「形状主序 / 色系次序」，故 theme = i % 3。
+     * 同色系 9 张平均色相必须聚拢，异色系之间色相跨度必须够大，
+     * 才能保证「同一采样帧内 >= 2 种色系」在观感上真的可分辨。 */
+    var HUE = function (rgb) {
+      var r = rgb[0] / 255, g = rgb[1] / 255, b = rgb[2] / 255;
+      var mx = Math.max(r, g, b), mn = Math.min(r, g, b), dl = mx - mn;
+      if (dl < 1e-6) return -1;
+      var h;
+      if (mx === r) h = 60 * (((g - b) / dl) % 6);
+      else if (mx === g) h = 60 * ((b - r) / dl + 2);
+      else h = 60 * ((r - g) / dl + 4);
+      return (h + 360) % 360;
+    };
+    var groups = [[], [], []];
+    for (var q2 = 0; q2 < sl.length; q2++) groups[q2 % 3].push(HUE(sl[q2].meanRGB));
+    var groupHue = groups.map(function (g2) {
+      var t = 0, c = 0;
+      for (var z = 0; z < g2.length; z++) if (g2[z] >= 0) { t += g2[z]; c++; }
+      return c ? t / c : -1;
+    });
+    var minPairDiff = 999, pairStr = '';
+    for (var ga = 0; ga < 3; ga++) {
+      for (var gb = ga + 1; gb < 3; gb++) {
+        var dd = Math.abs(groupHue[ga] - groupHue[gb]);
+        if (dd > 180) dd = 360 - dd;
+        if (dd < minPairDiff) minPairDiff = dd;
+        pairStr += '色系' + ga + '↔' + gb + '=' + dd.toFixed(1) + '° ';
+      }
+    }
+    check('⑧ 三色系平均色相互异（最小色相跨度 >= 15°，同帧 >= 2 色系可辨）',
+      minPairDiff >= 15, pairStr + '| 组内色相 ' +
+      groupHue.map(function (v) { return v < 0 ? 'n/a' : v.toFixed(1); }).join('/'));
+
+    /* 组内聚拢：同色系 9 张的色相极差 <= 40°（否则等于每张一个颜色，色系分组失效） */
+    var intraOk = true, intraWorst = '';
+    for (var gi = 0; gi < 3; gi++) {
+      var vals = groups[gi].filter(function (v) { return v >= 0; });
+      if (vals.length < 2) { intraOk = false; intraWorst += '色系' + gi + '样本不足 '; continue; }
+      var spread = Math.max.apply(null, vals) - Math.min.apply(null, vals);
+      if (spread > 40) { intraOk = false; intraWorst += '色系' + gi + '极差' + spread.toFixed(1) + '° '; }
+    }
+    check('⑧ 同色系 9 张切片色相极差 <= 40°（色系内一致，只随形状变明暗）',
+      intraOk, intraWorst);
   }
 
   console.log('');

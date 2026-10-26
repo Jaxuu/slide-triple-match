@@ -127,6 +127,91 @@ var HELPERS = `window.__D27 = {
       if (RE.canTap(eng, b.id)) return b.id;
     }
     return null;
+  },
+  /* Δ28a: 找同一花色、3 张当前都可点的卡牌（用来驱动一次真实三消） */
+  tappableTriple: function(){
+    var s = this.sess(); if (!s) return null;
+    var st = s.state(), eng = s.engineState(), RE = window.STM.RulesEngine;
+    var bySuit = {};
+    for (var i = 0; i < st.board.length; i++) {
+      var b = st.board[i];
+      if (!RE.canTap(eng, b.id)) continue;
+      var k = b.s | 0;
+      if (!bySuit[k]) bySuit[k] = [];
+      bySuit[k].push(b.id);
+    }
+    for (var kk in bySuit) {
+      if (Object.prototype.hasOwnProperty.call(bySuit, kk) && bySuit[kk].length >= 3) {
+        return { suit: +kk, ids: bySuit[kk].slice(0, 3) };
+      }
+    }
+    return null;
+  },
+  /* Δ28d: 待消槽有牌槽位的包围盒（CSS 像素，视口坐标） */
+  dockBBox: function(){
+    var slots = document.querySelectorAll('#dock .slot');
+    var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, n = 0;
+    for (var i = 0; i < slots.length; i++) {
+      if (slots[i].className.indexOf('has-tile') < 0) continue;
+      var r = slots[i].getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      if (r.left < x0) x0 = r.left;
+      if (r.top < y0) y0 = r.top;
+      if (r.right > x1) x1 = r.right;
+      if (r.bottom > y1) y1 = r.bottom;
+      n++;
+    }
+    return n ? { x0: x0, y0: y0, x1: x1, y1: y1, n: n } : null;
+  },
+  /* Δ28d: 待消槽全部槽位的包围盒（7 槽固定行，与「是否有牌」无关 → 稳定参照） */
+  dockAllBBox: function(){
+    var slots = document.querySelectorAll('#dock .slot');
+    var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, n = 0, slotH = 0, slotW = 0;
+    for (var i = 0; i < slots.length; i++) {
+      var r = slots[i].getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      if (r.left < x0) x0 = r.left;
+      if (r.top < y0) y0 = r.top;
+      if (r.right > x1) x1 = r.right;
+      if (r.bottom > y1) y1 = r.bottom;
+      slotH = r.height; slotW = r.width; n++;
+    }
+    return n ? { x0: x0, y0: y0, x1: x1, y1: y1, n: n, slotH: slotH, slotW: slotW } : null;
+  },
+  /* Δ28d: 读取「辉光圆心」像素（#vfx-canvas，视口坐标 → 画布像素）。
+   * 隔离实验用：调用前先 clearVfx(true) 清掉全部碎片、只留辉光，
+   * 因此该点若有像素，唯一来源就是爆心辉光。 */
+  probeCenter: function(){
+    var r = this.rnd(); if (!r) return { err: 'no renderer' };
+    var cv = document.getElementById('vfx-canvas');
+    if (!cv) return { err: 'no #vfx-canvas' };
+    var ctx = cv.getContext('2d');
+    var dpr = cv.width / Math.max(1, cv.clientWidth);
+    var fl = r.vfxFlashInfo();
+    if (!fl) return { flash: null, shards: r.vfxShardsOf().length };
+    var fp = Math.min(1, Math.max(0, (performance.now() - fl.t0) / fl.dur));
+    var sx = Math.round(fl.x * dpr), sy = Math.round(fl.y * dpr);
+    if (sx < 0 || sy < 0 || sx >= cv.width || sy >= cv.height) return { flash: fl, err: 'oob' };
+    var d;
+    try { d = ctx.getImageData(sx, sy, 1, 1).data; }
+    catch (e) { return { flash: fl, err: 'getImageData: ' + e.message }; }
+    return {
+      flash: fl, fp: +fp.toFixed(2), fR: Math.round(fl.r * (0.55 + 0.85 * fp)),
+      shards: r.vfxShardsOf().length,
+      a: d[3], lum: Math.round(0.299 * d[0] + 0.587 * d[1] + 0.114 * d[2])
+    };
+  },
+  /* Δ28d: 全屏 VFX 画布是否彻底清空（无残留亮斑） */
+  vfxResidue: function(){
+    var cv = document.getElementById('vfx-canvas');
+    if (!cv) return { err: 'no #vfx-canvas' };
+    var ctx = cv.getContext('2d');
+    var d;
+    try { d = ctx.getImageData(0, 0, cv.width, cv.height).data; }
+    catch (e) { return { err: 'getImageData: ' + e.message }; }
+    var n = 0;
+    for (var i = 3; i < d.length; i += 4) if (d[i] > 2) n++;
+    return { nonZero: n, total: d.length / 4 };
   }
 };`;
 
@@ -362,6 +447,203 @@ async function main() {
   await shot('shatter-70ms.png');
   await sleep(110);
   await shot('shatter-180ms.png');
+
+  /* ---------- ④ 碎裂时序：3 张全部落定后才爆发（Δ28a） ---------- */
+  console.log('\n④ 三消碎裂时序（3 张全部落定后才爆发）');
+  await ev('window.__D27.rnd().cancelFlights()');
+  await ev('window.__D27.sess().reset()');
+  await sleep(150);
+  await ev('window.__D27.rnd().skipDeal()');
+  await sleep(150);
+
+  var triple = await ev('window.__D27.tappableTriple()');
+  check('④ 找到同花色 3 张可点卡牌', !!triple && triple.ids && triple.ids.length === 3,
+    triple ? JSON.stringify(triple) : 'null');
+
+  var seq = null;
+  if (triple && triple.ids && triple.ids.length === 3) {
+    seq = await ev(`(async function(){
+      var ids = ${JSON.stringify(triple.ids)};
+      var r = window.__D27.rnd();
+      var base = r.vfxShardsOf().length;
+      var frames = [];
+      var t0 = performance.now();
+      var ti = 0, lastTapAt = -1e9, taps = [];
+      await new Promise(function(resolve){
+        function step(){
+          var now = performance.now();
+          if (ti < ids.length && now - lastTapAt > 90) {
+            window.__D27.sess().tap(ids[ti]);
+            taps.push(Math.round(now - t0));
+            ti++;
+            lastTapAt = now;
+          }
+          frames.push({
+            t: Math.round(now - t0),
+            sh: r.vfxShardsOf().length - base,
+            fl: r.flightsOf().length,
+            tTiles: (window.__D27.dockSig().match(/T/g) || []).length
+          });
+          if (now - t0 < 1600) requestAnimationFrame(step); else resolve();
+        }
+        requestAnimationFrame(step);
+      });
+      return { frames: frames, taps: taps };
+    })()`);
+  }
+
+  if (seq && seq.frames && seq.frames.length) {
+    var firstSh = -1, maxFl = 0;
+    for (var fi = 0; fi < seq.frames.length; fi++) {
+      if (firstSh < 0 && seq.frames[fi].sh > 0) firstSh = fi;
+      if (seq.frames[fi].fl > maxFl) maxFl = seq.frames[fi].fl;
+    }
+    check('④ 3 次点击后确实产生了在途并发飞行（>= 2 张同飞）', maxFl >= 2, 'maxFl=' + maxFl);
+    check('④ 碎裂已触发（采样窗内出现碎片）', firstSh >= 0,
+      firstSh >= 0 ? ('t=' + seq.frames[firstSh].t + 'ms') : 'no shards');
+    if (firstSh >= 0) {
+      var f0 = seq.frames[firstSh];
+      /* 核心断言：碎片出现的那一帧，**不允许**还有卡牌在飞 */
+      check('④ 碎裂瞬间零在途飞行（第 3 张已落定，不再「牌没到就碎」）',
+        f0.fl === 0, 'flights=' + f0.fl + ' @' + f0.t + 'ms');
+      check('④ 碎裂瞬间槽内已有 3 张有牌态（ghost 生效，不是空槽爆炸）',
+        f0.tTiles >= 3, 'T×' + f0.tTiles);
+      check('④ 碎裂发生在最后一次点击之后（非点击同帧爆发）',
+        seq.taps.length === 3 && f0.t > seq.taps[2],
+        'taps=' + JSON.stringify(seq.taps) + ' shatter@' + f0.t + 'ms');
+    }
+    await shot('shatter-seq.png');
+    await sleep(90);
+    await shot('shatter-seq+90.png');
+  }
+
+  /* ---------- ⑤ 爆心辉光（SC-023 ⑩ / Δ28d） ---------- */
+  console.log('\n⑤ 爆心辉光（0~180ms 有径向辉光 / 之后无残留）');
+  await ev('window.__D27.rnd().cancelFlights()');
+  await ev('window.__D27.sess().reset()');
+  await sleep(150);
+  await ev('window.__D27.rnd().skipDeal()');
+  await sleep(150);
+
+  var triple2 = await ev('window.__D27.tappableTriple()');
+  check('⑤ 找到同花色 3 张可点卡牌', !!triple2 && triple2.ids && triple2.ids.length === 3,
+    triple2 ? JSON.stringify(triple2) : 'null');
+
+  var glow = null;
+  if (triple2 && triple2.ids && triple2.ids.length === 3) {
+    glow = await ev(`(async function(){
+      var D = window.__D27, r = D.rnd();
+      var ids = ${JSON.stringify(triple2.ids)};
+      var sleep = function(ms){ return new Promise(function(z){ setTimeout(z, ms); }); };
+      var base = r.vfxShardsOf().length;
+      var bboxBefore = D.dockBBox();
+      var dockRow = D.dockAllBBox();
+      for (var i = 0; i < ids.length; i++) { D.sess().tap(ids[i]); await sleep(95); }
+      /* 逐帧采样：headless 软件渲染下单帧可达 100ms+，一次定时采样会错过
+       * 180ms 的辉光窗口（实测首采样 fp 已 0.88）。故用 rAF 循环连续采。
+       * **隔离实验**：碎裂首帧记录描述符后立即 clearVfx(true) ——清掉全部碎片、
+       * 保留辉光，此后圆心像素若有内容，唯一来源就是爆心辉光（无需再靠几何排除）。 */
+      var samples = [], seen = 0, shatterAt = -1, stopAt = 0, bboxAtShatter = null;
+      var flash0 = null, isolated = false;
+      var tStart = performance.now();
+      await new Promise(function(resolve){
+        function step(){
+          var now = performance.now();
+          var n = r.vfxShardsOf().length - base;
+          if (n > 0) {
+            if (shatterAt < 0) { shatterAt = now; stopAt = now + 420; }
+            seen = n;
+            if (!flash0) {
+              flash0 = r.vfxFlashInfo();
+              r.clearVfx(true);      /* 只留辉光，碎片全清 */
+              isolated = true;
+            }
+            /* 采样放在「清碎片之后」的下一帧起——此时画布上只剩辉光 */
+            var pr = D.probeCenter();
+            if (pr && pr.flash) {
+              samples.push({ fp: pr.fp, fR: pr.fR, a: pr.a, lum: pr.lum, shards: pr.shards });
+            }
+          } else if (!isolated) {
+            /* 碎裂前：逐帧记录槽位包围盒（ghost 逐张揭示，最后一次 >= 2 槽即
+             * 最接近真实 3 槽包围盒；碎裂后 ghost 会被清空，故必须提前捕获） */
+            var bb2 = D.dockBBox();
+            if (bb2 && bb2.n >= 2) bboxAtShatter = bb2;
+          }
+          if (stopAt && now > stopAt) { resolve(); return; }
+          if (!stopAt && now - tStart > 1500) { resolve(); return; }
+          requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+      });
+      /* 越窗后：描述符必须清空 */
+      var afterWin = D.probeCenter();
+      var bbox = bboxAtShatter || bboxBefore;
+      /* 回收 + 残留测试：隔离实验已把池清空，故必须**再爆一次**才能验证自然回收。
+       * life 按帧递减（每帧 -16ms），headless 软件渲染只有 ~10fps，
+       * 墙钟 900ms 内回收不完 → 必须轮询池长度。 */
+      r.spawnDockShatter([]);
+      var refill = r.vfxShardsOf().length;
+      var tDrain = performance.now(), drained = false;
+      while (performance.now() - tDrain < 8000) {
+        if (r.vfxShardsOf().length === 0) { drained = true; break; }
+        await sleep(60);
+      }
+      await sleep(120); /* 留一帧给「由有转空」的补清屏 */
+      var residue = D.vfxResidue();
+      return { bbox: bbox, samples: samples, seen: seen, afterWin: afterWin,
+               residue: residue, drained: drained, refill: refill,
+               dockRow: dockRow, flash0: flash0, isolated: isolated,
+               drainMs: Math.round(performance.now() - tDrain),
+               shatterAt: Math.round(shatterAt) };
+    })()`);
+  }
+
+  if (glow && !glow.err && glow.shatterAt > 0) {
+    var smp = glow.samples || [];
+    var bestA = 0, bestLum = 0, bestFp = 0, bestFr = 0, maxShards = 0;
+    for (var gi = 0; gi < smp.length; gi++) {
+      if (smp[gi].a > bestA) { bestA = smp[gi].a; bestLum = smp[gi].lum; bestFp = smp[gi].fp; bestFr = smp[gi].fR; }
+      if (smp[gi].shards > maxShards) maxShards = smp[gi].shards;
+    }
+    check('⑤ 碎裂后辉光被真实绘制（采样帧数 >= 1）', smp.length >= 1,
+      smp.length + ' 帧 · fp=' + smp.map(function (s) { return s.fp; }).join(','));
+    /* 隔离实验：碎片已全清，圆心像素只可能来自 'lighter' 合成的径向渐变。 */
+    check('⑤ 辉光在画布上真实可见（清空碎片后圆心 alpha > 6）',
+      bestA > 6 && maxShards === 0,
+      'a=' + bestA + ' lum=' + bestLum + ' fp=' + bestFp + ' fR=' + bestFr +
+      ' 采样时池内碎片=' + maxShards);
+    /* 位置判据（确定性，不依赖碎裂瞬间的槽位快照）：
+     * 辉光圆心 MUST 落在 #dock 槽位行的水平范围内、且与槽位行垂直中心偏差 <= 1 个槽高；
+     * 半径 MUST 与槽位行宽度同量级（3 槽并集 + 2 × slotW × 1.35 的 0.52 倍）。 */
+    var fl0 = glow.flash0, row = glow.dockRow;
+    if (fl0 && row) {
+      var inRow = fl0.x >= row.x0 - 1 && fl0.x <= row.x1 + 1;
+      var vErr = Math.abs(fl0.y - (row.y0 + row.y1) / 2);
+      check('⑤ 辉光圆心落在待消槽槽位行内（水平在行内、垂直偏差 <= 1 槽高）',
+        inRow && vErr <= row.slotH,
+        'x=' + Math.round(fl0.x) + '∈[' + Math.round(row.x0) + ',' + Math.round(row.x1) +
+        '] vErr=' + vErr.toFixed(1) + ' slotH=' + Math.round(row.slotH));
+      var expR0 = (row.slotW * 3 + row.slotW * 1.35 * 2) * 0.52;
+      check('⑤ 辉光半径与 3 槽并集同量级（r ≈ (3 槽 + 2×1.35 槽宽) × 0.52，0.6~1.4×）',
+        fl0.r >= expR0 * 0.6 && fl0.r <= expR0 * 1.4,
+        'r=' + Math.round(fl0.r) + ' base=' + Math.round(expR0));
+      check('⑤ 辉光生命周期 = 180ms', fl0.dur === 180, fl0.dur);
+    } else {
+      check('⑤ 辉光位置判据可采样（flash0 + dockRow 均非空）', false,
+        'flash0=' + JSON.stringify(fl0) + ' row=' + (row ? 'ok' : 'null'));
+    }
+    check('⑤ 180ms 窗口后辉光描述符清空（不残留）',
+      glow.afterWin && glow.afterWin.flash === null,
+      glow.afterWin ? ('flash=' + JSON.stringify(glow.afterWin.flash)) : 'n/a');
+    check('⑤ 碎块池最终完全回收（无泄漏）', glow.drained === true,
+      'refill=' + glow.refill + ' drainMs=' + glow.drainMs);
+    check('⑤ 碎块全部回收后全屏 VFX 画布零残留像素',
+      glow.residue && glow.residue.nonZero === 0,
+      glow.residue ? (glow.residue.nonZero + '/' + glow.residue.total) : 'n/a');
+    await shot('shatter-glow.png');
+  } else {
+    check('⑤ 爆心辉光采样成功', false, glow ? JSON.stringify(glow.err || glow) : 'null');
+  }
 
   var errCount = await ev('(function(){return (window.__D27ERR||0);})()');
   check('③ 全程零未捕获异常', !errCount, errCount);

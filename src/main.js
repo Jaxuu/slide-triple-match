@@ -22,6 +22,13 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
  * 窗口结束时统一重绘一次（状态取当前真值，不需要中间帧）。 */
 var dockFreezeUntil = 0;
 var dockFreezeTimer = null;
+/* Δ28a: `match` 事件在**点击结算瞬间**下发（RulesEngine.applyTap 是原子的），
+ * 此时第 3 张牌往往还在飞——旧实现直接 spawnDockShatter，观感是「牌没到就碎」。
+ * 现改为：match 时若仍有在途牌 → 挂起，逐张落定后先用 ghost 把槽位画成有牌态，
+ * 全部落定再爆发。`dockGhost` 只影响 DOM 渲染，不碰引擎态。 */
+var pendingShatter = null;
+var pendingShatterTimer = null;
+var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽位的有牌态 */
 
   /* =========================================================
    * T050: 进度持久化（data-model.md §8，D-03 隐私模式降级）
@@ -879,14 +886,23 @@ var dockFreezeTimer = null;
 
     /* Δ27b/T128: 换关清掉上一关残留的碎裂驻留窗口（否则新关前 180ms 内 Dock 不重绘） */
     if (dockFreezeTimer) { clearTimeout(dockFreezeTimer); dockFreezeTimer = null; }
+    if (pendingShatterTimer) { clearTimeout(pendingShatterTimer); pendingShatterTimer = null; }
     dockFreezeUntil = 0;
+    pendingShatter = null;
+    dockGhost = null;
 
     renderer = STM.createBoardRenderer(els.board, session, {
       onShake: shakeBoard,
       /* Δ27b/T128（FR-053 §6）: 飞行落定回调——目标槽位此刻才切入 `has-tile`。
        * 飞行全程该槽保持 `.slot.empty`（classList 变更次数 = 0），落定同帧一次性
-       * 亮起并触发 `dock-seat` 弹入。连续点击时每次落定各自回调，互不覆盖。 */
-      onFlightLand: function () { renderDock(); },
+       * 亮起并触发 `dock-seat` 弹入。连续点击时每次落定各自回调，互不覆盖。
+       * Δ28a: 若存在挂起的碎裂，先按「已落定」的牌刷新 ghost（逐张可见地落槽），
+       * 全部落定后再爆发碎块。 */
+      onFlightLand: function () {
+        advancePendingShatter();
+        renderDock();
+        flushPendingShatter(false);
+      },
       /* Δ22/T107 ④（FR-050 §8）: 落牌涟漪音回调——T111 的进场编舞每张卡牌
        * 落定时调用（progress ∈ [0,1] 随落牌进度上扬；>= 22ms 节流在
        * SoundManager 内部保证，满载 8×8×5 也不会糊成噪音） */
@@ -1173,7 +1189,13 @@ var dockFreezeTimer = null;
     /* Dock 7 格（Δ14: chipSVG 消费当前关花色映射——与棋盘图鉴口径一致） */
     var html = '';
     for (var i = 0; i < 7; i++) {
-      if (i < s.dock.length) {
+      /* Δ28a: ghost 优先——match 已把牌从引擎 dock 移除，但视觉上必须先让玩家
+       * 看到「牌落进槽里」，再碎。ghost 只读快照花色，不回写任何引擎态。 */
+      var ghostSuit = (dockGhost && dockGhost.map && dockGhost.map[i] != null) ? dockGhost.map[i] : null;
+      if (ghostSuit != null) {
+        var gCls = dockGhost.shatter ? 'slot has-tile is-filled filled slot-shattering' : 'slot has-tile is-filled filled';
+        html += '<div class="' + gCls + '" data-idx="' + i + '"><div class="dock-chip">' + STM.chipSVG(ghostSuit, currentLevel) + '</div></div>';
+      } else if (i < s.dock.length) {
         /* Δ27b/T128（FR-053 §6）: 该牌逻辑上已入槽、但飞行尚未落定 →
          * 槽位保持空槽态（不提前亮起），落定由 onFlightLand 回调揭示。 */
         if (renderer && renderer.dockPending && renderer.dockPending(s.dock[i].id)) {
@@ -1190,6 +1212,102 @@ var dockFreezeTimer = null;
      * 出口（file:// 跨源污染下 toDataURL 不可用），此处立即以棋盘同源的
      * 离屏切片直绘填充，保证 Dock 与棋盘图标 100% 同一张贴图。 */
     if (STM.paintDockIcons) STM.paintDockIcons();
+  }
+
+  /* =========================================================
+   * Δ28a: 碎裂时序修正（「牌没到就碎」）
+   *
+   * 根因：`RulesEngine.applyTap` 是**原子结算**——第 3 张牌一点，`dock` / `match` /
+   * `remove` 三个事件在同一批里下发，而该牌的飞行动画才刚开始（U 向 220ms、
+   * L/R/D 两段最长 320ms）。旧实现在 `match` 里直接 `spawnDockShatter`，于是
+   * 前两张的碎片已经炸开、第 3 张还在半空。
+   *
+   * 修法：`match` 时若有 `renderer.dockPending(id)` 为真 → 挂起 `pendingShatter`；
+   * 每张落定先用 `dockGhost` 把槽位画成「有牌态」（逐张可见地落槽），
+   * 3 张全部落定后统一爆发 + 挂 `.slot-shattering` + 冻结 180ms。
+   * `dockGhost` 只是 DOM 渲染态，不写回 `session` / 不参与任何判定。
+   * ========================================================= */
+
+  /* 从引擎 dock 快照里定位本次三消的 3 个槽位（顺序 = 左→右） */
+  function locateShatterSlots(suit) {
+    var out = [];
+    if (!lastDockSnapshot) return out;
+    var i;
+    for (i = 0; i + 2 < lastDockSnapshot.length; i++) {
+      if (lastDockSnapshot[i] && lastDockSnapshot[i + 1] && lastDockSnapshot[i + 2] &&
+          lastDockSnapshot[i].s === suit && lastDockSnapshot[i + 1].s === suit && lastDockSnapshot[i + 2].s === suit) {
+        return [i, i + 1, i + 2];
+      }
+    }
+    for (i = 0; i < lastDockSnapshot.length; i++) {
+      if (lastDockSnapshot[i] && lastDockSnapshot[i].s === suit) out.push(i);
+    }
+    if (out.length >= 3) return out.slice(0, 3);
+    var filled = [];
+    for (i = 0; i < lastDockSnapshot.length; i++) if (lastDockSnapshot[i]) filled.push(i);
+    out = filled.slice(0, 3);
+    while (out.length < 3) out.push(out.length);
+    return out;
+  }
+
+  /* 挂起的碎裂：把「已落定」的牌逐张刷进 ghost（可见地落槽，尚未开碎） */
+  function advancePendingShatter() {
+    if (!pendingShatter) return;
+    var ids = pendingShatter.ids || [];
+    var slots = pendingShatter.slots || [];
+    var suits = pendingShatter.suits || [];
+    var map = {};
+    for (var i = 0; i < slots.length; i++) {
+      var id = ids[i];
+      var landed = !(renderer && renderer.dockPending && id != null && renderer.dockPending(id));
+      if (landed && suits[i] != null) map[slots[i]] = suits[i];
+    }
+    dockGhost = { map: map, shatter: false };
+  }
+
+  /* 3 张全部落定（或超时兜底）后爆发：ghost 挂 `.slot-shattering` → 碎块 → 冻结 180ms */
+  function flushPendingShatter(force) {
+    if (!pendingShatter) return;
+    if (!force && renderer && renderer.dockPending) {
+      var ids = pendingShatter.ids || [];
+      for (var i = 0; i < ids.length; i++) {
+        if (ids[i] != null && renderer.dockPending(ids[i])) return; /* 还有在途 → 继续等 */
+      }
+    }
+    var ps = pendingShatter;
+    pendingShatter = null;
+    if (pendingShatterTimer) { clearTimeout(pendingShatterTimer); pendingShatterTimer = null; }
+    try { fireDockShatter(ps.slots, ps.suits); } catch (eF) { /* VFX 失败不阻断主流程 */ }
+  }
+
+  /* 真正的碎裂：先渲染「有牌 + 震颤」的 ghost，再取实时 rect 爆发，最后冻结 180ms */
+  function fireDockShatter(slotIndices, suits) {
+    slotIndices = slotIndices || [];
+    suits = suits || [];
+    var map = {};
+    var g;
+    for (g = 0; g < slotIndices.length; g++) {
+      if (suits[g] != null) map[slotIndices[g]] = suits[g];
+    }
+    dockGhost = { map: map, shatter: true };
+    dockFreezeUntil = 0;
+    renderDock(); /* ghost 上屏（`.slot-shattering` 的 CSS 动画随插入即起） */
+    /* 此刻槽位已有牌 → 取实时 rect（border-box 中心与槽位同框，样式零改动） */
+    var nodes = els.dock ? els.dock.querySelectorAll('.slot') : [];
+    var rects = [];
+    for (var k = 0; k < slotIndices.length; k++) {
+      var idx = slotIndices[k];
+      if (nodes[idx] && nodes[idx].getBoundingClientRect) rects.push(nodes[idx].getBoundingClientRect());
+    }
+    if (rects.length && renderer && renderer.spawnDockShatter) renderer.spawnDockShatter(rects);
+    dockFreezeUntil = Date.now() + 180;
+    if (dockFreezeTimer) clearTimeout(dockFreezeTimer);
+    dockFreezeTimer = setTimeout(function () {
+      dockFreezeTimer = null;
+      dockFreezeUntil = 0;
+      dockGhost = null;
+      if (session && els.dock) renderDock();
+    }, 180);
   }
 
   function renderItems() {
@@ -1381,7 +1499,10 @@ var dockFreezeTimer = null;
     if (e.e === 'phase') { renderHud(); return; }
     if (e.e === 'reset') {
       if (dockFreezeTimer) { clearTimeout(dockFreezeTimer); dockFreezeTimer = null; }
+      if (pendingShatterTimer) { clearTimeout(pendingShatterTimer); pendingShatterTimer = null; }
       dockFreezeUntil = 0;
+      pendingShatter = null;
+      dockGhost = null;
       resetIq();
       renderer.refresh(); renderHud(); renderDock(); renderItems();
       return;
@@ -1424,53 +1545,34 @@ var dockFreezeTimer = null;
          * 此处只负责 IQ 记账与碎片瀑布 VFX，避免同一次三消双重起音。 */
         /* Δ19c/T085: 每次三消 IQ += 3 + combo × 2（绿色跳字 + 放大动效） */
         addIq(3 + (e.combo || 0) * 2, e.combo || 0);
-        /* Δ20/T093: 从 #dock 对应 3 个槽位真实屏幕坐标爆发白瓷碎片瀑布 */
+        /* Δ28a: 三消碎裂——**必须等 3 张全部落定**再爆发。
+         * `match` 在点击结算瞬间下发，此时第 3 张往往还在飞（U 向 220ms /
+         * L/R/D 最长 320ms），旧实现直接爆发 → 观感「牌没到就碎」。 */
         try {
-          var slotIndices = [];
-          if (lastDockSnapshot && e.suit != null) {
-            for (var si = 0; si + 2 < lastDockSnapshot.length; si++) {
-              if (lastDockSnapshot[si].s === e.suit && lastDockSnapshot[si+1].s === e.suit && lastDockSnapshot[si+2].s === e.suit) {
-                slotIndices = [si, si+1, si+2]; break;
-              }
-            }
-            if (!slotIndices.length) {
-              var idxs = [];
-              for (var sj = 0; sj < lastDockSnapshot.length; sj++) if (lastDockSnapshot[sj].s === e.suit) idxs.push(sj);
-              slotIndices = idxs.slice(0, 3);
-            }
-            if (!slotIndices.length) {
-              var filledIdx = [];
-              for (var sf = 0; sf < lastDockSnapshot.length; sf++) if (lastDockSnapshot[sf]) filledIdx.push(sf);
-              slotIndices = filledIdx.slice(0, 3);
-            }
-            if (slotIndices.length < 3) {
-              for (var sk0 = slotIndices.length; sk0 < 3; sk0++) slotIndices.push(sk0);
+          var slotIndices = locateShatterSlots(e.suit);
+          var suits = [];
+          for (var sq = 0; sq < slotIndices.length; sq++) {
+            var sn0 = lastDockSnapshot ? lastDockSnapshot[slotIndices[sq]] : null;
+            suits.push(sn0 && sn0.s != null ? sn0.s : e.suit);
+          }
+          var ids = (e.ids || []).slice();
+          var stillFlying = false;
+          if (renderer && renderer.dockPending) {
+            for (var qi = 0; qi < ids.length; qi++) {
+              if (ids[qi] != null && renderer.dockPending(ids[qi])) { stillFlying = true; break; }
             }
           }
-          var slotNodes = els.dock ? els.dock.querySelectorAll('.slot') : [];
-          var rects = [];
-          for (var sk = 0; sk < slotIndices.length; sk++) {
-            var idx = slotIndices[sk];
-            if (slotNodes[idx] && slotNodes[idx].getBoundingClientRect) {
-              rects.push(slotNodes[idx].getBoundingClientRect());
-            }
-          }
-          if (rects.length && renderer && renderer.spawnDockShatter) renderer.spawnDockShatter(rects);
-          /* Δ20/T092 + Δ27b/T128: 180ms 碎裂驻留——给 3 个匹配槽挂 `.slot-shattering`
-           * （CSS 行 8 已有 180ms steps(6) 演出），期间冻结 #dock 的 DOM 重建，
-           * 否则紧随其后的 remove / flyout 事件会立刻把槽位刷成空槽、演出看不见。 */
-          if (slotNodes.length) {
-            for (var sn = 0; sn < slotIndices.length; sn++) {
-              var nd = slotNodes[slotIndices[sn]];
-              if (nd && nd.classList) nd.classList.add('slot-shattering');
-            }
-            dockFreezeUntil = Date.now() + 180;
-            if (dockFreezeTimer) clearTimeout(dockFreezeTimer);
-            dockFreezeTimer = setTimeout(function () {
-              dockFreezeTimer = null;
-              dockFreezeUntil = 0;
-              if (session && els.dock) renderDock();
-            }, 180);
+          if (stillFlying) {
+            pendingShatter = { slots: slotIndices, suits: suits, ids: ids };
+            advancePendingShatter(); /* 已落定的先亮起来（逐张可见地落槽） */
+            if (pendingShatterTimer) clearTimeout(pendingShatterTimer);
+            /* 兜底：飞行异常未回调时 700ms 后强制爆发（不得让碎片永不出现） */
+            pendingShatterTimer = setTimeout(function () {
+              pendingShatterTimer = null;
+              flushPendingShatter(true);
+            }, 700);
+          } else {
+            fireDockShatter(slotIndices, suits);
           }
         } catch (eSh) { /* VFX 失败不阻断主流程 */ }
       }
