@@ -95,7 +95,10 @@ function check(name, cond, extra) {
     + 'var __oe = console.error; console.error = function(){ window.__consoleErr.push(Array.prototype.slice.call(arguments).map(String).join(" ")); __oe.apply(console, arguments); };';
   await c.send('Page.addScriptToEvaluateOnNewDocument', { source: SENTINEL });
 
-  var url = 'http://127.0.0.1:' + PORT_HTTP + '/index.html?level=1';
+  /* Δ4 深链语义：`?level=N` 仅在 N > 1 时自动进关（main.js boot → enterGame），
+   * N = 1 会停在大厅 → session() 恒为 null。此处用 level=3（无教学卡，
+   * 更适合 Bot / Hint 断言），与 main.js:421 的判定口径一致。 */
+  var url = 'http://127.0.0.1:' + PORT_HTTP + '/index.html?level=3';
   await c.send('Page.navigate', { url });
 
   async function ev(expr) {

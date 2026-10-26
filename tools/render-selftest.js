@@ -98,7 +98,10 @@ function makeCtx() {
     clearRect: function () {}, beginPath: function () {}, closePath: function () {},
     fill: function () {}, stroke: function () {}, save: function () {}, restore: function () {},
     translate: function () {}, rotate: function () {}, scale: function () {},
-    drawImage: function () {}
+    drawImage: function () {},
+    /* Δ27b: wipe 揭示用矩形裁剪（blinds_flip 走水平 clip，不再压扁牌体） */
+    rect: function (x, y, w, h) { finite(x, 'rect'); finite(y, 'rect'); finite(w, 'rect'); finite(h, 'rect'); },
+    clip: function () {}, setLineDash: function () {}, setTransform: function () {}
   };
 }
 
@@ -1602,8 +1605,12 @@ function scenarioDelta22Intro() {
   })());
   check('T111②: 留白 180ms / 单卡 260ms / 层补偿 55ms / 落定阈值 0.85',
     I.LEAD_MS === 180 && I.TILE_MS === 260 && I.Z_STEP_MS === 55 && I.TICK_AT === 0.85);
-  check('T111②: 基准延迟区间 = 180~520ms（LEAD + SPREAD）',
-    I.LEAD_MS + I.SPREAD_MS === 520);
+  check('T111②: 逐牌步长下限 12ms / 展开期下限 260ms（Δ27b 容量自适应）',
+    I.STAGGER_MS === 12 && I.SPREAD_MIN_MS === 260);
+  check('T111②: 时长公式 L1/L46/L33 = 700/1546/2340ms',
+    RT.introDealTotalMs(18, 0) === 700 &&
+    RT.introDealTotalMs(84, 2) === 1546 &&
+    RT.introDealTotalMs(141, 4) === 2340);
 
   /* 逐模式 × 逐坐标：规格有限性 + ord 值域 + 规格互异 */
   var n = 6;
@@ -1632,25 +1639,51 @@ function scenarioDelta22Intro() {
   check('T111②: 排序权重 ord 恒落 [0,1]', ordOk);
   check('T111②: 15 种模式的落牌序/位移规格两两不同（非退化）', distinct === 15);
 
-  /* ③ 零穿模：同一 (r,c) 上高层延迟严格更大，且增量 = 55ms × Δz（layer_stack 因 ord 含 z 项而更大） */
-  var zMonotone = true;
-  var zExact = true;
-  for (var m2 = 0; m2 < 15; m2++) {
-    for (var rr = 0; rr < n; rr += 2) {
-      for (var cc = 0; cc < n; cc += 2) {
-        var prev = -Infinity;
-        for (var z = 0; z <= 4; z++) {
-          var st = spec(m2, { id: rr * n + cc, r: rr, c: cc, z: z, d: 0 }, n, 0, total);
-          var dly = I.LEAD_MS + st.ord * I.SPREAD_MS + z * I.Z_STEP_MS;
-          if (!(dly > prev)) zMonotone = false;
-          if (m2 !== 6 && z > 0 && Math.abs((dly - prev) - I.Z_STEP_MS) > 1e-6) zExact = false;
-          prev = dly;
-        }
-      }
-    }
+  /* ③ 零穿模（Δ27b 层序锁）：同坐标高层 MUST 后落 —— 由纯函数 introSchedule 硬保证。
+   * 构造最恶劣输入：同坐标 (3,3) 的 5 层被编舞序**倒序**排在最前（z=4 最先）。
+   * 旧式 delay = LEAD + i×12 + z×55 在此输入下必然穿模；层序锁重排槽位后不穿。 */
+  var sched = RT.introSchedule;
+  var zEntries = [];
+  var fiveZ = [4, 3, 2, 1, 0];
+  for (var fz = 0; fz < fiveZ.length; fz++) zEntries.push({ z: fiveZ[fz], key: '3,3' });
+  for (var ei = 0; ei < 55; ei++) zEntries.push({ z: 0, key: 'g' + ei });
+  var sc = sched(zEntries, 4);
+  var layerDelays = [];
+  for (var li = 0; li < sc.list.length; li++) {
+    if (sc.list[li].idx < fiveZ.length) layerDelays.push({ z: sc.list[li].z, d: sc.list[li].delay });
   }
-  check('T111③: 同坐标高层延迟严格大于低层（零穿模——先落底层后落顶层）', zMonotone);
-  check('T111③: 除 layer_stack 外层延迟增量恒 = +55ms × Δz', zExact);
+  layerDelays.sort(function (a, b) { return a.z - b.z; });
+  var zMonotone = layerDelays.length === 5;
+  var zGapOk = true;
+  for (var lj = 1; lj < layerDelays.length; lj++) {
+    if (!(layerDelays[lj].d > layerDelays[lj - 1].d)) zMonotone = false;
+    if (layerDelays[lj].d - layerDelays[lj - 1].d < sc.step - 1e-6) zGapOk = false;
+  }
+  check('T111③: 同坐标高层延迟严格大于低层（层序锁——倒序输入也不穿模）', zMonotone);
+  check('T111③: 层间延迟差 >= 逐牌步长（12ms 硬下限）', zGapOk && sc.step >= I.STAGGER_MS - 1e-6);
+
+  /* 逐张可辨：步长均匀 + 单帧在途 <= 22 */
+  var scDelays = [];
+  for (var si = 0; si < sc.list.length; si++) scDelays.push(sc.list[si].delay);
+  scDelays.sort(function (a, b) { return a - b; });
+  var scMinGap = Infinity;
+  for (var sj = 1; sj < scDelays.length; sj++) {
+    var sgap = scDelays[sj] - scDelays[sj - 1];
+    if (sgap < scMinGap) scMinGap = sgap;
+  }
+  var scPeak = 0;
+  for (var sk = 0; sk < scDelays.length; sk++) {
+    var scn = 0;
+    for (var sl = 0; sl < scDelays.length; sl++) {
+      if (scDelays[sl] <= scDelays[sk] && scDelays[sk] < scDelays[sl] + I.TILE_MS) scn++;
+    }
+    if (scn > scPeak) scPeak = scn;
+  }
+  check('T111③: 相邻落点恒差 >= 12ms（逐张可辨）', scMinGap >= I.STAGGER_MS - 1e-6,
+    'minGap=' + scMinGap.toFixed(3));
+  check('T111③: 单帧在途 <= 22 张（旧式 108 张 → 成团堆积）', scPeak <= 22, 'peak=' + scPeak);
+  check('T111③: 排程总时长 === 公式值', Math.abs(sc.totalMs - RT.introDealTotalMs(60, 4)) < 1e-6,
+    sc.totalMs + ' vs ' + RT.introDealTotalMs(60, 4));
 
   /* 运行时：逐模式跑完整进场，零异常 + 落定后归位 */
   var lv = {

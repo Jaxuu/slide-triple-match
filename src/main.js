@@ -17,6 +17,11 @@
   var currentId = 1;
   var dockReadyHooked = false; /* Δ15b3e: Dock 贴图就绪回调仅注册一次（防逐关累积） */
 var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于定位消除槽） */
+/* Δ27b/T128: 碎裂驻留窗口——#dock 的 DOM 在此窗口内禁止被 innerHTML 重建覆盖，
+ * 否则 180ms 的 `.slot-shattering` 演出会被紧随其后的 remove/flyout 事件立刻抹掉。
+ * 窗口结束时统一重绘一次（状态取当前真值，不需要中间帧）。 */
+var dockFreezeUntil = 0;
+var dockFreezeTimer = null;
 
   /* =========================================================
    * T050: 进度持久化（data-model.md §8，D-03 隐私模式降级）
@@ -872,8 +877,16 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
       onTerminal: handleTerminal
     });
 
+    /* Δ27b/T128: 换关清掉上一关残留的碎裂驻留窗口（否则新关前 180ms 内 Dock 不重绘） */
+    if (dockFreezeTimer) { clearTimeout(dockFreezeTimer); dockFreezeTimer = null; }
+    dockFreezeUntil = 0;
+
     renderer = STM.createBoardRenderer(els.board, session, {
       onShake: shakeBoard,
+      /* Δ27b/T128（FR-053 §6）: 飞行落定回调——目标槽位此刻才切入 `has-tile`。
+       * 飞行全程该槽保持 `.slot.empty`（classList 变更次数 = 0），落定同帧一次性
+       * 亮起并触发 `dock-seat` 弹入。连续点击时每次落定各自回调，互不覆盖。 */
+      onFlightLand: function () { renderDock(); },
       /* Δ22/T107 ④（FR-050 §8）: 落牌涟漪音回调——T111 的进场编舞每张卡牌
        * 落定时调用（progress ∈ [0,1] 随落牌进度上扬；>= 22ms 节流在
        * SoundManager 内部保证，满载 8×8×5 也不会糊成噪音） */
@@ -1153,11 +1166,21 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
   function renderDock() {
     var s = session.state();
     lastDockSnapshot = (s.dock || []).map(function (t) { return { id: t.id, s: t.s }; });
+    /* Δ27b/T128: 碎裂驻留窗口内不重建 DOM（保留 `.slot-shattering` 演出）；
+     * 快照照常更新——match 分支依赖它定位消除槽。 */
+    if (dockFreezeUntil && Date.now() < dockFreezeUntil) return;
+    dockFreezeUntil = 0;
     /* Dock 7 格（Δ14: chipSVG 消费当前关花色映射——与棋盘图鉴口径一致） */
     var html = '';
     for (var i = 0; i < 7; i++) {
       if (i < s.dock.length) {
-        html += '<div class="slot has-tile is-filled filled" data-idx="' + i + '"><div class="dock-chip">' + STM.chipSVG(s.dock[i].s, currentLevel) + '</div></div>';
+        /* Δ27b/T128（FR-053 §6）: 该牌逻辑上已入槽、但飞行尚未落定 →
+         * 槽位保持空槽态（不提前亮起），落定由 onFlightLand 回调揭示。 */
+        if (renderer && renderer.dockPending && renderer.dockPending(s.dock[i].id)) {
+          html += '<div class="slot empty"></div>';
+        } else {
+          html += '<div class="slot has-tile is-filled filled" data-idx="' + i + '"><div class="dock-chip">' + STM.chipSVG(s.dock[i].s, currentLevel) + '</div></div>';
+        }
       } else {
         html += '<div class="slot empty"></div>';
       }
@@ -1357,6 +1380,8 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
   function handleSessionEvent(e) {
     if (e.e === 'phase') { renderHud(); return; }
     if (e.e === 'reset') {
+      if (dockFreezeTimer) { clearTimeout(dockFreezeTimer); dockFreezeTimer = null; }
+      dockFreezeUntil = 0;
       resetIq();
       renderer.refresh(); renderHud(); renderDock(); renderItems();
       return;
@@ -1431,6 +1456,22 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
             }
           }
           if (rects.length && renderer && renderer.spawnDockShatter) renderer.spawnDockShatter(rects);
+          /* Δ20/T092 + Δ27b/T128: 180ms 碎裂驻留——给 3 个匹配槽挂 `.slot-shattering`
+           * （CSS 行 8 已有 180ms steps(6) 演出），期间冻结 #dock 的 DOM 重建，
+           * 否则紧随其后的 remove / flyout 事件会立刻把槽位刷成空槽、演出看不见。 */
+          if (slotNodes.length) {
+            for (var sn = 0; sn < slotIndices.length; sn++) {
+              var nd = slotNodes[slotIndices[sn]];
+              if (nd && nd.classList) nd.classList.add('slot-shattering');
+            }
+            dockFreezeUntil = Date.now() + 180;
+            if (dockFreezeTimer) clearTimeout(dockFreezeTimer);
+            dockFreezeTimer = setTimeout(function () {
+              dockFreezeTimer = null;
+              dockFreezeUntil = 0;
+              if (session && els.dock) renderDock();
+            }, 180);
+          }
         } catch (eSh) { /* VFX 失败不阻断主流程 */ }
       }
       renderer.handleEvent(e);

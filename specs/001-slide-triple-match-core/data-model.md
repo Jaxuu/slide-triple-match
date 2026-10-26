@@ -2,6 +2,8 @@
 
 > **Propagated**: 2026-10-25 — **Δ22（全景声学 + 5 秒连击 + 15 种开局编舞）** refine 传播：新增 **§10 增量实体** 章节，补齐 **Δ16 / Δ19 / Δ21 / Δ22 四轮累计拖欠的 10 个实体**——Δ16（Painting Progress / Prism Balance / Player Profile）、Δ19（Shape Mask / Bottleneck Chain / IQ Meter / Top Dock Tray）、Δ21（Deadlock Guard）、**Δ22（Audio Bank / Combo Window / Deal Choreography）**。此前三条 STALE 警告（Δ16/Δ19/Δ21）一并清除——本次为**一次性补齐**，非仅加 Δ22 三实体。**边界**：新增实体全部为**表现层 / 持久化层 / 防御层**，MUST NOT 改变 `levels.js` 的关卡数据契约与 `RulesEngine` 的判定语义（FR-032）；其中 **Combo Window 与 IQ Meter 的连击口径相互独立、MUST NOT 合并**（见 §10 表末注记）。
 
+> **Propagated**: 2026-10-26 — **Δ27（方向性飞行轨迹 + 进场清晰度与逐张节奏 + `shards` 3D 碎块）** refine 传播：§10 新增 **Tile Flight**（FR-053 运行时载体）与 **Shard Atlas**（FR-049 §8~§13 载体）两实体；**Deal Choreography 就地修订**——`totalMs` 由固定 `<= 1000ms` 改为按 FR-052 §10 公式自适应（`180 + max(260, (N-1) × 12) + 260 + 55 × zMax`），并补 `stepMs`（`>= 12ms`）/ `inFlightPeak`（`<= 22`）/ `zLock`（同坐标层序锁）三字段。**边界不变**：两新实体均为**纯表现层**，MUST NOT 进入 `RulesEngine` / Solver / Undo 快照 / `levels.js`；Tile Flight 的 `board` 段 MUST 参与既有 `(z, r, c)` 升序绘制序（这是「飞行时旁边卡牌变底层」的修复要点），Shard Atlas 的键控 MUST 早于 `startDeal()` 且失败时降级 FR-049 §3 程序化兜底。
+
 **Feature**: `001-slide-triple-match-core` | **Phase**: 1 | **Date**: 2026-10-17
 
 **来源**: [spec.md](spec.md) Key Entities + [plan.md](plan.md) 架构决策（Δ1~Δ6、D-02/07/11/12/15）。字段命名遵循 [level-data.md](contracts/level-data.md) 的持久化 schema（紧凑名）；本文档用全称注释。
@@ -161,9 +163,9 @@ WON/LOST ──结算交互──→ (下一关: id+1>LEVELS.length ⇒ ALL_CLEA
 | `levels[]` | `{id, solvable, minMoves, solutionCount, dockPeak, mechCount, openSuitsMax, elapsedMs}` | 每关验证记录（metrics 双写：levels.js 与本报告，前端用前者、评审看后者） |
 | `summary` | `{total, solvable, failedIds[], curveGate: {monotonic, ch5Zigzag, slope}}` | 50/50 与难度曲线门结论（SC-001/SC-004） |
 
-## 10. 增量实体（Δ16 / Δ19 / Δ21 / Δ22）
+## 10. 增量实体（Δ16 / Δ19 / Δ21 / Δ22 / Δ27）
 
-> 本节为 **Δ16 起四轮增量的累计补齐**（此前仅散见于 spec.md 的 Key Entities，未落入本数据模型）。所有实体均为**表现层 / 持久化层 / 防御层**，不改变 §1~§9 的关卡数据契约与判定语义。
+> 本节为 **Δ16 起各轮增量的累计补齐**（此前仅散见于 spec.md 的 Key Entities，未落入本数据模型）。所有实体均为**表现层 / 持久化层 / 防御层**，不改变 §1~§9 的关卡数据契约与判定语义。
 
 | 实体 | 增量 | 载体 | 关键字段 | 关系与不变量 |
 |---|---|---|---|---|
@@ -177,7 +179,9 @@ WON/LOST ──结算交互──→ (下一关: id+1>LEVELS.length ⇒ ALL_CLEA
 | **Deadlock Guard**（死锁自愈器） | Δ21 | `RulesEngine.findHeadOnDeadlocks / selfHealDeadlocks` | `headOnPairs[]`、`legalMoves[]`、`healRotations`（≤4）、`healLog[]`（入 Undo） | 每次操作结算后自检；优先旋转出「可立即飞出」；超限走乾坤洗牌兜底、**MUST NOT 判负**；MUST NOT 破花色守恒与零悬空；**MUST NOT 放宽 Generator 静态门禁** |
 | **Audio Bank**（声学资产库） | **Δ22 / Δ23** | `src/audio/SoundManager.js` 运行时态 | 外部轨：`assets{}`（8 文件的 `idle/loading/ready/failed` 状态）、`pools{}`（每音效实例池）、`bgmVolume{lobby: 0.45, game: 0.38}`（Δ23 由 `0.26/0.20` 修订）、素材响度基线（loudnorm 后 BGM `−18` / 音效 `−14` / 语音 `−13` LUFS）、`fadeProgress`、`shatterRate`；合成轨：`audioCtx`、`masterGain`（压缩总线 `−12dB / 5:1`）、三类合成参数（落牌涟漪节流 `45ms` / 单声 `15~22ms`） | 受 FR-037 的 SFX/BGM 开关与页面可见性统一调度；静音时**已排定的延迟触发 MUST 一并取消**；BGM 缺失回退程序化合成；`document` 级常驻手势兜底 `kickBgm()` 幂等拉回播放态。**纯表现层，MUST NOT 持久化、MUST NOT 进 RulesEngine / Solver** |
 | **Combo Window**（连击时间窗） | **Δ22** | `Session` 内纯表现态 | `comboCount`（初值 0）、`lastMatchAt`（`performance.now()` 时间戳）、`tier`（1/2/3/4/5+）、`pendingVoice`、`pendingFloat` | 每次三消：`now - lastMatchAt <= 5000` 则 `+1`，否则重置为 `1`；**无论续连与否刷新窗口**；MUST 用时间戳差值、**MUST NOT 用 rAF 帧计数**；受阻**不重置**（与 IQ 口径不同）。驱动 `sfx_shatter` 升调（1.00/1.06/1.12/1.18/1.25）、延迟 120ms 语音与飘字。**MUST NOT 持久化** |
-| **Deal Choreography**（开局编舞） | **Δ22** | `BoardRenderer` 表现态 + `main.js` 调度 | `modeId`（15 种之一）、`prevModeId`（相邻去重）、`offsets{}`（逐牌起飞向量/旋转/缩放初值）、`delayOf(tile)`、`totalMs`（≤1000ms）、`fastForwarded`（点击快进标记） | `0~180ms` 卡牌 `alpha = 0` 仅风景底图；`180~1000ms` 依次落定并逐牌触发落牌涟漪音；绘制排序 MUST 复用静态比较器 `(a.z-b.z)\|\|(a.r-b.r)\|\|(a.c-b.c)`，同渲染坐标高层延迟恒 `+55ms*z`；点击 MUST 快进 100% 且正常响应。**MUST NOT 改卡牌花色/方向/坐标/层号，MUST NOT 持久化** |
+| **Deal Choreography**（开局编舞） | **Δ22**（Δ27 修订） | `BoardRenderer` 表现态 + `main.js` 调度 | `modeId`（15 种之一）、`prevModeId`（相邻去重）、`offsets{}`（逐牌起飞向量/旋转/缩放初值）、`delayOf(tile)`、**`stepMs`（逐牌错峰步长，MUST `>= 12ms`）**、**`inFlightPeak`（单帧在途峰值，MUST `<= 22`）**、**`zLock`（同坐标层序锁：同 `(r,c)` 组内槽位按 `z` 升序重排）**、**`totalMs`（Δ27 修订：`180 + max(260, (N-1) × 12) + 260 + 55 × zMax`，原 `<= 1000ms` 固定上限作废）**、`fastForwarded`（点击快进标记） | `0~180ms` 卡牌 `alpha = 0` 仅风景底图；`180~totalMs` 依次落定并逐牌触发落牌涟漪音；绘制排序 MUST 复用静态比较器 `(a.z-b.z)\|\|(a.r-b.r)\|\|(a.c-b.c)`，同渲染坐标高层延迟恒 `+55ms*z`（层高补偿**只进排序键、不直接叠加 `delay`**，否则 `gcd(12,55)=1` 会把相邻落点挤到 `2ms`）；入场 `a0 >= 0.62`、进度 `35%` 内 alpha 达 `1.0`、缩放 `<= 1.15`、非等比较小轴 `>= 0.55`（`blinds_flip` 走遮罩揭示而非 `scaleX` 压缩）；点击 MUST 快进 100% 且正常响应。**MUST NOT 改卡牌花色/方向/坐标/层号，MUST NOT 持久化** |
+| **Tile Flight**（卡牌飞行轨迹） | **Δ27** | `BoardRenderer` 表现态（`flights[]` + `tileInfo` 几何缓存）+ `main.js` 槽位配对（`pendingDock{}`） | `tileId`、`dir`（`U/L/R/D`，取自卡牌自身方向）、`from`（起点渲染实坐标，含奇数层半格偏移）、`to`（目标 `.slot[i]` 的**实时** `getBoundingClientRect()` 中心，窗口变化时重算）、`slotIndex`（由引擎 `dock` 事件给定，MUST NOT 由表现层推测）、`t0`/`dur`（`U` 单段 `<= 240ms`；`L/R/D` 两段：滑出 `<= 140ms` + 落入，总 `<= 320ms`）、`seg`（`board` 棋盘内段 / `offboard` 离场段，以「卡牌中心是否越出棋盘可视矩形」判定）、`ease`、`alpha0`（`>= 0.55`）、`scaleEnd`（`0.82`） | **绘制序铁律**：`seg === 'board'` MUST 与静止牌共用同一 `(z, r, c)` 升序比较器（飞行牌经 `tileInfo` 合成回 `renderList`，位移/缩放/alpha 由 `drawBoardTile` 内 `flightOf()` 施加，归位/离场即返回 `null` 走静态路径）；仅 `seg === 'offboard'` 才退出该序单独绘制，越界部分由既有 `#vfx-canvas` even-odd 互补裁剪接续（**零新增 canvas**）。揭示门控：`dock` 到达时目标槽保持 `.slot.empty`，落定回调**先出表再回调**并同帧切 `has-tile`（`<= 400ms` 兜底定时器）。MUST NOT 改动 `.slot` 的 DOM 与样式、MUST NOT 增删 `.slot` 的 class、MUST NOT 影响归拢顺序/命中判定/可解性、MUST NOT 持久化 |
+| **Shard Atlas**（碎块图集） | **Δ27** | `BoardRenderer` 内 `ShardAtlas` 运行时态（`assets/icons/shards.jpg`） | `src`（权威路径 `assets/icons/shards.jpg`，MAY 兼容同名 `.png`）、`size`（`2048×2048`）、`grid`（`3×3`，格宽 `2048/3 ≈ 682.67`，允许小数边界）、`slices[9]`（键控后 `256×256` 正方形切片）、`bbox[9]`（可见包围盒）、`keyState`（`idle` / `ready` / `failed`）、`keyMs`（单次回读，MUST `<= 300ms` 且早于 `startDeal()`）、`kinds`（同帧命中种类，MUST `>= 6`） | 键控双阈值：`max(R,G,B) <= 24` → alpha `0`；`24~40` → alpha 线性渐变 + RGB 提亮消暗边；`> 40` → alpha `255`（`shards-audit` 实测近黑 < `2%`、键控 `114~124ms`）。发射：每次三消 `120~150` 枚、重力 `>= 2600 px/s²`、向下初速 `>= 300 px/s`、生命 `420~620ms`、角速度 `>= 4 rad/s`、单枚一次 `drawImage`（禁 `ctx.filter` / 逐枚 `clip`）。素材缺失或键控失败 MUST 降级 FR-049 §3 程序化 Low-Poly 兜底；**纯表现层，MUST NOT 进入 RulesEngine / Solver / Undo 快照** |
 
 **双连击口径注记（Δ22，MUST）**：**Combo Window**（5 秒滑动窗，驱动音效与飘字）与 **IQ Meter** 的 `M_combo` 乘区（受阻断连，驱动 IQ 结算）为**两套独立计数**，MUST NOT 互相覆盖或隐式同步；若需统一，MUST 先修订 FR-047 §2。
 

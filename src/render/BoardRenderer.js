@@ -617,8 +617,210 @@
     };
   })();
 
+  /* =========================================================
+   * Δ27c / FR-049 §8~§10: ShardAtlas —— 3D 立体碎块图集
+   *
+   * 素材：assets/icons/shards.jpg（2048×2048、3×3 九宫格共 9 枚白瓷 3D 碎块、
+   *       **纯黑背景**、无 alpha）。`.jpg` 为权威路径；同名 `.png` 仅作可选
+   *       增强（若带 alpha 则直接使用并跳过黑底键控），MUST NOT 因缺 `.png`
+   *       判定素材缺失或降级。
+   *
+   * 黑底键控（MUST NOT 用单阈值硬切——硬切会在碎块外圈留锯齿状黑边）：
+   *   max(R,G,B) <= 24         → alpha = 0（背景）
+   *   24 < max(R,G,B) <= 40    → alpha 线性渐变（吸收 JPEG 8×8 块噪声与
+   *                              边缘抗锯齿过渡），并把该带像素的 RGB 提到
+   *                              本格主体亮色，消除暗边/灰雾
+   *   max(R,G,B) > 40          → alpha = 255
+   *
+   * 切片：九宫格等分（格宽 W/3 = 682.67 —— **允许小数边界**，MUST NOT 因
+   *   向下取整丢掉边缘 1~2px）→ 每格求非黑包围盒 → 正方形化 →
+   *   等比居中置入 256×256（几何口径沿用 FR-044 §7）→ 会话级缓存。
+   * ========================================================= */
+  var SHARD_SUBJECT_RATIO = 0.92; /* 256² 切片内主体长边占比（与图鉴 0.93 同族口径） */
+  var ShardAtlas = (function () {
+    var EXTS = ['png', 'jpg']; /* .png 优先（若带 alpha 则免键控），.jpg 为权威 */
+    var state = 'idle';        /* idle | loading | ready | failed */
+    var slices = [];           /* 9 个 256×256 canvas */
+    var validMask = [];        /* 每格是否含有效主体 */
+    var tried = 0;
+    var listeners = [];
+    var keyMs = 0;
+
+    function notify() {
+      for (var i = 0; i < listeners.length; i++) {
+        try { listeners[i](slices); } catch (e) { /* 单监听异常不杀加载 */ }
+      }
+    }
+
+    function nextSrc() {
+      if (tried >= EXTS.length) return null;
+      return 'assets/icons/shards.' + EXTS[tried++];
+    }
+
+    function loadNext() {
+      var src = nextSrc();
+      if (!src) { state = 'failed'; notify(); return; }
+      if (typeof Image !== 'function') { state = 'failed'; notify(); return; }
+      var img = new Image();
+      img.onload = function () {
+        try { process(img); } catch (eProc) {
+          state = 'failed';
+          notify();
+        }
+      };
+      img.onerror = function () { loadNext(); };
+      img.src = src;
+    }
+
+    /* 单格：键控 + 包围盒 + 正方形化 + 等比居中 */
+    function buildCell(data, W, x0, x1, y0, y1, hasAlpha) {
+      var bw = x1 - x0, bh = y1 - y0;
+      if (bw <= 0 || bh <= 0) return null;
+      var out = { w: bw, h: bh, px: new Uint8ClampedArray(bw * bh * 4) };
+      var minX = bw, maxX = -1, minY = bh, maxY = -1;
+      var brightSum = 0, brightN = 0;
+      var fringe = []; /* [di, r, g, b] —— 渐变带像素，稍后提亮 */
+      for (var y = 0; y < bh; y++) {
+        var sy = y0 + y;
+        for (var x = 0; x < bw; x++) {
+          var si = (sy * W + (x0 + x)) * 4;
+          var r = data[si], g = data[si + 1], b = data[si + 2];
+          var a0 = data[si + 3];
+          var mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+          var a;
+          if (hasAlpha && a0 < 250) {
+            a = a0;
+            if (a0 > 8) { /* 带 alpha 的素材直接用 */
+              if (mx > 120) { brightSum += mx; brightN++; }
+            }
+          } else if (mx <= 24) {
+            a = 0;
+          } else if (mx <= 40) {
+            a = Math.round(255 * (mx - 24) / 16);
+            fringe.push((y * bw + x) * 4, r, g, b);
+          } else {
+            a = 255;
+            if (mx > 120) { brightSum += mx; brightN++; }
+          }
+          var di = (y * bw + x) * 4;
+          out.px[di] = r; out.px[di + 1] = g; out.px[di + 2] = b; out.px[di + 3] = a;
+          if (a > 8) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      /* 渐变带提亮：避免「黑底残留 → 碎块外圈灰边」的观感（不改变 alpha） */
+      if (fringe.length) {
+        var lift = brightN > 0 ? Math.min(255, brightSum / brightN) : 200;
+        for (var fi = 0; fi < fringe.length; fi += 4) {
+          var di2 = fringe[fi];
+          out.px[di2] = Math.max(out.px[di2], lift * 0.86);
+          out.px[di2 + 1] = Math.max(out.px[di2 + 1], lift * 0.86);
+          out.px[di2 + 2] = Math.max(out.px[di2 + 2], lift * 0.86);
+        }
+      }
+      if (maxX < minX || maxY < minY) return null;
+      var bw2 = maxX - minX + 1, bh2 = maxY - minY + 1;
+      var size = Math.max(bw2, bh2);
+      var area = bw2 * bh2;
+      if (area < bw * bh * 0.01) return null; /* 有效像素 < 1% → 视为空格 */
+      return { w: bw, h: bh, px: out.px, minX: minX, minY: minY, bw: bw2, bh: bh2, size: size };
+    }
+
+    function process(img) {
+      var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      var W = img.naturalWidth || img.width || 0;
+      var H = img.naturalHeight || img.height || 0;
+      if (!(W > 0) || !(H > 0)) { state = 'failed'; notify(); return; }
+      if (typeof document === 'undefined') { state = 'failed'; notify(); return; }
+      var tmp = document.createElement('canvas');
+      tmp.width = W; tmp.height = H;
+      /* willReadFrequently: 单次回读，避免 GPU 往返（FR-044 §10 同纪律） */
+      var c2 = tmp.getContext('2d', { willReadFrequently: true }) || tmp.getContext('2d');
+      if (!c2) { state = 'failed'; notify(); return; }
+      c2.drawImage(img, 0, 0);
+      var data;
+      try { data = c2.getImageData(0, 0, W, H).data; } catch (eRead) { state = 'failed'; notify(); return; }
+      /* 素材是否自带 alpha（.png 增强路径）——抽样 1/64 像素判定 */
+      var hasAlpha = false;
+      for (var s = 3; s < data.length; s += 4 * 64) { if (data[s] < 250) { hasAlpha = true; break; } }
+
+      var cw = W / 3, ch = H / 3; /* 允许小数边界（2048/3 = 682.67） */
+      var out = [];
+      var valid = 0;
+      for (var i = 0; i < 9; i++) {
+        var gx = i % 3, gy = Math.floor(i / 3);
+        var x0 = Math.floor(gx * cw), x1 = Math.ceil(gx * cw + cw);
+        var y0 = Math.floor(gy * ch), y1 = Math.ceil(gy * ch + ch);
+        if (x1 > W) x1 = W;
+        if (y1 > H) y1 = H;
+        var cell = buildCell(data, W, x0, x1, y0, y1, hasAlpha);
+        if (!cell) { out.push(null); validMask.push(false); continue; }
+        var dst = document.createElement('canvas');
+        dst.width = 256; dst.height = 256;
+        var d2 = dst.getContext('2d');
+        var srcCv = document.createElement('canvas');
+        srcCv.width = cell.w; srcCv.height = cell.h;
+        var s2 = srcCv.getContext('2d');
+        var idata = s2.createImageData(cell.w, cell.h);
+        idata.data.set(cell.px);
+        s2.putImageData(idata, 0, 0);
+        var pad = 256 * (1 - SHARD_SUBJECT_RATIO) / 2;
+        var drawSize = 256 - pad * 2;
+        var sq = cell.size;
+        var sx = cell.minX - (sq - cell.bw) / 2;
+        var sy = cell.minY - (sq - cell.bh) / 2;
+        try {
+          d2.imageSmoothingEnabled = true;
+          d2.imageSmoothingQuality = 'high';
+          d2.drawImage(srcCv, sx, sy, sq, sq, pad, pad, drawSize, drawSize);
+        } catch (eDraw) { out.push(null); validMask.push(false); continue; }
+        out.push(dst);
+        validMask.push(true);
+        valid++;
+      }
+      slices = out;
+      state = valid > 0 ? 'ready' : 'failed';
+      keyMs = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;
+      notify();
+    }
+
+    function ensureLoaded() {
+      if (state !== 'idle') return;
+      state = 'loading';
+      loadNext();
+    }
+    /* 可用的切片（过滤空格；不足 9 枚时以首个可用切片补位，保证索引恒有图） */
+    function readySlices() {
+      if (state !== 'ready') return null;
+      var first = null;
+      for (var i = 0; i < slices.length; i++) if (slices[i]) { first = slices[i]; break; }
+      if (!first) return null;
+      var out = [];
+      for (var j = 0; j < 9; j++) out.push(slices[j] || first);
+      return out;
+    }
+
+    return {
+      ensureLoaded: ensureLoaded,
+      state: function () { return state; },
+      slices: readySlices,
+      validCount: function () {
+        var n = 0;
+        for (var i = 0; i < validMask.length; i++) if (validMask[i]) n++;
+        return n;
+      },
+      keyMs: function () { return keyMs; },
+      onReady: function (cb) { if (typeof cb === 'function') listeners.push(cb); },
+      _test: { buildCell: buildCell, SUBJECT_RATIO: SHARD_SUBJECT_RATIO }
+    };
+  })();
+
   /* ---------- 动效参数 ---------- */
-  var FLY_MS = 420;        /* 飞出动画 */
+  var FLY_MS = 420;        /* 飞出动画（Δ27a 起飞行由 FLIGHT_* 常量接管，此项仅历史保留） */
   var BLOCK_MS = 180;      /* 受阻原地微震 */
   var REVEAL_MS = 380;     /* Δ7 次顶层暴露上浮 */
   var REVEAL_DELAY = 180;  /* Δ7 上浮延迟（等飞出滑块让位） */
@@ -628,12 +830,43 @@
   var SHARD_LIFE_MAX = 900;
   var SHARD_COUNT_MIN = 48;
   var SHARD_COUNT_MAX = 60;  /* T084: 碎片数 MUST 落入 45~60 区间（Δ19e/FR-049） */
-/* Δ20/T093: 顶部待消槽全屏白瓷碎片瀑布（3 槽 × 45 = 135 枚） */
-var DOCK_SHARD_PER_SLOT = 30;
-var DOCK_SHARD_TOTAL = 90;
-var DOCK_SHARD_LIFE_MIN = 480;
-var DOCK_SHARD_LIFE_MAX = 480;
-var DOCK_SHARD_GRAVITY = 920; /* px/s² */
+/* Δ20/T093 → Δ27c/T135~T136: 顶部待消槽全屏 3D 碎块瀑布
+ *   · 数量收口 120~150 枚（原固定 90 枚，与 FR-049 §2 不符）
+ *   · 三级尺寸按素材可见长边换算：大 26~40 / 中 14~24 / 小 8~14
+ *   · 配比沿用 FR-049 §3 的 15% / 45% / 40%
+ *   · 重力 920 → 2600 px/s²（原值偏轻是「慢吞吞飘落」的主因）
+ *   · 生命周期恒定 480 → 420~620ms 区间随机 */
+var DOCK_SHARD_TOTAL_MIN = 120;
+var DOCK_SHARD_TOTAL_MAX = 150;
+var DOCK_SHARD_LIFE_MIN = 420;
+var DOCK_SHARD_LIFE_MAX = 620;
+var DOCK_SHARD_GRAVITY = 2600;      /* px/s²（Δ27c：原 920 太飘） */
+var DOCK_SHARD_VY_MIN = 300;        /* 向下初速下限 px/s */
+var DOCK_SHARD_VX_MIN = 120;        /* 水平分量 |vx| 下限 px/s */
+var DOCK_SHARD_VX_MAX = 520;        /* 水平分量 |vx| 上限 px/s */
+var DOCK_SHARD_VR_MIN = 4;          /* 角速度下限 rad/s */
+var DOCK_SHARD_RATIO_LARGE = 0.15;
+var DOCK_SHARD_RATIO_MEDIUM = 0.45;
+var DOCK_SHARD_SIZE_LARGE = [26, 40];
+var DOCK_SHARD_SIZE_MEDIUM = [14, 24];
+var DOCK_SHARD_SIZE_SMALL = [8, 14];
+var DOCK_SHARD_ATLAS_KINDS_MIN = 6; /* 同一帧内至少 6 种不同切片 */
+
+/* Δ27a / FR-053: 卡牌点击方向性飞行轨迹（纯表现层）
+ *   U（朝上）    —— 单段直飞入槽，<= 240ms
+ *   L / R / D    —— 两段制：先顺箭头滑出棋盘（<= 140ms），再自槽位上沿落入，
+ *                   总时长 <= 320ms
+ *   全段 alpha >= 0.55（MUST NOT 中途淡出到不可辨） */
+var FLIGHT_U_MS = 220;              /* U 向单段（上限 240） */
+var FLIGHT_EXIT_MS_MIN = 80;        /* 离场段下限 */
+var FLIGHT_EXIT_MS_MAX = 140;       /* 离场段上限（FR-053 §4） */
+var FLIGHT_DROP_MS = 170;           /* 落槽段 */
+var FLIGHT_TOTAL_MS_MAX = 320;      /* L/R/D 总时长上限 */
+var FLIGHT_ALPHA_MIN = 0.55;        /* 全段 alpha 下限 */
+var FLIGHT_EXIT_SPEED = 1.9;        /* 离场段基准速度 px/ms ≈ 1900px/s */
+var FLIGHT_END_SCALE = 0.82;        /* 落定时等比缩至槽内卡片量级（44/57≈0.77） */
+var FLIGHT_DROP_SCALE0 = 0.92;      /* 落槽段起点缩放 */
+var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接落定 */
 
   /* ---------- 通用工具 ---------- */
   var RENDER_DPR = 1;
@@ -974,11 +1207,20 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
   /* =========================================================
    * Δ22c / FR-052：15 种开局卡牌进场编舞（纯运动学表现层）
    *
-   * 时序（ms，自 startDeal 起算）：
-   *   0 ~ 180        纯背景留白——全盘 alpha=0，仅透出关卡风景底图
-   *   180 ~ 520      各模式排序权重 ord∈[0,1] 线性映射的基准延迟区间
-   *   + z * 55       层高补偿（**恒正**——永远先落底层、后落顶层）
-   *   + 260          单卡持续时长
+   * 时序（ms，自 startDeal 起算）——Δ27b §10 起改为**按牌数自适应**：
+   *   0 ~ 180              纯背景留白——全盘 alpha=0，仅透出关卡风景底图
+   *   180 ~ 180+spread     逐牌错峰起点（spread = max(260, (N-1)×12)）
+   *   + z × 55             层高补偿（**恒正**——永远先落底层、后落顶层）
+   *   + 260                单卡持续时长
+   *
+   *   total = 180 + max(260, (N-1)×12) + 260 + 55×zMax
+   *   实测：L1(N=18,z=0)=700ms / L46(N=84,z=2)=1546ms / L33(N=141,z=4)=2340ms
+   *
+   * Δ27b §9 为什么必须逐牌错峰（而不是固定 340ms 展开期）：
+   *   旧式 delay = LEAD + ord×340 + z×55 在满载盘（N=141）下单帧在途
+   *   ≈ 141×260/340 ≈ 108 张 —— 这就是用户报告的「一大坨同时砸下来」。
+   *   改为「按编舞序 rank 均匀错峰、步长 >= 12ms」后单帧在途恒 <= 22 张
+   *   （260/12 ≈ 21.7），逐张可辨。
    *
    * 安全不变量（MUST）：
    *   ① 绘制顺序 100% 复用静态层同一比较器
@@ -988,11 +1230,18 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
    *      卡牌 100% 精确落在 getTileCssRect 给出的标准网格坐标；
    *   ③ 编舞期间不触发任何 Solver / 关卡生成 / 持久化写入。
    * ========================================================= */
-  var INTRO_LEAD_MS = 180;      /* 纯背景留白（兼作解码/预排版窗口） */
-  var INTRO_SPREAD_MS = 340;    /* 基准延迟展开量 → 180~520ms */
-  var INTRO_Z_STEP_MS = 55;     /* 每层 +55ms（零穿模的关键） */
-  var INTRO_TILE_MS = 260;      /* 单卡进场持续时长 */
-  var INTRO_TICK_AT = 0.85;     /* 落盘定格瞬间 → 落牌涟漪音 */
+  var INTRO_LEAD_MS = 180;        /* 纯背景留白（兼作解码/预排版窗口） */
+  var INTRO_STAGGER_MS = 12;      /* 逐牌错峰步长（硬下限——见 §9） */
+  var INTRO_SPREAD_MIN_MS = 260;  /* 展开期下限（小盘保护——避免「啪一下全出来」） */
+  var INTRO_Z_STEP_MS = 55;       /* 每层 +55ms（零穿模的关键，常量不许改） */
+  var INTRO_TILE_MS = 260;        /* 单卡进场持续时长（常量不许改） */
+  var INTRO_TICK_AT = 0.85;       /* 落盘定格瞬间 → 落牌涟漪音 */
+  var INTRO_ALPHA0 = 0.62;        /* Δ27b §8 入场起点透明度（>= 0.55——不再从 0 起跳发灰） */
+  var INTRO_ALPHA_MIN_SAFE = 0.55;/* 起点透明度硬下限（FR-052 §8） */
+  var INTRO_ALPHA_FULL_AT = 0.35; /* 入场进度 35% 内 alpha 必须达到 1.0 */
+  var INTRO_SCALE_MAX = 1.15;     /* 等比放大上限（超出即令 256² 切片上采样发虚） */
+  var INTRO_SCALE_MIN = 0.2;      /* 等比缩小起点下限 */
+  var INTRO_NONUNI_MIN = 0.55;    /* 非等比压缩较小轴下限（低于此值图案即「糊」） */
   var INTRO_MODES = [
     'diagonal_cascade', 'center_ripple', 'outer_converge', 'spiral_vortex',
     'wings_clasp', 'sky_rain', 'layer_stack', 'zipper_interleave',
@@ -1023,14 +1272,146 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
   }
 
   /* =========================================================
+   * introSchedule —— 错峰排程的**纯函数**（Δ27b §9）
+   * 「逐张可辨 + 零穿模」两条互斥约束的唯一出口，可离线断言。
+   *
+   *   entries : [{ z, key }]，数组顺序 = 编舞序（buildIntroPlan 的 ord 排序结果）
+   *             key = 渲染坐标（`r,c`）——同 key 即同像素位置（会叠在一起）
+   *   zMax    : 棋盘最大层高
+   *   → { list: [{ idx, z, delay }], step, spread, totalMs }
+   *
+   * 三步，三个不变量：
+   *   ① spread = max(260, (N-1)×12) + zMax×55（容量自适应，见 FR-052 §10）
+   *   ② **同坐标层序锁**：把同一 (r,c) 组占用的槽位按升序重新分配给
+   *      z 升序的成员——槽位集合不变（展开期/步长/在途上限全不受影响），
+   *      仅组内重排，于是「同坐标先底层后顶层」从启发式变成**硬保证**。
+   *      （旧式 delay = LEAD + i×12 + z×55 只在高层不早于低层 4 个名次时成立，
+   *       实测 15 模式中有模式越界 → 会穿模）
+   *   ③ delay = LEAD + 最终名次×step → 相邻恒差 step >= 12ms，
+   *      单帧在途恒 <= ceil(260/12) = 22 张
+   * ========================================================= */
+  function introSchedule(entries, zMax) {
+    var src = entries || [];
+    var cnt = src.length || 1;
+    var zz = zMax > 0 ? zMax : 0;
+    var spread = Math.max(INTRO_SPREAD_MIN_MS, (cnt - 1) * INTRO_STAGGER_MS) + zz * INTRO_Z_STEP_MS;
+    var step = cnt > 1 ? spread / (cnt - 1) : 0;
+    var i;
+
+    /* ① 初始槽位：编舞序 × step（槽位集合 = 最终落点集合，只做组内重排） */
+    var slots = [];
+    for (i = 0; i < src.length; i++) slots.push(i * step);
+
+    /* ② 同坐标层序锁 */
+    var groups = {};
+    for (i = 0; i < src.length; i++) {
+      var gk = src[i].key != null ? String(src[i].key) : ('#' + i);
+      if (!groups[gk]) groups[gk] = [];
+      groups[gk].push(i);
+    }
+    var base = slots.slice();
+    for (var k in groups) {
+      if (!Object.prototype.hasOwnProperty.call(groups, k)) continue;
+      var idxs = groups[k];
+      if (idxs.length < 2) continue;
+      var used = [];
+      for (i = 0; i < idxs.length; i++) used.push(slots[idxs[i]]);
+      used.sort(function (a, b) { return a - b; });
+      idxs.sort(function (a, b) {
+        var az = src[a].z || 0, bz = src[b].z || 0;
+        if (az !== bz) return az - bz;
+        return a - b;
+      });
+      for (i = 0; i < idxs.length; i++) base[idxs[i]] = used[i];
+    }
+
+    /* ③ 按槽位定最终名次 → 均匀落点 */
+    var keyed = [];
+    for (i = 0; i < src.length; i++) keyed.push({ idx: i, z: src[i].z || 0, base: base[i] });
+    keyed.sort(function (a, b) { return a.base - b.base || a.idx - b.idx; });
+    var out = [];
+    for (i = 0; i < keyed.length; i++) {
+      out.push({ idx: keyed[i].idx, z: keyed[i].z, delay: INTRO_LEAD_MS + i * step });
+    }
+    return { list: out, step: step, spread: spread, totalMs: INTRO_LEAD_MS + spread + INTRO_TILE_MS };
+  }
+
+  /* =========================================================
+   * 飞行运动学（模块级纯函数——离线可断言，不依赖实例状态）
+   * ========================================================= */
+  function quadBez(a, b, c, t) {
+    var u = 1 - t;
+    return u * u * a + 2 * u * t * b + t * t * c;
+  }
+  function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+  function smoothstep(a, b, v) {
+    var t = clamp01((v - a) / ((b - a) || 1e-6));
+    return t * t * (3 - 2 * t);
+  }
+
+  /* 飞行位置/缩放/透明度
+   *   U（dir=0）：单段二次贝塞尔，控制点上提 74% → 轻微上扬后俯冲入槽
+   *   L/R/D    ：两段制——① 顺箭头加速滑出棋盘矩形（p²）② 自 toY-dropH 落入
+   * 全段 alpha 恒 1（MUST NOT 淡出——那是「飞到半空消失」的成因） */
+  function flightPos(f, el) {
+    if (f.reduced) {
+      return { x: f.toX, y: f.toY, sx: 1, sy: 1, alpha: 1, p: 1, phase: 'drop' };
+    }
+    if (f.dir === 0) {
+      var p = clamp01(el / f.dur);
+      var e = introEaseOutCubic(p);
+      var cx = f.fromX + (f.toX - f.fromX) * 0.18;
+      var cy = f.fromY - (f.fromY - f.toY) * 0.74;
+      var s = 1 - (1 - FLIGHT_END_SCALE) * smoothstep(0.62, 1, p);
+      return {
+        x: quadBez(f.fromX, cx, f.toX, e),
+        y: quadBez(f.fromY, cy, f.toY, e),
+        sx: s, sy: s, alpha: 1, p: p, phase: 'board'
+      };
+    }
+    if (el <= f.dur1) {
+      var p1 = clamp01(el / f.dur1);
+      var e1 = p1 * p1; /* 加速滑出 */
+      var k = f.d1 * e1;
+      return {
+        x: f.fromX + f.dx * k,
+        y: f.fromY + f.dy * k,
+        sx: 1, sy: 1, alpha: 1, p: p1, phase: 'exit'
+      };
+    }
+    var p2 = clamp01((el - f.dur1) / f.dur2);
+    var e2 = introEaseOutCubic(p2);
+    var s2 = FLIGHT_DROP_SCALE0 + (FLIGHT_END_SCALE - FLIGHT_DROP_SCALE0) * e2;
+    return {
+      x: f.toX,
+      y: f.toY - (1 - e2) * f.dropH,
+      sx: s2, sy: s2, alpha: 1, p: p2, phase: 'drop'
+    };
+  }
+
+  /* 牌矩形是否与棋盘矩形相交（画布 CSS 坐标系）→ 决定 board / offboard 段 */
+  function flightSegOf(pos, cellPx, cssSizePx) {
+    var hw = cellPx * 0.5 * (pos.sx || 1);
+    var hh = cellPx * 0.5 * (pos.sy || 1);
+    if (pos.x + hw <= 0 || pos.x - hw >= cssSizePx) return 'offboard';
+    if (pos.y + hh <= 0 || pos.y - hh >= cssSizePx) return 'offboard';
+    return 'board';
+  }
+
+  /* =========================================================
    * introSpecOf —— 15 种编舞的**纯函数**规格表（可离线断言）
    *   mode   : 0..14
    *   t      : 渲染探针 tile（需 r / c / z / d / id）
    *   n      : 棋盘边长（格）
    *   rank   : 该牌在 id 升序中的序号（deck_deal 发牌序）
    *   total  : 卡牌总数
-   * 返回 { ord∈[0,1], ox, oy (px), oxc, oyc (格), sx, sy, a0, ease }
-   *   ord 越大 → 越晚落定
+   * 返回 { ord∈[0,1], ox, oy (px), oxc, oyc (格), sx, sy, a0, ease, wipe }
+   *   ord  越大 → 越晚落定
+   *   a0   入场起点透明度 —— Δ27b §8 恒 >= 0.55（不再从 0 起跳，否则图案
+   *        前三分之一时长始终「发灰」，正是用户报告的模糊感来源之一）
+   *   wipe true → 遮罩揭示（逐帧变宽的水平裁切），sx/sy 恒 1；
+   *        替代 blinds_flip 旧式的 scaleX 0.05 几何压缩（非等比压到 0.05
+   *        时图案已严重变形、观感即「糊」，Δ27b §8 明令禁止）
    * ========================================================= */
   function introSpecOf(mode, t, n, rank, total) {
     var r = t.r || 0, c = t.c || 0;
@@ -1039,7 +1420,7 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     var z = t.z || 0;
     var totalN = total > 1 ? total : 1;
     var cd = introDist01(r, c, nn);
-    var out = { ord: 0, ox: 0, oy: 0, oxc: 0, oyc: 0, sx: 1, sy: 1, a0: 0, ease: 'cubic' };
+    var out = { ord: 0, ox: 0, oy: 0, oxc: 0, oyc: 0, sx: 1, sy: 1, a0: INTRO_ALPHA0, ease: 'cubic', wipe: false };
 
     switch (mode) {
       case 0: /* diagonal_cascade —— 对角瀑布流：左上 → 右下斜向波浪落下 */
@@ -1048,8 +1429,7 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
         break;
       case 1: /* center_ripple —— 中心涟漪绽放：由近及远 Ease-Out-Back 弹出 */
         out.ord = cd.d;
-        out.sx = out.sy = 0.2;
-        out.a0 = 0.3;
+        out.sx = out.sy = INTRO_SCALE_MIN; /* 0.2 起（等比，不受非等比下限约束） */
         out.ease = 'back';
         break;
       case 2: /* outer_converge —— 外环聚拢：由远及近，自外 60px 向内滑入 */
@@ -1108,13 +1488,13 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
           : 0.5 + (r / (nn - 1)) * 0.45;
         out.oy = -40;
         out.sx = out.sy = 0.7;
-        out.a0 = 0.25;
         break;
-      case 11: /* blinds_flip —— 百叶窗翻转：按列从左到右 scaleX 0.05→1 展开 */
+      case 11: /* blinds_flip —— 百叶窗揭示：按列从左到右**遮罩逐帧变宽**
+       * Δ27b §8: 旧式 scaleX 0.05 属非等比几何压缩，图案被压到原宽 5% 时
+       * 已严重变形（观感即「糊」），且 min(sx,sy)=0.05 < 0.55 违反下限。
+       * 现改为等尺寸 + 水平裁切揭示：牌体始终 1:1 绘制，只裁可见宽度。 */
         out.ord = c / (nn - 1);
-        out.sx = 0.05;
-        out.sy = 1;
-        out.a0 = 0.15;
+        out.wipe = true;
         break;
       case 12: /* deck_deal —— 中心发牌式：起点=棋盘正中，按 id 序飞散铺开 */
         out.ord = rank / (totalN - 1);
@@ -1142,6 +1522,23 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     if (!isFinite(out.ord)) out.ord = 0;
     if (out.ord < 0) out.ord = 0;
     if (out.ord > 1) out.ord = 1;
+    /* Δ27b §8 清晰度硬边界（纯函数层收口，杜绝任何模式越界）：
+     *   ① 等比放大 <= 1.15（超出即令 256² 图标切片上采样发虚）
+     *   ② 等比缩小起点 >= 0.2
+     *   ③ 非等比压缩较小轴 >= 0.55（低于此值图案严重变形）
+     *   ④ 起点透明度 >= 0.55（不从 0 起跳） */
+    if (!(out.sx > 0)) out.sx = 1;
+    if (!(out.sy > 0)) out.sy = 1;
+    if (out.sx > INTRO_SCALE_MAX) out.sx = INTRO_SCALE_MAX;
+    if (out.sy > INTRO_SCALE_MAX) out.sy = INTRO_SCALE_MAX;
+    if (out.sx < INTRO_SCALE_MIN) out.sx = INTRO_SCALE_MIN;
+    if (out.sy < INTRO_SCALE_MIN) out.sy = INTRO_SCALE_MIN;
+    var nonUni = Math.abs(out.sx - out.sy) > 0.1;
+    if (nonUni) {
+      if (out.sx < INTRO_NONUNI_MIN) out.sx = INTRO_NONUNI_MIN;
+      if (out.sy < INTRO_NONUNI_MIN) out.sy = INTRO_NONUNI_MIN;
+    }
+    if (!(out.a0 >= INTRO_ALPHA_MIN_SAFE)) out.a0 = INTRO_ALPHA_MIN_SAFE;
     return out;
   }
 
@@ -1234,6 +1631,21 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
      * 使抖动天然遵守 z 序。 */
     var blockDx = {};
 
+    /* ---------- Δ27a / FR-053: 方向性飞行运行态 ----------
+     * flights     : 在途飞行表（每张牌一条，独立计时，互不取消）
+     * pendingDock : tileId → slotIndex —— `dock` 事件（RulesEngine:410/549/667）
+     *               先于 `flyout` 下发（GameState:277），据此做 1:1 精确配对；
+     *               废弃旧 `lastDockSlot` 全局推测（连点时必然错位）
+     * dockSlotGeo : slotIndex → 画布坐标中心（缓存；**严禁逐帧读 DOM**——
+     *               getBoundingClientRect() 会强制同步布局） */
+    var flights = [];
+    var pendingDock = {};
+    /* Δ27a/FR-053 §5：本帧静态层的实际绘制序（tileId 序列）——仅供门禁断言
+     * 「飞行牌与静止牌共用同一 (z,r,c) 升序」，不参与运行时逻辑。 */
+    var lastDrawOrder = [];
+    var dockSlotGeo = null;
+    var dockSlotGeoLen = 0;
+
     /* ---------- Δ22c/T111: 开局进场编舞运行态 ---------- */
     var introAnim = null;        /* { startTime, mode, active, totalMs } */
     var introPlan = null;        /* tileId → { delay, ord, ox, oy, oxc, oyc, sx, sy, a0, ease } */
@@ -1295,6 +1707,9 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       lastCellN = lastProbe ? lastProbe.n : 0;
       setBitmapSize(side);
       computeLayout(lastCellN || 5);
+      /* Δ27a/FR-053 §3: 棋盘矩形 / 缩放比变化 → 待消槽几何缓存必须作废
+       * （窗口缩放、方向切换后飞行终点重新取实时 getBoundingClientRect） */
+      invalidateDockGeometry();
       markDirty();
     }
 
@@ -1408,16 +1823,42 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     }
     function dealTotalMs() { return introAnim ? (introAnim.totalMs || 0) : 0; }
 
-    /* 剩余时长（main.js 据此把挑战横幅/教学卡推迟到编舞完成之后） */
+    /* 剩余时长（main.js 据此把挑战横幅/教学卡推迟到编舞完成之后）
+     * Δ27b §10: 兜底常量改为**按公式**（180 + max(260,(N-1)×12) + 260 + 55×zMax）。
+     * 闸门 MUST 读本函数而非常量——点击快进会让实际剩余提前归零。 */
     function dealRemainingMs() {
       if (!introAnim || !introAnim.active) return 0;
-      var total = introAnim.totalMs ||
-        (INTRO_LEAD_MS + INTRO_SPREAD_MS + 4 * INTRO_Z_STEP_MS + INTRO_TILE_MS);
+      var total = introAnim.totalMs || introDealTotalMs(
+        (lastProbe && lastProbe.tiles) ? lastProbe.tiles.length : 18,
+        introMaxZOf()
+      );
       var left = introAnim.startTime + total - nowMs();
       return left > 0 ? left : 0;
     }
 
-    /* 构建逐牌计划（延迟 / 起点偏移 / 起点缩放 / 起点透明度） */
+    /* FR-052 §10 权威时长公式（纯函数——可离线断言） */
+    function introDealTotalMs(n, zMax) {
+      var cnt = n > 0 ? n : 1;
+      var zz = zMax > 0 ? zMax : 0;
+      var spread = Math.max(INTRO_SPREAD_MIN_MS, (cnt - 1) * INTRO_STAGGER_MS);
+      return INTRO_LEAD_MS + spread + INTRO_TILE_MS + INTRO_Z_STEP_MS * zz;
+    }
+    function introMaxZOf() {
+      var tiles = (lastProbe && lastProbe.tiles) ? lastProbe.tiles : [];
+      var zMax = 0;
+      for (var i = 0; i < tiles.length; i++) {
+        var z = tiles[i].z || 0;
+        if (z > zMax) zMax = z;
+      }
+      return zMax;
+    }
+
+    /* 构建逐牌计划（延迟 / 起点偏移 / 起点缩放 / 起点透明度）
+     *
+     * Δ27b §9 逐牌错峰：先按编舞序 ord 排序，同 ord 再按 (z, r, c, id) 打破并列
+     * → 每张牌拿到**唯一** rank → 步长 = spread / (N-1) >= 12ms（N 大时恰为 12）。
+     * 这样单帧在途恒 ≈ 260/12 ≈ 22 张，逐张可辨；旧式「ord×固定展开期」在
+     * 对角/涟漪等模式上会产生大量并列 ord（满载时单帧在途 ≈ 108 张）。 */
     function buildIntroPlan() {
       if (!introAnim || !lastProbe) return null;
       var n = layout.n || lastProbe.n || 0;
@@ -1432,30 +1873,65 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       var rankOf = {};
       for (i = 0; i < sorted.length; i++) rankOf[sorted[i].id] = i;
 
-      var plan = {};
-      var maxEnd = 0;
-      var maxDelay = INTRO_LEAD_MS;
+      /* ① 逐牌规格 + 编舞序（ord） */
+      var items = [];
+      var zMax = 0;
       for (i = 0; i < list.length; i++) {
         var t = list[i];
         var sp = introSpecOf(introAnim.mode, t, n, rankOf[t.id] || 0, total);
-        /* 层高补偿恒正 → 同一渲染坐标永远先落底层、后落顶层（零穿模） */
-        var delay = INTRO_LEAD_MS + sp.ord * INTRO_SPREAD_MS + (t.z || 0) * INTRO_Z_STEP_MS;
-        plan[t.id] = {
-          delay: delay,
-          ord: sp.ord,
-          ease: sp.ease,
-          ox: sp.ox, oy: sp.oy, oxc: sp.oxc, oyc: sp.oyc,
-          sx: sp.sx, sy: sp.sy, a0: sp.a0
-        };
-        if (delay + INTRO_TILE_MS > maxEnd) maxEnd = delay + INTRO_TILE_MS;
-        if (delay > maxDelay) maxDelay = delay;
+        if ((t.z || 0) > zMax) zMax = t.z || 0;
+        items.push({ t: t, sp: sp });
       }
-      introAnim.totalMs = maxEnd;
+      /* ② 排序：ord → z → r → c → id（并列时低层先落，空间连续推进不跳跃） */
+      items.sort(function (a, b) {
+        if (a.sp.ord !== b.sp.ord) return a.sp.ord - b.sp.ord;
+        var az = a.t.z || 0, bz = b.t.z || 0;
+        if (az !== bz) return az - bz;
+        if (a.t.r !== b.t.r) return a.t.r - b.t.r;
+        if (a.t.c !== b.t.c) return a.t.c - b.t.c;
+        return a.t.id - b.t.id;
+      });
+      /* ③ 展开期 = max(260, (N-1)×12) + 层补偿总量；步长 = 展开期 / (N-1)
+       *
+       *   ⚠ Δ27b 修正：层高补偿 z×55 **只作排序键、不直接叠加到 delay**。
+       *   若写成 delay = LEAD + i×12 + z×55，由于 gcd(12,55)=1，相邻 delay
+       *   会被挤到最小 2ms（实测 L33 N=141 单帧在途峰值 35 张 > 硬上限 22 张，
+       *   即用户报告的「一大坨」）。改为「先按 (编舞序 + 层高补偿) 排序，
+       *   再按最终名次均分」，步长恒 >= 12ms、单帧在途恒 <= ceil(260/12)=22 张，
+       *   且层高补偿仍严格为正 → 同坐标永远先落底层后落顶层（零穿模不变）。 */
+      var sched = introSchedule(items.map(function (o) {
+        return { z: o.t.z || 0, key: o.t.r + ',' + o.t.c };
+      }), zMax);
+      var step = sched.step;
+
+      var plan = {};
+      for (i = 0; i < sched.list.length; i++) {
+        var slot = sched.list[i];
+        var it = items[slot.idx];
+        var tt = it.t;
+        var spp = it.sp;
+        plan[tt.id] = {
+          delay: slot.delay,
+          ord: spp.ord,
+          ease: spp.ease,
+          ox: spp.ox, oy: spp.oy, oxc: spp.oxc, oyc: spp.oyc,
+          sx: spp.sx, sy: spp.sy, a0: spp.a0, wipe: spp.wipe === true
+        };
+      }
+      var maxDelay = INTRO_LEAD_MS + sched.spread;
+      introAnim.totalMs = Math.max(maxDelay + INTRO_TILE_MS, introDealTotalMs(total, zMax));
       introAnim.maxDelay = maxDelay;
+      introAnim.stepMs = step;
+      introAnim.zMax = zMax;
       return plan;
     }
 
-    /* 每帧变换：返回 null 表示「已归位」→ 调用方走静态路径（坐标 100% 精确） */
+    /* 每帧变换：返回 null 表示「已归位」→ 调用方走静态路径（坐标 100% 精确）
+     * Δ27b §8 清晰度口径：
+     *   · alpha 从 a0(>=0.55) 起跳，并在入场进度 35% 内达到 1.0 后保持
+     *     （旧式 ae*1.6 在 back 缓动下会拖到 40%+，前段持续发灰）
+     *   · wipe=true（blinds_flip）→ 返回水平揭示进度，牌体本身零几何压缩
+     *   · 落定（p>=1）立刻返回 null → 静态路径，无残留亚像素偏移 */
     function introTransformOf(t, now) {
       if (!introAnim || !introAnim.active) return null;
       if (!introPlan) introPlan = buildIntroPlan();
@@ -1467,25 +1943,27 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       var oyPx = rec.oy + rec.oyc * cell;
       if (el <= 0) {
         /* 尚未开始：完全隐形（0~180ms 纯底图留白期的唯一表现） */
-        return { p: 0, dx: oxPx, dy: oyPx, sx: rec.sx, sy: rec.sy, alpha: 0 };
+        return { p: 0, dx: oxPx, dy: oyPx, sx: rec.sx, sy: rec.sy, alpha: 0, wipe: 0 };
       }
       var p = el / INTRO_TILE_MS;
       if (p >= 1) return null; /* 定格 → 静态路径 */
       if (reducedMotion) {
         /* prefers-reduced-motion: reduce → 无位移/无旋转/无缩放，仅一次性淡入 */
-        var ar = p < 0 ? 0 : p;
-        return { p: p, dx: 0, dy: 0, sx: 1, sy: 1, alpha: rec.a0 + (1 - rec.a0) * ar };
+        var ar = clamp01(p / INTRO_ALPHA_FULL_AT);
+        return { p: p, dx: 0, dy: 0, sx: 1, sy: 1, alpha: rec.a0 + (1 - rec.a0) * ar, wipe: 1 };
       }
       var e = introEase(rec.ease, p);
       var k = 1 - e;
       var ae = e < 0 ? 0 : (e > 1 ? 1 : e);
+      var af = clamp01(ae / INTRO_ALPHA_FULL_AT);
       return {
         p: p,
         dx: oxPx * k,
         dy: oyPx * k,
         sx: 1 + (rec.sx - 1) * k,
         sy: 1 + (rec.sy - 1) * k,
-        alpha: rec.a0 + (1 - rec.a0) * Math.min(1, ae * 1.6)
+        alpha: rec.a0 + (1 - rec.a0) * af,
+        wipe: rec.wipe ? ae : 1
       };
     }
 
@@ -1533,6 +2011,157 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       return true;
     }
 
+    /* =========================================================
+     * Δ27a / FR-053：卡牌点击方向性飞行轨迹
+     *
+     * 绘制纪律（本模块最易复发的回归红线）：
+     *   ① 飞行牌**不**从 renderList 剔除——由 flightOf() 在 drawBoardTile 内
+     *      施加位移/缩放/透明度，与 blockDx / introTransformOf 完全同构，
+     *      因此天然遵守 draw() 的 (z,r,c) 升序比较器（**本体零改动**）。
+     *   ② 卡牌中心越出棋盘矩形后（seg === 'offboard'）才退出该序单独绘制。
+     *      棋盘画布只覆盖棋盘方格，够不到顶部待消槽；故离场段改由全屏
+     *      #vfx-canvas 承载——**没有新增 canvas 元素**，沿用既有 VFX 层。
+     *   ③ 跨界那一帧用「棋盘内/外」两块互补裁剪缝合：
+     *      棋盘画布画矩形内的部分、#vfx-canvas 画矩形外的部分（even-odd
+     *      裁剪），边界处严丝合缝 → 零 pop、零越序遮挡。
+     *   ④ 终点 MUST 取目标 `.slot` 的实时 getBoundingClientRect() 中心，
+     *      **禁止**再用 slotX = (slot+0.5)/7*cssSize 比例换算。
+     * ========================================================= */
+
+    /* 几何缓存失效（窗口缩放 / 方向切换 / 待消槽重排后必须重算） */
+    function invalidateDockGeometry() {
+      dockSlotGeo = null;
+      dockSlotGeoLen = 0;
+    }
+
+    /* slotIndex → 画布 CSS 坐标中心（缓存查表；DOM 缺失时给确定性兜底） */
+    function dockSlotCenters() {
+      if (dockSlotGeo && dockSlotGeo.length === dockSlotGeoLen && dockSlotGeoLen > 0) return dockSlotGeo;
+      var out = [];
+      var br = null;
+      if (typeof canvas.getBoundingClientRect === 'function') {
+        try { br = canvas.getBoundingClientRect(); } catch (eBr) { br = null; }
+      }
+      var k = (br && br.width > 0 && cssSize > 0) ? (br.width / cssSize) : 1;
+      var nodes = null;
+      if (typeof document !== 'undefined' && document.querySelectorAll) {
+        try { nodes = document.querySelectorAll('#dock .slot'); } catch (eQ) { nodes = null; }
+      }
+      if (br && nodes && nodes.length) {
+        for (var i = 0; i < nodes.length && i < 7; i++) {
+          var r = nodes[i] && nodes[i].getBoundingClientRect ? nodes[i].getBoundingClientRect() : null;
+          if (!r || !(r.width > 0)) { out.push(null); continue; }
+          out.push({
+            x: (r.left + r.width / 2 - br.left) / k,
+            y: (r.top + r.height / 2 - br.top) / k
+          });
+        }
+      }
+      /* 兜底（Node 自测 / DOM 尚未渲染）：沿用 7 等分横向比例 + 棋盘上方一行 */
+      if (!out.length) {
+        for (var j = 0; j < 7; j++) out.push({ x: (j + 0.5) / 7 * cssSize, y: -cell * 1.35 });
+      }
+      dockSlotGeo = out;
+      dockSlotGeoLen = out.length;
+      return out;
+    }
+
+    function flightOf(tileId) {
+      for (var i = 0; i < flights.length; i++) if (flights[i].tileId === tileId) return flights[i];
+      return null;
+    }
+
+    /* 该牌是否「已入槽但尚未落定」——main.js 据此把对应槽位保持在空槽态 */
+    function dockPending(tileId) {
+      if (pendingDock[tileId] != null) return true;
+      return !!flightOf(tileId);
+    }
+
+    /* 启动一次飞行。slotIndex 省略 → 取 pendingDock 精确配对，再退 lastDockSlot */
+    function startFlight(tileId, slotIndex, dirHint) {
+      var t = tileInfo[tileId] || null;
+      if (!t) return null; /* 无几何缓存（异常路径）→ 不飞，直接落定 */
+      var idx = slotIndex;
+      if (idx == null || !isFinite(idx)) idx = pendingDock[tileId];
+      if (idx == null || !isFinite(idx)) idx = lastDockSlot;
+      idx = Math.max(0, Math.min(6, idx | 0));
+
+      var rec = getTileCssRect(t, layout);
+      var fx = rec.x + rec.w / 2;
+      var fy = rec.y + rec.h / 2;
+      var centers = dockSlotCenters();
+      var c0 = centers[idx] || centers[0] || { x: cssSize / 2, y: -cell * 1.35 };
+      var tx = c0.x;
+      var ty = c0.y;
+
+      var d = (dirHint != null) ? (dirHint | 0) : (t.d | 0);
+      if (d < 0 || d > 3) d = 0;
+
+      var f = {
+        tileId: tileId,
+        dir: d,
+        slotIndex: idx,
+        seg: 'board',
+        t0: nowMs(),
+        fromX: fx, fromY: fy,
+        toX: tx, toY: ty,
+        eased: 'cubic',
+        dur: FLIGHT_U_MS,
+        dur1: 0,
+        dur2: 0,
+        d1: 0,
+        dx: 0, dy: 0,
+        dropH: cell * 1.15
+      };
+
+      if (reducedMotion) {
+        /* prefers-reduced-motion: reduce → 零位移直接落定（保留落槽音与槽位揭示） */
+        f.dur = FLIGHT_REDUCED_MS;
+        f.reduced = true;
+        f.fromX = tx; f.fromY = ty;
+      } else if (d !== 0) {
+        /* L / R / D：先沿自身箭头方向加速滑出棋盘矩形 */
+        var half = cell * 0.5;
+        var exitDist;
+        if (d === 3) exitDist = fx + half;                 /* L */
+        else if (d === 1) exitDist = cssSize - fx + half;  /* R */
+        else exitDist = cssSize - fy + half;               /* D */
+        var d1 = Math.max(cell * 0.6, exitDist) * 1.06;
+        var dur1 = Math.max(FLIGHT_EXIT_MS_MIN, Math.min(FLIGHT_EXIT_MS_MAX, d1 / FLIGHT_EXIT_SPEED));
+        f.d1 = d1;
+        f.dur1 = dur1;
+        f.dur2 = FLIGHT_DROP_MS;
+        f.dur = Math.min(FLIGHT_TOTAL_MS_MAX, dur1 + FLIGHT_DROP_MS);
+        f.dx = d === 1 ? 1 : (d === 3 ? -1 : 0);
+        f.dy = d === 2 ? 1 : 0;
+      }
+
+      flights.push(f);
+      markDirty();
+      return f;
+    }
+
+    /* 落定：一次性回调（揭示槽位）→ 出表。异常 MUST 不阻断其余飞行 */
+    function landFlight(f) {
+      try {
+        if (typeof opts.onFlightLand === 'function') opts.onFlightLand(f.tileId, f.slotIndex);
+      } catch (eLand) { /* 单个落定回调异常不影响其余 */ }
+    }
+
+    function cancelFlights() {
+      if (!flights.length && !pendingDockKeys()) return 0;
+      var n = flights.length;
+      flights.length = 0;
+      pendingDock = {};
+      dirty = true;
+      markDirty();
+      return n;
+    }
+    function pendingDockKeys() {
+      for (var k in pendingDock) if (Object.prototype.hasOwnProperty.call(pendingDock, k)) return true;
+      return false;
+    }
+
     /* 动画推进；reveal 过期即移除 */
     function tick(now) {
       var active = false;
@@ -1565,15 +2194,37 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       if (shards.length > 0) active = true;
       for (i = vfxShards.length - 1; i >= 0; i--) {
         var vsh = vfxShards[i];
+        /* Δ27c/T136 物理定标：重力 2600 px/s² 持续加速 + 恒定翻滚。
+         * MUST NOT 施加空气阻力或终速限制（会拖出「先减速→悬停→再飘落」的
+         * 三段式，正是「慢吞吞飘落」的成因）。越过屏幕下沿即回收。 */
         vsh.x += vsh.vx * 0.016;
         vsh.y += vsh.vy * 0.016;
         vsh.vy += DOCK_SHARD_GRAVITY * 0.016;
-        vsh.rot += vsh.vr;
+        vsh.rot += (vsh.vr || 0) * 0.016; /* vr = rad/s */
         vsh.life -= 16;
-        if (vsh.life <= 0) vfxShards.splice(i, 1);
+        if (vsh.life <= 0 || (vsh.y - 80 > vfxViewH())) vfxShards.splice(i, 1);
       }
       if (vfxShards.length > 0) active = true;
       if (particles.length > 0) active = true;
+      /* Δ27a/FR-053: 飞行推进——每张独立计时，落定即回调揭示槽位并出表。
+       * 兜底：超过 dur + 400ms 仍在表内（极端掉帧 / 回调异常）→ 强制落定，
+       * MUST NOT 让卡牌永久滞留不可见。
+       *
+       * ⚠ 顺序铁律：**必须先出表、再回调**。`onFlightLand` 会同步调用 main.js 的
+       * renderDock()，而 renderDock 用 `dockPending(tileId)` 决定槽位是空槽还是
+       * has-tile；若飞行记录仍在表内，dockPending 恒为真 → 槽位永远不揭示
+       * （实测：卡牌已消失但待消槽保持空槽，直到下一次点击才补上）。 */
+      for (i = flights.length - 1; i >= 0; i--) {
+        var fl = flights[i];
+        var fel = now - fl.t0;
+        if (fel >= fl.dur || fel > fl.dur + 400) {
+          flights.splice(i, 1);
+          landFlight(fl);
+          dirty = true;
+        } else {
+          active = true;
+        }
+      }
       /* Δ22c/T111: 开局编舞推进（含逐牌落子涟漪音）——动画期持续请求下一帧 */
       if (introAnim && introAnim.active && tickIntro(now)) active = true;
       return active;
@@ -1645,6 +2296,12 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
         if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 160; maxY = 44; }
         var rw = Math.max(1, maxX - minX);
         var rh = Math.max(1, maxY - minY);
+        /* 出生半径 <= 槽宽（槽宽 = 联合矩形高，即单槽边长） */
+        var slotW = Math.max(28, Math.min(rh, rw / 3));
+        var bx0 = minX - slotW, bx1 = maxX + slotW;
+        var by0 = minY - slotW, by1 = maxY + slotW;
+        var bboxW = Math.max(1, bx1 - bx0);
+        var bboxH = Math.max(1, by1 - by0);
 
         function makeVerts(n, r0) {
           var verts = [];
@@ -1656,36 +2313,98 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
           return verts;
         }
 
-        var total = 90;
-        var largeCount = Math.round(total * 0.15);
-        var mediumCount = Math.round(total * 0.45);
-        var fineCount = total - largeCount - mediumCount;
+        /* ---------- Δ27c/T135: 数量收口 120~150 + 三级尺寸 + 疏密约束 ---------- */
+        var atlasSlices = ShardAtlas.slices(); /* null → 程序化兜底（FR-049 §3） */
+        var total = DOCK_SHARD_TOTAL_MIN +
+          Math.floor(Math.random() * (DOCK_SHARD_TOTAL_MAX - DOCK_SHARD_TOTAL_MIN + 1));
+        var largeCount = Math.round(total * DOCK_SHARD_RATIO_LARGE);
+        var mediumCount = Math.round(total * DOCK_SHARD_RATIO_MEDIUM);
+        var smallCount = total - largeCount - mediumCount;
         var kinds = [];
-        for (var a = 0; a < largeCount; a++) kinds.push('large');
-        for (var b = 0; b < mediumCount; b++) kinds.push('medium');
-        for (var c = 0; c < fineCount; c++) kinds.push('fine');
+        var a, b, c;
+        for (a = 0; a < largeCount; a++) kinds.push('large');
+        for (b = 0; b < mediumCount; b++) kinds.push('medium');
+        for (c = 0; c < smallCount; c++) kinds.push('small');
+        /* 大块优先占位（它们需要更大的净空），再中块、小块 */
+        kinds.sort(function (k1, k2) {
+          var r1 = k1 === 'large' ? 0 : (k1 === 'medium' ? 1 : 2);
+          var r2 = k2 === 'large' ? 0 : (k2 === 'medium' ? 1 : 2);
+          return r1 - r2;
+        });
 
-        for (var ki = 0; ki < kinds.length; ki++) {
+        function sizeRangeOf(kind) {
+          if (kind === 'large') return DOCK_SHARD_SIZE_LARGE;
+          if (kind === 'medium') return DOCK_SHARD_SIZE_MEDIUM;
+          return DOCK_SHARD_SIZE_SMALL;
+        }
+
+        var placed = []; /* { x, y, vis } —— 疏密约束的已占位列表 */
+        var picked = []; /* 已选切片索引（同帧 >= 6 种） */
+        var n = kinds.length;
+        for (var ki = 0; ki < n; ki++) {
           var kind = kinds[ki];
-          var n, r0;
-          if (kind === 'large') { n = 4 + Math.floor(Math.random() * 3); r0 = 12 + Math.random() * 6; }
-          else if (kind === 'medium') { n = 4 + Math.floor(Math.random() * 3); r0 = 6 + Math.random() * 5; }
-          else { n = 4; r0 = 3 + Math.random() * 2; }
-          var verts = (kind === 'fine') ? null : makeVerts(n, r0);
-          var life = DOCK_SHARD_LIFE_MIN + Math.floor(Math.random() * (DOCK_SHARD_LIFE_MAX - DOCK_SHARD_LIFE_MIN + 1));
-          vfxShards.push({
-            x: minX + Math.random() * rw,
-            y: minY + Math.random() * rh,
-            vx: -260 + Math.random() * 300,
-            vy: -80 + Math.random() * 300,
+          var rg = sizeRangeOf(kind);
+          var vis = rg[0] + Math.random() * (rg[1] - rg[0]); /* 可见长边 px */
+          /* 疏密：拒绝采样，中心距 >= 0.5 × min(两者长边) */
+          var px = 0, py = 0, ok = false, bestX = 0, bestY = 0, bestGap = -1;
+          var tries = 0;
+          while (tries < 48) {
+            tries++;
+            var cx2 = bx0 + Math.random() * bboxW;
+            var cy2 = by0 + Math.random() * bboxH;
+            var minGap = Infinity;
+            for (var pi2 = 0; pi2 < placed.length; pi2++) {
+              var need = 0.5 * Math.min(vis, placed[pi2].vis);
+              var dx2 = cx2 - placed[pi2].x, dy2 = cy2 - placed[pi2].y;
+              var d2 = Math.sqrt(dx2 * dx2 + dy2 * dy2) - need;
+              if (d2 < minGap) minGap = d2;
+            }
+            if (minGap > bestGap) { bestGap = minGap; bestX = cx2; bestY = cy2; }
+            if (minGap >= 0) { ok = true; px = cx2; py = cy2; break; }
+          }
+          if (!ok) { px = bestX; py = bestY; }
+          placed.push({ x: px, y: py, vis: vis });
+
+          /* 切片索引：优先轮转 + 随机，保证同帧 >= 6 种不同切片 */
+          var atlas = null;
+          if (atlasSlices) {
+            atlas = (ki < 9) ? ki : Math.floor(Math.random() * 9);
+            if (picked.indexOf(atlas) < 0) picked.push(atlas);
+          }
+          /* 物理：向下初速 >= 300、水平 ±(120~520) 偏左下、角速度 >= 4 rad/s */
+          var vxMag = DOCK_SHARD_VX_MIN + Math.random() * (DOCK_SHARD_VX_MAX - DOCK_SHARD_VX_MIN);
+          var vx = -vxMag * (0.55 + Math.random() * 0.45); /* 偏左 */
+          var vy = DOCK_SHARD_VY_MIN + Math.random() * 320;
+          var vrMag = DOCK_SHARD_VR_MIN + Math.random() * 8;
+          var vr = (Math.random() < 0.5 ? -1 : 1) * vrMag;
+          var life = DOCK_SHARD_LIFE_MIN +
+            Math.floor(Math.random() * (DOCK_SHARD_LIFE_MAX - DOCK_SHARD_LIFE_MIN + 1));
+          var rec = {
+            x: px, y: py,
+            vx: vx, vy: vy,
             rot: Math.random() * Math.PI * 2,
-            vr: (Math.random() - 0.5) * 0.25,
-            verts: verts,
-            size: r0,
+            vr: vr,               /* rad/s（Δ27c：改为角速度量纲，更新时 × dt） */
+            verts: atlas ? null : makeVerts(4 + Math.floor(Math.random() * 3), Math.max(3, vis * 0.42)),
+            size: vis,            /* 可见长边（px） */
             kind: kind,
+            atlas: atlas,         /* 图集切片索引；null = 程序化兜底 */
+            flip: Math.random() < 0.5,
             life: life,
             life0: life
-          });
+          };
+          vfxShards.push(rec);
+        }
+        /* 同帧切片多样性兜底：不足 6 种时把前几枚改抽未用过的切片 */
+        if (atlasSlices && picked.length < DOCK_SHARD_ATLAS_KINDS_MIN) {
+          var want = DOCK_SHARD_ATLAS_KINDS_MIN - picked.length;
+          for (var wi = 0; wi < vfxShards.length && want > 0; wi++) {
+            var idxTry = (wi * 3 + 1) % 9;
+            if (picked.indexOf(idxTry) >= 0) continue;
+            if (vfxShards[wi].atlas == null) continue;
+            vfxShards[wi].atlas = idxTry;
+            picked.push(idxTry);
+            want--;
+          }
         }
         markDirty();
         return vfxShards.length;
@@ -1728,7 +2447,16 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       ctx.globalAlpha = 1;
     }
 
-    /* Δ20/T093: 全屏 #vfx-canvas 白瓷碎片瀑布绘制 */
+    /* 视口高度（碎片越界回收用；Node 桩回落 640） */
+    function vfxViewH() {
+      if (typeof global !== 'undefined' && global.innerHeight) return global.innerHeight;
+      if (vfxCanvas && vfxCanvas.clientHeight) return vfxCanvas.clientHeight;
+      return 640;
+    }
+
+    /* Δ20/T093 → Δ27c/T135: 全屏 #vfx-canvas 3D 立体碎块瀑布绘制
+     * 单枚 MUST 以**一次** drawImage 完成（图集路径），禁用逐枚
+     * getImageData / ctx.filter / 多次 clip / 逐枚 shadowBlur。 */
     function drawVfx() {
       if (!vfxCtx || !vfxCanvas) return;
       var dpr = Math.max(1, (typeof global !== 'undefined' && global.devicePixelRatio) || 1);
@@ -1741,6 +2469,8 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       if (vfxCanvas.height !== pxH) vfxCanvas.height = pxH;
       if (typeof vfxCtx.setTransform === 'function') vfxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       vfxCtx.clearRect(0, 0, w, h);
+      /* Δ27c/T135: 图集切片（会话级缓存；未就绪 → 本次静默走程序化兜底） */
+      var shardImgs = ShardAtlas.slices();
       for (var i = 0; i < vfxShards.length; i++) {
         var sh = vfxShards[i];
         var ratio = sh.life0 > 0 ? (sh.life / sh.life0) : 0;
@@ -1751,12 +2481,19 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
         vfxCtx.save();
         vfxCtx.translate(sh.x, sh.y);
         vfxCtx.rotate(sh.rot);
-        /* 严禁 shadowBlur（性能）——立体感由折面明暗表达 */
+        /* 严禁 shadowBlur / ctx.filter（性能 + 零描边红线） */
         vfxCtx.shadowBlur = 0;
-        {
+        var img = (shardImgs && sh.atlas != null) ? shardImgs[sh.atlas] : null;
+        if (img) {
+          /* 图集路径：**单枚一次 drawImage**（3D 立体感由素材自身承载） */
+          if (sh.flip) vfxCtx.scale(-1, 1);
+          var drawSz = (sh.size || 14) / SHARD_SUBJECT_RATIO;
+          vfxCtx.drawImage(img, -drawSz / 2, -drawSz / 2, drawSz, drawSz);
+        } else {
+          /* 程序化 Low-Poly 兜底（素材缺失 / 首组三消尚未就绪） */
           var verts = sh.verts;
           if (!verts || verts.length < 3) {
-            var r = (sh.size != null ? sh.size : 3);
+            var r = (sh.size != null ? sh.size * 0.42 : 3);
             verts = [{ x: 0, y: -r }, { x: r, y: 0 }, { x: 0, y: r }, { x: -r, y: 0 }];
           }
           var n = verts.length;
@@ -1786,6 +2523,45 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       }
       vfxCtx.globalAlpha = 1;
       vfxCtx.shadowBlur = 0;
+      /* Δ27a/FR-053 §5：飞行牌的「棋盘矩形之外」部分由本层接续绘制。
+       * 棋盘画布只覆盖棋盘方格、够不到顶部待消槽；本层为既有全屏 VFX 画布
+       * （**未新增任何 canvas 元素**），与棋盘画布共用同一 boardRect/scale 映射，
+       * 边界处用 even-odd 互补裁剪缝合 → 整张牌跨两画布连续，零 pop。 */
+      try { drawFlightsOutside(vfxCtx, w, h, nowMs()); } catch (eFl) { /* 飞行绘制异常不杀帧 */ }
+    }
+
+    /* 把飞行牌画到全屏 VFX 画布：仅在「棋盘矩形之外」可见（棋盘内已由棋盘画布
+     * 按 z 序画过）。seg === 'offboard'（完全越出）时整张牌都在本层。 */
+    function drawFlightsOutside(v, viewW, viewH, now) {
+      if (!flights.length) return;
+      if (!v || typeof canvas.getBoundingClientRect !== 'function') return;
+      var br = canvas.getBoundingClientRect();
+      if (!br || !(br.width > 0) || !(cssSize > 0)) return;
+      var k = br.width / cssSize;
+      for (var i = 0; i < flights.length; i++) {
+        var f = flights[i];
+        var t = tileInfo[f.tileId];
+        if (!t) continue;
+        var fp = flightPos(f, now - f.t0);
+        if (!fp || fp.alpha <= 0.004) continue;
+        var seg = flightSegOf(fp, cell, cssSize);
+        if (seg === 'board') {
+          /* 先判断是否真的有一块落在棋盘外——完全在矩形内则无需绘制 */
+          var hw = cell * 0.5 * fp.sx, hh = cell * 0.5 * fp.sy;
+          if (fp.x - hw >= 0 && fp.x + hw <= cssSize && fp.y - hh >= 0 && fp.y + hh <= cssSize) continue;
+        }
+        v.save();
+        v.translate(br.left, br.top);
+        if (k !== 1) v.scale(k, k);
+        if (seg === 'board') {
+          v.beginPath();
+          v.rect(-br.left / k - cell, -br.top / k - cell, (viewW + 2 * cell) / k, (viewH + 2 * cell) / k);
+          v.rect(0, 0, cssSize, cssSize);
+          v.clip('evenodd');
+        }
+        drawTileBody(v, cell, fp.x, fp.y, t, 1, fp.alpha, now, fp.sx, fp.sy);
+        v.restore();
+      }
     }
 
     /* ---------- 主绘制 ---------- */
@@ -1832,41 +2608,49 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
         blockDx[ab.tileId] = Math.sin(bp * Math.PI * 6) * 3 * (1 - bp);
       }
       var tiles = lastProbe.tiles;
-      /* 飞行中的滑块集合（由动画层绘制，最终位于所有棋盘卡牌最顶层） */
-      var flyingIds = {};
-      var flyingTiles = [];
-      for (i = 0; i < anims.length; i++) if (anims[i].kind === 'fly') { flyingIds[anims[i].tileId] = true; flyingTiles.push(anims[i]); }
-      /* 非飞行滑块：严格按物理层高升序排序（z → r → c），全量重绘 */
-      /* state.tiles.filter(t => !t.flying) —— 全量非飞行滑块（每帧重绘） */
-      /* 飞行期间严禁局部重绘/隐藏静止滑块：全盘 activeTiles 全量重绘 */
-      var renderList = tiles.filter(function (t) { return !t.removed && !flyingIds[t.id]; });
+      /* Δ27a/FR-053 §5（图层遮挡红线）：飞行牌**不再**从 renderList 剔除。
+       * 旧实现把全部飞行牌从列表里滤掉、再在静态层之后统一叠画一遍，
+       * 于是任何低层飞行牌都会盖住压在其格心上的高层静止牌——这就是
+       * 「飞行时旁边卡牌短暂变成底层」的直接成因。
+       * 现改为：飞行牌以 tileInfo 缓存的原格位（r/c/z 不变）合成进同一份
+       * renderList，共用下方**未改动**的 (z,r,c) 升序比较器；位移/缩放/透明度
+       * 由 drawBoardTile 内 flightOf() 施加（与 blockDx / introTransformOf 同构）。
+       * 只有「完全越出棋盘矩形」的离场段才退出该序（见 drawVfx 缝合绘制）。 */
+      var renderList = [];
+      var inList = {};
+      for (i = 0; i < tiles.length; i++) {
+        if (tiles[i].removed) continue;
+        renderList.push(tiles[i]);
+        inList[tiles[i].id] = true;
+      }
+      for (i = 0; i < flights.length; i++) {
+        var fid = flights[i].tileId;
+        if (inList[fid]) continue;
+        var ftile = tileInfo[fid];
+        if (ftile) { renderList.push(ftile); inList[fid] = true; }
+      }
       renderList.sort(function (a, b) {
         return a.z - b.z || a.r - b.r || a.c - b.c;
       });
+      lastDrawOrder.length = 0;
       for (i = 0; i < renderList.length; i++) {
         /* ingame-hud-render-defects（Bug 2）: 已删除「上层投射环境阴影」——
          * 该状态会泄漏到 drawTileBody 内每次 fill，放大成错位灰黑块。
          * 层次改由卡牌自身投影表达（drawTileBody 内局部 save/restore）。 */
+        lastDrawOrder.push(renderList[i].id);
         drawBoardTile(renderList[i], now);
       }
 
-      /* 动画层（飞出/弹回/爆闪；reveal 由 drawBoardTile 上浮插值处理——不再跳过绘制）
-       * 图层纪律：飞行卡牌 MUST 作为最高图层最后绘制，避免静止卡牌覆盖飞行卡牌 */
-      /* 先绘制非飞行动画（gear/unlock/ice/prism/match）
+      /* 动画层（gear/unlock/ice/prism/match；reveal 由 drawBoardTile 上浮插值处理）
        * flight-neighbor-morph-dock-inset（Bug 1）: 本层严禁绘制任何「卡体」——
        * 动画层整体叠在静态层之后且不做 z 交错，一旦在此重绘卡体，低层牌就会
        * 盖住更高层的牌（层次反转），表现为「未点击的相邻卡牌瞬间变成另一张」。
-       * reveal 由静态层 drawBoardTile 插值；block 由静态层施加水平位移。 */
+       * reveal 由静态层 drawBoardTile 插值；block 由静态层施加水平位移；
+       * Δ27a：fly 亦已移入静态层 z 序（见上），本层不再有任何飞行绘制。 */
       for (i = 0; i < anims.length; i++) {
         var a2 = anims[i];
-        if (a2.kind === 'reveal' || a2.kind === 'fly' || a2.kind === 'block') continue;
+        if (a2.kind === 'reveal' || a2.kind === 'block') continue;
         drawAnim(a2, Math.min(1, (now - a2.t0) / a2.dur), now);
-      }
-      /* 最后绘制飞行卡牌（最高图层） */
-      for (i = 0; i < anims.length; i++) {
-        var af = anims[i];
-        if (af.kind !== 'fly') continue;
-        drawAnim(af, Math.min(1, (now - af.t0) / af.dur), now);
       }
 
       /* 粒子 */
@@ -1949,8 +2733,35 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
         if (itr.alpha <= 0.004) return; /* 留白/未开始：不绘制（无半透明残影） */
         /* 位移交给牌心坐标、缩放交给 drawTileBody 的 scaleX/scaleY——
          * 全程零 ctx.transform 累加（Δ15b3f 铁律） */
-        drawTileBody(ctx, cell, px + itr.dx, py + itr.dy + lift, t, 1, itr.alpha, now, itr.sx, itr.sy);
+        var icx = px + itr.dx;
+        var icy = py + itr.dy + lift;
+        /* Δ27b §8: blinds_flip 走**遮罩揭示**（水平裁切逐帧变宽），
+         * 牌体始终 1:1 绘制 —— 替代旧式 scaleX 0.05 几何压缩（图案变形即「糊」）。
+         * 同一张牌同帧仍只绘制一次（clip 只限定可见宽度，不叠第二层副本）。 */
+        if (itr.wipe != null && itr.wipe < 0.999) {
+          var halfW = cell * 0.5 * itr.sx;
+          var wipeW = Math.max(0.5, cell * itr.wipe);
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(icx - halfW, icy - cell, wipeW, cell * 2);
+          ctx.clip();
+          drawTileBody(ctx, cell, icx, icy, t, 1, itr.alpha, now, itr.sx, itr.sy);
+          ctx.restore();
+          return;
+        }
+        drawTileBody(ctx, cell, icx, icy, t, 1, itr.alpha, now, itr.sx, itr.sy);
         return;
+      }
+      /* Δ27a/FR-053：飞行段——本张牌仍处在上方 renderList 的 z 序位次上，
+       * 只在此处施加「相对原格心的位移 + 缩放 + 透明度」，绝不重排绘制顺序。
+       * 完全越出棋盘矩形后由 drawVfx 的互补裁剪接续（同一变换，严丝合缝）。 */
+      var fl = flightOf(t.id);
+      if (fl) {
+        var fpos = flightPos(fl, now - fl.t0);
+        if (fpos && fpos.alpha > 0.004) {
+          drawTileBody(ctx, cell, px + (fpos.x - fl.fromX), py + (fpos.y - fl.fromY), t, 1, fpos.alpha, now, fpos.sx, fpos.sy);
+          return;
+        }
       }
       drawTileBody(ctx, cell, px, py + lift, t, 1, 1, now);
     }
@@ -1959,41 +2770,11 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     function drawAnim(a, prog, now) {
       var t = tileById(a.tileId);
       if (!t) return;
-      if (a.kind === 'fly') {
-        var seg = pathPos(a.path, prog);
-        /* Δ19c: 所有飞出牌最终都汇聚向**顶部** #dock 对应槽位——
-         * 前 30% 沿本层射线滑行，之后平滑弯折向画面上方槽位并淡出。
-         * 槽位横坐标按 slotIndex 在 7 格中的比例换算（与 DOM 托盘同序）。 */
-        var slotX = ((a.slot != null ? a.slot : 3) + 0.5) / 7 * cssSize;
-        var turn = Math.max(0, (prog - 0.30) / 0.70);
-        var ease = turn * turn * (3 - 2 * turn);
-        /* 路径点来自引擎的**逻辑**坐标；奇数层（z=1/3）渲染时整牌偏移 +0.5 格。
-         * 把牌自身的渲染偏移量整体加到路径上，避免 z=1 的牌起飞瞬间跳半格。 */
-        var org = tileGridOf(t);
-        var dcOff = org.cc - (t.c != null ? t.c : org.cc);
-        var drOff = org.rr - (t.r != null ? t.r : org.rr);
-        var gx = (seg.c + 0.5 + dcOff) * cell;
-        var gy = (seg.r + 0.5 + drOff) * cell;
-        gx += (slotX - gx) * ease;
-        gy += (-cell * 0.55 - gy) * ease;
-        /* Δ8 凌空飞越感: z>=1 高层飞出保持层高——上移偏移 + 放大 + 底部投影 */
-        var fz = t.z || 0;
-        var lift = fz * cell * 0.22;          /* 高层牌浮在半空 */
-        var sc = 1 + fz * 0.12 * (1 - 0.3 * prog); /* 起飞时更大（近镜头感），滑向边缘渐收 */
-        var alpha = 1 - 0.85 * prog;
-        if (fz >= 1 && prog < 0.92) {
-          /* 投影: 高层飞行牌在地面投下椭圆暗影（随高度虚化） */
-          ctx.globalAlpha = 0.28 * (1 - prog) * alpha;
-          ctx.fillStyle = 'rgba(0,0,0,0.8)';
-          ctx.beginPath();
-          ctx.ellipse(gx, gy + cell * 0.38, cell * 0.3 * sc, cell * 0.12, 0, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.globalAlpha = 1;
-        }
-        /* Δ14: 白色推进云朵粒子（轻盈拖尾——随飞出迸发） */
-        drawFlyPuff(a, prog);
-        drawTileBody(ctx, cell, gx, gy - lift, t, sc, alpha, now);
-      } else if (a.kind === 'match') {
+      /* Δ27a/FR-053 §5: 'fly' 分支已整体下线——飞行牌改由静态层 drawBoardTile
+       * 在 (z,r,c) 升序位次上绘制（flightOf / flightPos），本层只承载
+       * 不改变卡体层序的特效（gear 脉冲 / unlock 闪光 / ice 碎裂 / match 爆闪 /
+       * prism 折线）。MUST NOT 在此恢复任何 drawTileBody 卡体重绘。 */
+      if (a.kind === 'match') {
         drawTileBody(ctx, cell, a.x, a.y, t, 1 + 0.6 * prog, 1 - prog, now);
       } else if (a.kind === 'gear') {
         /* T034 齿轮旋转脉冲：**只画角标区高亮环，绝不重绘卡体**。
@@ -2081,11 +2862,14 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
     }
 
     /* ---------- 事件接入（session onEvent → 渲染动效） ---------- */
-    var lastDockSlot = 0; /* Δ19c: 最近一次入槽下标——飞出终点对准顶部待消槽 */
+    var lastDockSlot = 0; /* 兼容兜底：仅在 pendingDock 缺项时使用（正常路径不依赖） */
     function handleEvent(e) {
       var now = nowMs();
       if (e.e === 'dock' && e.slotIndex != null) {
-        lastDockSlot = Math.max(0, Math.min(6, e.slotIndex | 0));
+        var si = Math.max(0, Math.min(6, e.slotIndex | 0));
+        /* Δ27a/FR-053 §6: `dock` 先于 `flyout` 下发 → 1:1 精确配对（废弃全局推测） */
+        if (e.id != null) pendingDock[e.id] = si;
+        lastDockSlot = si;
         refresh();
         return;
       }
@@ -2093,13 +2877,13 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
         /* Δ19d: 灵犀三消——无视阻挡，直接从牌位被吸向顶部待消槽 */
         var mt = tileInfo[e.id] || null;
         if (mt) {
-          anims.push({
-            kind: 'fly', tileId: e.id, slot: lastDockSlot, t0: now, dur: FLY_MS * 0.7,
-            path: [{ r: mt.r, c: mt.c }, { r: -0.6, c: mt.c }]
-          });
+          startFlight(e.id, pendingDock[e.id] != null ? pendingDock[e.id] : lastDockSlot, null);
+          delete pendingDock[e.id];
         }
       } else if (e.e === 'flyout' && e.path && e.path.length) {
-        anims.push({ kind: 'fly', tileId: e.tileId, path: e.path, slot: lastDockSlot, t0: now, dur: FLY_MS });
+        var slotOf = (pendingDock[e.tileId] != null) ? pendingDock[e.tileId] : lastDockSlot;
+        delete pendingDock[e.tileId];
+        startFlight(e.tileId, slotOf, null);
       } else if (e.e === 'blocked') {
         anims.push({ kind: 'block', tileId: e.tileId, t0: now, dur: BLOCK_MS });
         if (opts.onShake) opts.onShake();
@@ -2153,7 +2937,13 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       if (lastProbe) {
         var currentIds = {};
         var flyingIdsNow = {};
-        for (var fi = 0; fi < anims.length; fi++) if (anims[fi].kind === 'fly') flyingIdsNow[anims[fi].tileId] = true;
+        /* Δ27a: 在途飞行牌 + 已入槽但尚未起飞的牌（pendingDock）都必须保留
+         * 几何缓存——否则 dock 事件触发的 refresh 会把缓存删掉，
+         * flyout 时 startFlight 拿不到起点（旧实现正是这样让飞行彻底不渲染）。 */
+        for (var fi = 0; fi < flights.length; fi++) flyingIdsNow[flights[fi].tileId] = true;
+        for (var pk in pendingDock) {
+          if (Object.prototype.hasOwnProperty.call(pendingDock, pk)) flyingIdsNow[pk] = true;
+        }
         for (var i = 0; i < lastProbe.tiles.length; i++) {
           var t = lastProbe.tiles[i];
           tileInfo[t.id] = {
@@ -2162,13 +2952,25 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
             /* flight-neighbor-morph-dock-inset（Bug 1 防御位）: 缓存必须带上
              * 压暗态，否则动画层任何残留的卡体重绘都会画出「没被压暗的亮牌」，
              * 与周边形成强烈反差（历史上正是这条缺失放大了 Bug 1 的观感）。 */
-            covered: t.covered === true
+            covered: t.covered === true,
+            seenAt: nowMs()
           };
           currentIds[t.id] = true;
         }
-        /* 清理过期 tileInfo（已移除且非飞行的卡牌），避免动画层读取过期 z/r/c */
+        /* 清理过期 tileInfo —— Δ27a 关键修正：**按时间窗淘汰，而非「不在盘面即删」**。
+         *
+         *   RulesEngine.applyTap 是原子结算：牌在**任何事件下发之前**就已从引擎移除。
+         *   一次点击的事件序是 click → gear/unlock → dock → flyout，
+         *   其中 click / gear 都会触发 refresh —— 若按「不在盘面即删」，
+         *   缓存会在 dock 设置 pendingDock **之前**就被清掉，
+         *   flyout 时 startFlight 拿不到起点 → 飞行彻底不渲染（静默失效）。
+         *   改为保留 2000ms（远大于一次飞行的 320ms 上界），
+         *   使几何缓存对任意事件顺序免疫。 */
+        var pruneNow = nowMs();
         for (var k in tileInfo) {
-          if (!currentIds[k] && !flyingIdsNow[k]) delete tileInfo[k];
+          if (currentIds[k] || flyingIdsNow[k]) continue;
+          var rec0 = tileInfo[k];
+          if (!rec0 || (pruneNow - (rec0.seenAt || 0)) > 2000) delete tileInfo[k];
         }
       }
       resize();
@@ -2231,6 +3033,10 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
      * Dock chip 由 main.js 渲染（棋盘重绘同帧经 renderDock 事件驱动——
      * 贴图就绪即 bump 通知,后续 dock/match 事件自然消费新切片） */
     IconAssets.ensureLoaded();
+    /* Δ27c/T134 ③: 碎块图集键控 MUST 在 startDeal() 之前完成——渲染器一创建
+     * 就启动加载（一次性 ~150ms），MUST NOT 把 2048² 的回读压在开局编舞窗口上。
+     * 若首组三消时仍未就绪 → 该次静默走程序化 Low-Poly 兜底（不等、不掉帧）。 */
+    ShardAtlas.ensureLoaded();
     IconAssets.onSpritesReady(function () {
       markDirty();
     });
@@ -2269,6 +3075,25 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
       setReducedMotion: function (v) { reducedMotion = !!v; },
       isReducedMotion: function () { return reducedMotion; },
       dealPlanOf: function () { return introPlan; }, /* 自测只读 */
+      /* ---------- Δ27a/FR-053：方向性飞行公开 API ----------
+       * 契约口径（contracts/game-session.md）：
+       *   startFlight(tileId, slotIndex, dir) → 飞行记录 | null
+       *   flightOf(tileId)                   → 在途记录 | null
+       *   dockPending(tileId)                → true = 已入槽但尚未落定（槽位须保持空槽态）
+       *   flightsOf()                        → 只读快照（自测/门禁用）
+       *   cancelFlights()                    → 重置 / Undo 时清空在途飞行 */
+      startFlight: startFlight,
+      flightOf: flightOf,
+      dockPending: dockPending,
+      flightsOf: function () { return flights.slice(); },
+      cancelFlights: cancelFlights,
+      invalidateDockGeometry: invalidateDockGeometry,
+      dockSlotCentersOf: function () { return dockSlotCenters().slice(); },
+      /* Δ27a/FR-053 §5：本帧静态层绘制序（tileId 序列）——门禁断言「飞行牌与
+       * 静止牌共用同一 (z,r,c) 升序」，不得统一置顶。 */
+      drawOrderOf: function () { return lastDrawOrder.slice(); },
+      /* Δ27c：碎块池只读快照（shard-vfx-smoke 门禁断言数量/物理/配比） */
+      vfxShardsOf: function () { return vfxShards.slice(); },
       /* 自测/调试用只读布局（CSS 像素：origin/cellStep/tileSize/n） */
       layoutOf: function () { return layout; },
       SUITS: SUITS
@@ -2826,9 +3651,23 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
   STM.IconAssets = IconAssets;
   STM.BackdropStage = BackdropStage;
   STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets, dockIconDataURL: dockIconDataURL, paintDockIcons: paintDockIcons, DIR_COLORS: DIR_COLORS };
-  /* T084: Δ19 渲染常量外露（离线自测断言用——不参与运行时逻辑） */
+  /* T084: Δ19 渲染常量外露（离线自测断言用——不参与运行时逻辑）
+   * Δ27c: 数量改为 120~150 枚区间（原固定 90），尺寸档位与物理常量一并外露 */
   STM.rendererTest.SHARDS = { min: SHARD_COUNT_MIN, max: SHARD_COUNT_MAX };
-  STM.rendererTest.DOCK_SHARDS = { min: 210, max: 210, perSlot: DOCK_SHARD_PER_SLOT, total: DOCK_SHARD_TOTAL };
+  STM.rendererTest.DOCK_SHARDS = {
+    min: DOCK_SHARD_TOTAL_MIN,
+    max: DOCK_SHARD_TOTAL_MAX,
+    lifeMin: DOCK_SHARD_LIFE_MIN,
+    lifeMax: DOCK_SHARD_LIFE_MAX,
+    gravity: DOCK_SHARD_GRAVITY,
+    vyMin: DOCK_SHARD_VY_MIN,
+    vxMin: DOCK_SHARD_VX_MIN,
+    vxMax: DOCK_SHARD_VX_MAX,
+    vrMin: DOCK_SHARD_VR_MIN,
+    ratio: { large: DOCK_SHARD_RATIO_LARGE, medium: DOCK_SHARD_RATIO_MEDIUM, small: 1 - DOCK_SHARD_RATIO_LARGE - DOCK_SHARD_RATIO_MEDIUM },
+    size: { large: DOCK_SHARD_SIZE_LARGE, medium: DOCK_SHARD_SIZE_MEDIUM, small: DOCK_SHARD_SIZE_SMALL },
+    atlasKindsMin: DOCK_SHARD_ATLAS_KINDS_MIN
+  };
   STM.rendererTest.VFX_SHARDS = STM.rendererTest.DOCK_SHARDS;
   STM.rendererTest.SHATTER_SHARDS = STM.rendererTest.DOCK_SHARDS;
   STM.rendererTest.FRAGMENTS = STM.rendererTest.DOCK_SHARDS;
@@ -2838,16 +3677,52 @@ var DOCK_SHARD_GRAVITY = 920; /* px/s² */
   /* ingame-hud-render-defects: 几何唯一出口外露（纯函数——Node/N 层/rect 任意组合可测） */
   STM.rendererTest.getTileCssRect = getTileCssRect;
   STM.rendererTest.tileGridOf = tileGridOf;
-  /* Δ22c/T111: 编舞常量表与纯函数规格（离线自测断言——不参与运行时逻辑） */
+  /* Δ22c/T111 + Δ27b: 编舞常量表与纯函数规格（离线自测断言——不参与运行时逻辑） */
   STM.rendererTest.INTRO = {
     LEAD_MS: INTRO_LEAD_MS,
-    SPREAD_MS: INTRO_SPREAD_MS,
+    STAGGER_MS: INTRO_STAGGER_MS,
+    SPREAD_MIN_MS: INTRO_SPREAD_MIN_MS,
     Z_STEP_MS: INTRO_Z_STEP_MS,
     TILE_MS: INTRO_TILE_MS,
     TICK_AT: INTRO_TICK_AT,
+    ALPHA0: INTRO_ALPHA0,
+    ALPHA_MIN_SAFE: INTRO_ALPHA_MIN_SAFE,
+    ALPHA_FULL_AT: INTRO_ALPHA_FULL_AT,
+    SCALE_MAX: INTRO_SCALE_MAX,
+    SCALE_MIN: INTRO_SCALE_MIN,
+    NONUNI_MIN: INTRO_NONUNI_MIN,
     MODES: INTRO_MODES
   };
   STM.rendererTest.INTRO_MODES = INTRO_MODES;
   STM.rendererTest.introSpecOf = introSpecOf;
+  /* FR-052 §10 权威时长公式（纯函数——离线可断言 700 / 1546 / 2340ms） */
+  STM.rendererTest.introSchedule = introSchedule;
+  STM.rendererTest.introDealTotalMs = function (n, zMax) {
+    var cnt = n > 0 ? n : 1;
+    var zz = zMax > 0 ? zMax : 0;
+    var spread = Math.max(INTRO_SPREAD_MIN_MS, (cnt - 1) * INTRO_STAGGER_MS);
+    return INTRO_LEAD_MS + spread + INTRO_TILE_MS + INTRO_Z_STEP_MS * zz;
+  };
+  /* Δ27a/FR-053: 飞行常量与纯运动学外露（flight-smoke 离线断言） */  STM.rendererTest.FLIGHT = {
+    U_MS: FLIGHT_U_MS,
+    EXIT_MS_MIN: FLIGHT_EXIT_MS_MIN,
+    EXIT_MS_MAX: FLIGHT_EXIT_MS_MAX,
+    DROP_MS: FLIGHT_DROP_MS,
+    TOTAL_MS_MAX: FLIGHT_TOTAL_MS_MAX,
+    ALPHA_MIN: FLIGHT_ALPHA_MIN,
+    EXIT_SPEED: FLIGHT_EXIT_SPEED,
+    END_SCALE: FLIGHT_END_SCALE,
+    DROP_SCALE0: FLIGHT_DROP_SCALE0,
+    REDUCED_MS: FLIGHT_REDUCED_MS
+  };
+  /* 纯函数：给定一条飞行记录与已过时长 → 位置/缩放/透明度（离线可断言） */
+  STM.rendererTest.flightPosOf = function (f, el) { return flightPos(f, el); };
+  STM.rendererTest.flightSegOf = function (pos, cellPx, cssSizePx) {
+    return flightSegOf(pos, cellPx, cssSizePx);
+  };
+  /* Δ27c/T134: 碎块图集外露（shards-audit 离线审计 / shard-vfx-smoke 运行时断言） */
+  STM.ShardAtlas = ShardAtlas;
+  STM.rendererTest.ShardAtlas = ShardAtlas;
+  STM.rendererTest.SHARD_SUBJECT_RATIO = SHARD_SUBJECT_RATIO;
 
 })(typeof window !== 'undefined' ? window : globalThis);
