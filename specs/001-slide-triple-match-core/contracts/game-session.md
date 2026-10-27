@@ -57,6 +57,7 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 ├── header #hud          关卡名/编号 · 生命(♥×3 DOM) · 连击/分数
 ├── #board-wrap           Canvas #board（BoardRenderer 全权）+ 层叠的动效层
 ├── #dock                 7 格收集槽（DOM 格子 + 滑块 chip SVG；Δ9: #staging 已移除，垂直空间并入棋盘与 Dock）
+├── #peak-banner          Δ29a 困难关预警横幅（`#dock` 的**兄弟节点**，absolute 叠在待消区之上；`pointer-events: none`；非困难关常驻空节点）
 ├── #items                道具栏 2 键居中（Undo/Wrench，次数角标；不可用时禁用态；Δ9: item-stage 已移除）
 └── #debug-panel          评委调试面板（PC 侧栏 / 移动抽屉，§7）
     #result-overlay       胜/负结算浮层（DOM 弹层）
@@ -138,17 +139,33 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 | `vfxFlashInfo()`（Δ28d） | 爆心辉光描述符 `{ x, y, r, t0, dur }`，过期后返回 `null`（与绘制路径同步置空）。供 `delta27-verify` ⑤ 断言「`0~180ms` 有辉光 / 之后无残留」 |
 | `ShardAtlas` | `{ src, size: 2048, grid: 3, cellPx: 2048/3, slices[27], bbox[9], keyState: 'idle'\|'ready'\|'failed', keyMs }`；**`slices` 索引序 = 形状主序 / 色系次序（`themeOf(i) = i % 3`）**；`rendererTest.ShardAtlas` 外露只读视图（含 `THEMES` / `TOTAL` / `RAMP_MID` / `RAMP_GAMMA`） |
 | 素材与路径 | 权威路径 **`assets/icons/shards.jpg`**（用户确认的唯一素材：`2048×2048`、3×3 = 9 枚白瓷 3D 碎块、纯黑底、无 alpha）；按 `.png → .jpg` 探测链加载；`.png` 仅作可选增强 |
-| 键控（MUST） | 双阈值：`max(R,G,B) <= 24` → alpha `0`；`24 < max <= 40` → alpha 线性渐变 + RGB 提亮消暗边；`> 40` → alpha `255`。MUST 用 `{ willReadFrequently: true }` 上下文做**单次**回读，MUST 早于 `startDeal()`（实测 `158~242ms`，近黑残留 `< 2%`） |
-| 染色与方向光（Δ28b-2，MUST） | 每切片每色系一张 **256 项一级 LUT**：按切片 `p5/p97` 归一化 → `^1.62` 对比拉伸 → 三段 ramp（`t < 0.55` 走 `sh → mid`，否则 `mid → hi`）→ 键控渐变带以 `RIM_MIX = 0.52` 推向 `hi`（**MUST NOT 直接置为 `hi`**）→ 预烘焙柔光晕（`72²` 降采样 `blur`）→ **`source-atop`** 方向光（左上透明 → 右下 `rgba(14,22,48,0.34)`）。**MUST NOT 用 `multiply`**（透明区结果 alpha = `1`，会把 `256²` 画框填成方块）。逐帧路径 MUST 保持「单枚一次 `drawImage`」 |
-| 材质不变量（Δ28b-2） | 每张切片暗部（`max(R,G,B) <= 190`）占比 MUST `>= 15%`；同色系 9 张平均色相极差 `<= 40°`；三色系两两色相跨度 `>= 15°`（保证「同帧 `>= 2` 色系」在观感上可辨） |
+| 键控（MUST；**Δ29b 重写**） | **边界连通域泛洪（Edge-connected Flood Fill）**：从九宫格单元四条边界向内 BFS，只有「**与边界连通**且 `max(R,G,B) <= 44`（可调域 `24~56`）」的像素判为背景（`alpha = 0`）；**被主体包围的近黑像素 MUST 保留为暗面**（`alpha = 255`）。外沿一圈（主体且 4 邻域含背景）做 `0.34 + 0.66t` alpha 软过渡 + `SHARD_EDGE_LIFT = 0.55` 半量提亮。MUST 用 `{ willReadFrequently: true }` 上下文做**单次**回读，MUST 早于 `startDeal()`（实测 `158~242ms`）。**MUST NOT 退回全局阈值**（那会把背光侧深灰蓝厚壁一并抠掉 = 用户指认的「扁平小白片」根因） |
+| 染色与方向光（Δ28b-2，MUST） | 每切片每色系一张 **256 项一级 LUT**：按切片 `p5/p97` 归一化 → `^1.62` 对比拉伸 → 三段 ramp（`t < 0.55` 走 `sh → mid`，否则 `mid → hi`）→ 键控渐变带以 `RIM_MIX = 0.52` 推向 `hi`（**MUST NOT 直接置为 `hi`**）→ 预烘焙柔光晕（`72²` 降采样 `blur`）→ **`source-atop`** 方向光（左上透明 → 右下 `rgba(14,22,48,0.34)`，不透明度落 `0.28~0.42`）。**MUST NOT 用 `multiply`**（透明区结果 alpha = `1`，会把 `256²` 画框填成方块）。逐帧路径 MUST 保持「单枚一次 `drawImage`」 |
+| 材质不变量（**Δ29b 提标**） | 每张切片暗部（`max(R,G,B) <= 190 && alpha >= 250`）占比 MUST **`>= 25%`**（实测 `42.4%~84.7%`）；同一切片「暗面均值亮度」与「亮面均值亮度」差 MUST `>= 55`；`RAMP_GAMMA >= 1.5`；**零掏空洞**（被主体包围的 `alpha == 0` 像素 MUST 为 `0`）；外沿 2px 环带不透明占比 `<= 0.5%`；跨 190 阈值的相邻像素对数 `>= 200`（明暗交界线真实存在）；同色系 9 张平均色相极差 `<= 40°`、三色系两两跨度 `>= 15°` |
 | 碎裂时序（Δ28a，MUST） | `match` 事件到达时 MUST 以 `renderer.dockPending(id)` 探测在途；有在途 → **挂起**（`pendingShatter`），`onFlightLand` 逐张以 **ghost 槽位**（`dockGhost = { map, shatter }`）把槽画成有牌态，全部落定后统一 `fireDockShatter`；`700ms` 兜底强制爆发。MUST NOT 在 `match` 里同步爆发（会「牌没到就碎」），MUST NOT 用固定 `setTimeout` 糊（飞行时长随方向不同） |
 | 爆心辉光（Δ28d，MUST） | 碎裂瞬间在 3 槽包围盒中心打一次 `180ms` 径向辉光（`lighter` + `createRadialGradient`，半径 `0.55× → 1.4×`，alpha 按 `(1-p)²` 衰减）；半径基准 `max(包围盒宽, 高) × 0.52` |
 | VFX 层清屏（Δ28d，MUST） | `tick` 尾部维护 `vfxWasLive`；碎块池 / 粒子 / 辉光由「有」转「空」的那一帧 MUST 强制 `dirty = true` 补一次 `drawVfx()` 清屏——否则最后一帧碎片被永久冻结（实测残留 `15~16 万` 像素 ≈ 画布 `10%`） |
 | 九宫格边界 | 格宽 `2048/3 ≈ 682.67`，取格 MUST 允许小数边界（`Math.floor/ceil`），**MUST NOT 向下取整丢边缘**；9 枚 MUST 全部可用 |
-| 发射（MUST） | 每次三消 `120~150` 枚（旧实现固定 `90` 枚，不符）；同帧 `>= 6` 种切片；重力 `>= 2600 px/s²`、向下初速 `>= 300 px/s`、水平 `120~520 px/s`、角速度 `>= 4 rad/s`、生命 `420~620ms` 随机；MUST NOT 加阻力或终速限制（「纸片慢飘」的成因是低重力 + 恒定 `480ms`） |
+| 发射（MUST；**Δ29b 重定标**） | 每次三消 **`36~54` 枚**（每卡 `12~18`）；三级可见长边 **`48~72 / 28~42 / 14~20`**，大块占比 `>= 25%` 且每卡 `>= 3` 枚、细粉 `<= 20%`；同帧 `>= 6` 种切片 + `>= 2` 色系；同帧任两枚中心距 **`>= 0.85 × min(两者长边)`**（两级拒绝采样：前 64 次试 `0.85×`、后 128 次试 `0.5×` 硬约束）；单帧 `<= 54`。**物理（Δ29b）**：竖直初速 **`vy0 ∈ [-480, -300]`**（必须有向上分量 = 微跳）、重力 **`6400`（域 `5600~7200`）**、`40~90ms` 翻转、跳高 `6~21px`、翻转后 `>= 500 px/s`；水平 `60~180 px/s` 且**全团同号**（`sweepDir`）、总位移 `<= 1.5` 槽宽；生命 **`300~520ms`**；**`alpha` 恒 `1.0`**（仅末段 `<= 120ms` 或出屏淡出）；`tick` 用常加速度精确解 `y += (vy + ½g·dt)·dt`（位置级帧率无关）。MUST NOT 加阻力或终速限制 |
 | 性能（MUST） | 单枚一次 `drawImage`；MUST NOT 用 `ctx.filter`、MUST NOT 逐枚 `clip`；三消峰值帧 `p95 <= 20ms / max <= 34ms` |
 | 降级 | 素材缺失或键控失败（`keyState === 'failed'`）→ 回退 FR-049 §3 程序化 Low-Poly 碎片（`makeVerts` 路径保留），游戏完整可玩、控制台零报错 |
-| 槽内保留期（Δ27 新增） | `match` 事件到达后 3 张匹配卡牌先在槽内停留 `180ms` 并播放震颤裂纹（`.slot-shattering`），随后碎裂消失并由 `spawnDockShatter` 接管；`main.js` 用 `dockFreezeUntil` 冻结该窗口内的 `renderDock()` 重绘 |
+| 槽内前摇（Δ27 新增 → **Δ29b 重写**） | `match` 事件到达后，3 张匹配卡牌先以 **ghost 有牌态**上屏并在 **`60~80ms`（现行 `70ms`）** 内播放**非等比膨胀挤压 + 高光闪白**（`.slot-shattering`，`animation: slot-shatter 70ms`）；**膨胀顶点那一帧**生成碎块并**同帧**清槽（零空窗 / 零叠帧）。`main.js` 用 `dockFreezeUntil`（`180ms` = 前摇 + 爆发）冻结该窗口内的 `renderDock()` 重绘；`700ms` 兜底定时器 MUST 含前摇。**选择器特异性硬约束**：MUST 写成 `#dock .slot.slot-shattering`（`1,2,0`）——单类 `.slot-shattering`（`0,1,0`）会被 `.slot.has-tile` 的 `dock-seat` 落座动画（`0,2,0`）整段覆盖，真机上「前摇根本不播」（已由 `delta27-verify` ⑧ 的计算样式断言守住） |
+| 常量导出（Δ29b，MUST） | `STM.rendererTest.DOCK_SHARDS` MUST 与实现常量**同源同步**（`total/life/gravity/vx/vy/alpha/fadeTail/ratio/size/gapRatio/tumbleRate/tumbleFloor/hopMaxRatio`），新增 `SHARD_KEYING`（泛洪阈值 / 软过渡 / rimMix / gamma / shadeAlpha）与 `pumpShard(rec, dtList)` / `shardHopOf(vy0, g)` 解析工具；不同步会让门禁常量断言读到旧值 → **「假绿」** |
+
+### 4.3 困难关预警横幅契约（Δ29a / FR-036 重写）
+
+| 项 | 契约 |
+|---|---|
+| 触发集合（单一源） | `src/data/peak-levels.js` 导出 `PEAK_LEVELS = [6,12,18,24,30,36,42,48,54,60,66,72]`（`L(12k+6)` ∪ `L(12k+12)`，共 **12 关**）与 `isPeakLevel(id)`；`main.js` 的 `isChallengeLevel` MUST 委托它。其余 **60 关（含 L3）MUST 零横幅**。MUST NOT 在 UI / 样式 / 埋点层另写一份判定（验收无法穷举） |
+| 挂载与定位 | 节点 `#peak-banner` MUST 为 `#dock` 的**兄弟**（`index.html` 顺序：`#dock` → `#peak-banner` → `#board-wrap`）；`position: absolute` + `pointer-events: none !important`；`left/top/width/height` 由 `#dock` 的 `getBoundingClientRect()` **一次性反算**（resize 时重算，MUST NOT 每帧读布局）→ 与 `#board-wrap` **构造性零相交** |
+| 主题色 | `PEAK_BANNER_THEMES` 六套（画卷序号 `floor((id-1)/12)+1`）：①冰晶蓝 `205/196` ②天青 `186/166` ③海蓝 `198/12` ④冰蓝 `212/226` ⑤霞粉 `340/40` ⑥星穹紫 `265/176`；经 CSS 变量 `--banner-hue-a` / `--banner-hue-b` / `--banner-glow` **一次性**写入内联样式，MUST NOT 逐帧改样式。主色相与画卷基准偏差 `<= 30°`，MUST NOT 落墨绿带（`140° ± 25°`） |
+| 文案与数据 | `PeakBanner.TEXT(pct)` → `✦ 险境预警 · 仅 XX% 探险家一次突破 ✦`（`✦` = U+2726）；`XX%` MUST 复用既有 `challengePercent(id)`（`12%~49%`，与 FR-043 §5 失败页**同一函数**） |
+| 头像 | `STM.petAvatarHTML(bid)` + `STM.paintAvatarCanvases(scope)` 同源同缓存链（与大厅 / 结算一致），溢出左沿「探头」构图；切片缺失走 Emoji 兜底 |
+| 时序 | `SHOW_MS = 1400`（`1.4s ± 0.2s`）后自然淡出（`FADE_MS = 260`，MUST NOT 硬切）；`DISMISS_MS = 80`（点击打断 / 换关清理时 `<= 100ms` 内不可见）。**启动遮罩闸门**：`#splash-screen` 仍在时 MUST 延后开播（`160ms` 轮询，`40` 次上限兜底），否则深链 `?level=N` 的横幅会整段藏在遮罩背后 |
+| 可打断 / 零阻塞 | `document` **捕获阶段** `pointerdown` 旁观（`{ passive: true }`），MUST NOT 消费事件——横幅自身 `pointer-events: none`，该次点击照常落到棋盘并产生正常飞出 / 受阻反馈 |
+| 清理 | `loadLevel` / `onDebugResetDown` / `reviveWithPrisms` 三处 MUST 调 `resetPeakBanner()`（清计时器 + 清 `innerHTML` + 移除 `show/hide/instant`）；同一次开局会话内 `bannerShownForLevel === currentId` 去重 |
+| 降级 | `prefers-reduced-motion: reduce` → 静态半透明条 + 一次性淡出（零流光扫掠 / 零头像浮动），时长与可打断语义不变 |
+| 调试探针 | `STM.main.peakBannerState()` 返回 `{ shown, levelId, hue, text }`；`peakTiming` 暴露 `SHOW_MS / DISMISS_MS / FADE_MS` 供 `render-selftest` 断言 |
 
 
 ## 5. SoundManager（`STM.createSoundManager(opts)`）

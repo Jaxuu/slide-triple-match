@@ -72,6 +72,13 @@
   <!-- 顶部 7 格待消槽托盘（棋盘正上方——所有飞出牌向此汇聚） -->
   <div id="dock" aria-label="顶部待消槽托盘"></div>
 
+  <!-- Δ29a/FR-036: 困难关「险境预警」流光横幅
+       · 位置铁律：#app 内 #dock 的**兄弟**节点（不是 #board-wrap 后代），
+         position:absolute + pointer-events:none，矩形由 JS 与 #dock 对齐
+         → 包围盒与棋盘零相交，且不阻塞任何点击
+       · 色相由 --banner-hue-a / --banner-hue-b / --banner-glow 驱动（六画卷自适应） -->
+  <div id="peak-banner" class="peak-banner" role="status" aria-live="polite"></div>
+
   <div id="board-wrap">
     <canvas id="board"></canvas>
   </div>
@@ -181,6 +188,7 @@
 <script defer src="src/render/backdrops.js"></script>
 <script defer src="src/data/icon-bboxes.js"></script>
 <script defer src="src/data/quotes.js"></script>
+<script defer src="src/data/peak-levels.js"></script>
 <script defer src="src/render/BoardRenderer.js"></script>
 <script defer src="src/audio/SoundManager.js"></script>
 <script defer src="src/ui/splash.js"></script>

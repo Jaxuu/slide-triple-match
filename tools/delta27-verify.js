@@ -8,12 +8,14 @@
  *   ① 飞行期间 #dock 槽位零抖动（目标槽保持 .slot.empty，落定才切 has-tile）
  *   ② 飞行期间棋盘静态层绘制序恒按 (z,r,c) 升序（相邻卡牌绝不变底层）
  *   ③ 编舞单帧在途 <= 22 张（真实 rAF 时序下复验）
- *   ④ 三消碎块：120~150 枚 + 图集切片命中率 >= 90%
+ *   ④ 三消碎块：Δ29 口径 36~54 枚大颗粒 + 图集切片命中率 >= 90%
  *   ⑤ 爆心辉光（0~180ms 可见、之后零残留）
  *   ⑥ 碎裂出生点 = 本轮三消真实所在槽位（不是「最左 3 槽」）
- *   ⑦ 碎块轨迹形态：全团 vx 同号 / 倾角 5~40° / 首 100ms 下坠 >= 40px /
- *      墙钟下落速率 >= 300 px/s（Δ28f：单条扫掠 + 干脆下落 + 掉帧不减速）
- * 同时把 8 张取证帧写到 shots/delta27/（.gitignore 已忽略，不入库）。
+ *   ⑦ 碎块轨迹形态：全团 vx 同号 / 起手微跳 3~30px / 末段急坠 >= 250px /
+ *      倾角 5~40° / 墙钟末段速率 >= 800 px/s（Δ29：微跳 + 强重力）
+ *   ⑧ 前摇时序：.slot-shattering 可见 40~200ms + 碎块与前摇消失**同帧**出现
+ *   ⑨ 碎块明暗切面（暗面/亮面双极共存）+ alpha0 恒 1.0（前段零透明）
+ * 同时把取证帧写到 shots/delta27/（.gitignore 已忽略，不入库）。
  *
  * 零 npm 依赖（Node 内置 http / WebSocket + 本机 Chrome，宪章 II）。
  * ========================================================= */
@@ -439,7 +441,9 @@ async function main() {
     }
     return { n: all.length, withAtlas: withAtlas, kinds: kinds, minSize: minSize, maxSize: maxSize };
   })()`);
-  check('③ 单次爆发 120~150 枚', shardInfo && shardInfo.n >= 120 && shardInfo.n <= 150,
+  /* Δ29：36~54 枚（原 120~150 的「碎末瀑布」→ 少量大颗粒） */
+  check('③ 单次爆发 36~54 枚（Δ29 大颗粒口径）',
+    shardInfo && shardInfo.n >= 36 && shardInfo.n <= 54,
     shardInfo ? shardInfo.n : 'null');
   check('③ 图集切片命中率 >= 90%（黑底键控生效）',
     shardInfo && shardInfo.withAtlas / shardInfo.n >= 0.90,
@@ -447,6 +451,9 @@ async function main() {
   check('③ 三级尺寸齐备（large/medium/small 均 > 0）',
     shardInfo && shardInfo.kinds.large > 0 && shardInfo.kinds.medium > 0 && shardInfo.kinds.small > 0,
     shardInfo ? JSON.stringify(shardInfo.kinds) : '-');
+  check('③ 主碎块尺寸落 48~72px（大颗粒，MUST NOT 碎末）',
+    shardInfo && shardInfo.maxSize >= 48 && shardInfo.maxSize <= 76,
+    shardInfo ? ('max=' + shardInfo.maxSize.toFixed(1) + ' min=' + shardInfo.minSize.toFixed(1)) : '-');
   await sleep(70);
   await shot('shatter-70ms.png');
   await sleep(110);
@@ -510,8 +517,19 @@ async function main() {
       /* 核心断言：碎片出现的那一帧，**不允许**还有卡牌在飞 */
       check('④ 碎裂瞬间零在途飞行（第 3 张已落定，不再「牌没到就碎」）',
         f0.fl === 0, 'flights=' + f0.fl + ' @' + f0.t + 'ms');
-      check('④ 碎裂瞬间槽内已有 3 张有牌态（ghost 生效，不是空槽爆炸）',
-        f0.tTiles >= 3, 'T×' + f0.tTiles);
+      /* Δ29：可见的「有牌态」被前移到前摇窗口（ghost + 膨胀闪白），
+       * 爆发帧同帧清槽 → 必须分别在「前摇末帧」与「爆发帧」各自断言。 */
+      var ghostIdx = -1;
+      for (var gi = firstSh - 1; gi >= 0; gi--) {
+        if (seq.frames[gi].tTiles >= 3) { ghostIdx = gi; break; }
+      }
+      check('④ 前摇窗口内槽内已有 3 张有牌态（ghost 生效，不是空槽爆炸）',
+        ghostIdx >= 0, ghostIdx >= 0 ? ('ghost@' + seq.frames[ghostIdx].t + 'ms T×' + seq.frames[ghostIdx].tTiles) : 'no ghost frame');
+      check('④ 前摇时长 40~200ms（PRESHAKE 70ms + 调度抖动）',
+        ghostIdx >= 0 && (f0.t - seq.frames[ghostIdx].t) >= 40 && (f0.t - seq.frames[ghostIdx].t) <= 200,
+        ghostIdx >= 0 ? ('Δ=' + (f0.t - seq.frames[ghostIdx].t) + 'ms') : '-');
+      check('④ 爆发帧同帧清槽（碎块出现的那一帧槽内已无牌，零空档）',
+        f0.tTiles === 0, 'T×' + f0.tTiles + ' @' + f0.t + 'ms');
       check('④ 碎裂发生在最后一次点击之后（非点击同帧爆发）',
         seq.taps.length === 3 && f0.t > seq.taps[2],
         'taps=' + JSON.stringify(seq.taps) + ' shatter@' + f0.t + 'ms');
@@ -696,6 +714,17 @@ async function main() {
     for (var kk in cnt) if (cnt[kk] > bestN) { bestN = cnt[kk]; target = kk | 0; }
     if (target < 0 || bestN < 3) return { err: 'no triple suit' };
 
+    /* 静态基线：槽位几何必须在**未挂前摇动画时**取——.slot-shattering
+     * 是非等比缩放动画，getBoundingClientRect 会返回放大后的盒子。 */
+    var baseSlots = [];
+    (function(){
+      var ns = document.querySelectorAll('#dock .slot');
+      for (var q = 0; q < ns.length; q++) {
+        var bq = ns[q].getBoundingClientRect();
+        baseSlots.push({ i: q, l: Math.round(bq.left), r: Math.round(bq.right), w: Math.round(bq.width) });
+      }
+    })();
+
     /* 预置 2 张异花色（占用槽 0,1） */
     var pre = tappableBySuit(target);
     var preSuit = -1, preN = 0;
@@ -709,56 +738,85 @@ async function main() {
     }
     var preDock = s.state().dock.map(function(t){ return t.s; });
 
-    /* 凑目标花色三消 */
-    var tapped = 0;
+    /* 凑目标花色三消。
+     * Δ29 前摇只有 70ms，任何「先 sleep 再回头找」的写法都会错过窗口 →
+     * 用 rAF 观察者全程记录（与 ⑧ 同法），同时用 dock 快照**推导**期望槽位，
+     * 使核心几何断言不依赖 CSS 类是否恰好被某一帧采到。 */
+    var obs = { sawShat: false, shat: [], snap: null };
+    var obsDone = false;
+    (function startObserver(){
+      var t0 = performance.now();
+      (function loop(){
+        if (obsDone) return;
+        var nodes = document.querySelectorAll('#dock .slot');
+        var shatNow = [];
+        for (var q = 0; q < nodes.length; q++) {
+          if ((nodes[q].className || '').indexOf('slot-shattering') >= 0) shatNow.push(q);
+        }
+        if (shatNow.length) { obs.shat = shatNow; obs.sawShat = true; }
+        if (r.vfxShardsOf().length > 0 && !obs.snap) {
+          var xs = r.vfxShardsOf().map(function(a){ return a.x; }).sort(function(a,b){ return a-b; });
+          obs.snap = {
+            xMin: Math.round(xs[0]),
+            xMax: Math.round(xs[xs.length - 1]),
+            xP10: Math.round(xs[Math.floor(xs.length * 0.10)]),
+            xP90: Math.round(xs[Math.floor(xs.length * 0.90)])
+          };
+        }
+        if (obs.snap || performance.now() - t0 > 6000) { obsDone = true; return; }
+        requestAnimationFrame(loop);
+      })();
+    })();
+
+    var tapped = 0, dockBeforeMatch = null, expectShat = null;
     while (tapped < 8) {
-      var stc = s.state(), c = 0;
-      for (var ci = 0; ci < stc.dock.length; ci++) if ((stc.dock[ci].s | 0) === target) c++;
-      if (c >= 3) break;
+      var stc = s.state();
+      var idxT = [], firstEmpty = -1;
+      for (var ci = 0; ci < stc.dock.length; ci++) {
+        if ((stc.dock[ci].s | 0) === target) idxT.push(ci);
+      }
+      firstEmpty = stc.dock.length;
+      if (idxT.length >= 2 && firstEmpty < 7) {
+        /* 再点一张即凑成三消：此刻快照 = 爆发槽位的确定性来源 */
+        dockBeforeMatch = stc.dock.map(function(t){ return t.s; });
+        expectShat = idxT.concat([firstEmpty]).sort(function(a,b){ return a-b; });
+      }
       var tid = firstOf(target);
       if (tid == null) break;
       s.tap(tid); tapped++;
       await sleep(100);
+      if (obs.snap && expectShat) break;
     }
-
-    /* 等碎裂首帧，采「震颤槽位」与碎片 x 分布 */
-    var t0 = performance.now(), snap = null;
-    while (performance.now() - t0 < 2000) {
-      if (r.vfxShardsOf().length > 0) {
-        var nodes = document.querySelectorAll('#dock .slot');
-        var shat = [], slotRects = [];
-        for (var q = 0; q < nodes.length; q++) {
-          var bq = nodes[q].getBoundingClientRect();
-          slotRects.push({ i: q, l: Math.round(bq.left), r: Math.round(bq.right), w: Math.round(bq.width) });
-          if ((nodes[q].className || '').indexOf('slot-shattering') >= 0) shat.push(q);
-        }
-        var xs = r.vfxShardsOf().map(function(a){ return a.x; }).sort(function(a,b){ return a-b; });
-        snap = {
-          shat: shat, slots: slotRects,
-          xMin: Math.round(xs[0]),
-          xMax: Math.round(xs[xs.length - 1]),
-          xP10: Math.round(xs[Math.floor(xs.length * 0.10)]),
-          xP90: Math.round(xs[Math.floor(xs.length * 0.90)])
-        };
-        break;
-      }
-      await sleep(8);
-    }
+    /* 收尾：等观察者补齐快照 */
+    var wEnd = performance.now();
+    while (!obs.snap && performance.now() - wEnd < 2500) await sleep(20);
+    obsDone = true;
     return { target: target, preSuit: preSuit, preTapped: preTapped,
-             preDock: preDock, tapped: tapped, snap: snap };
+             preDock: preDock, tapped: tapped, dockBeforeMatch: dockBeforeMatch,
+             expectShat: expectShat,
+             snap: obs.snap ? {
+               shat: obs.shat, sawShat: obs.sawShat, slots: baseSlots,
+               xMin: obs.snap.xMin, xMax: obs.snap.xMax,
+               xP10: obs.snap.xP10, xP90: obs.snap.xP90
+             } : null };
   })()`);
 
-  if (birth && !birth.err && birth.snap && birth.snap.shat.length) {
+  if (birth && !birth.err && birth.snap && birth.expectShat && birth.expectShat.length === 3) {
     var bs = birth.snap, slots = bs.slots;
+    var shat = (bs.shat && bs.shat.length === 3) ? bs.shat : birth.expectShat;
     check('⑥ 预置 2 张异花色占住槽 0,1（把三消块挤到右侧）',
       birth.preTapped === 2 && birth.preDock.length >= 2, JSON.stringify(birth.preDock));
-    check('⑥ 震颤槽位恰为 3 个', bs.shat.length === 3, JSON.stringify(bs.shat));
+    check('⑥ 前摇槽位 = dock 快照推导的 3 槽（观察到的类名与推导一致）',
+      !bs.sawShat || JSON.stringify(bs.shat) === JSON.stringify(birth.expectShat),
+      'obs=' + JSON.stringify(bs.shat) + ' expect=' + JSON.stringify(birth.expectShat) + ' sawShat=' + bs.sawShat);
+    check('⑥ 爆发槽位恰为 3 个且为 dock 中的三消块', shat.length === 3,
+      JSON.stringify(shat) + ' dockBefore=' + JSON.stringify(birth.dockBeforeMatch));
     /* 核心：槽位 MUST NOT 退化成「最左 3 个有牌槽」 */
-    var isLeftmost = bs.shat.length === 3 && bs.shat[0] === 0 && bs.shat[1] === 1 && bs.shat[2] === 2;
+    var isLeftmost = shat[0] === 0 && shat[1] === 1 && shat[2] === 2;
     check('⑥ 爆发槽位不是「最左 3 槽」（MUST 为本轮三消真实所在槽位）',
-      !isLeftmost, 'shat=' + JSON.stringify(bs.shat) + ' preDock=' + JSON.stringify(birth.preDock));
+      !isLeftmost, 'shat=' + JSON.stringify(shat) + ' preDock=' + JSON.stringify(birth.preDock));
     /* 出生 x 必须落在 3 槽并集 ± 0.9 槽宽内 */
-    var s0 = slots[bs.shat[0]], s2 = slots[bs.shat[bs.shat.length - 1]];
+    var s0 = slots[shat[0]], s2 = slots[shat[shat.length - 1]];
     if (s0 && s2) {
       var pad = s0.w * 0.9;
       var lo = s0.l - pad, hi = s2.r + pad;
@@ -830,15 +888,22 @@ async function main() {
       function loop(){
         var now = performance.now() - start;
         var list = r.vfxShardsOf();
+        /* 质心：碎块按 life 随机消亡，逐枚下标配对在 300~520ms 寿命下会错位，
+         * 故同时记录全团质心（对随机消亡无偏），倾角/速率/微跳一律用质心。 */
+        var sx = 0, sy = 0, n = list.length;
+        for (var li = 0; li < n; li++) { sx += list[li].x; sy += list[li].y; }
         frames.push({
           t: now,
-          s: list.map(function(x){ return { x: x.x, y: x.y, vx: x.vx, vy: x.vy }; })
+          n: n,
+          cx: n ? sx / n : NaN,
+          cy: n ? sy / n : NaN,
+          s: list.map(function(x){ return { x: x.x, y: x.y, vx: x.vx, vy: x.vy, vy0: x.vy0 }; })
         });
-        if (now < 460) requestAnimationFrame(loop); else done();
+        if (now < 520) requestAnimationFrame(loop); else done();
       }
       requestAnimationFrame(loop);
     });
-    return { frames: frames };
+    return { frames: frames, G: window.STM.rendererTest.DOCK_SHARDS.gravity };
   })()`);
 
   if (traj && !traj.err && traj.frames && traj.frames.length >= 2) {
@@ -853,58 +918,221 @@ async function main() {
     check('⑦ 全团 vx 同号（单条扫掠轨迹，MUST NOT 左/中/右三束扇形）',
       vPos === 0 || vNeg === 0, '正 ' + vPos + ' / 负 ' + vNeg);
 
-    /* ⑦b 轨迹倾角：首帧 → 末个「仍 >= 60 枚」的帧，逐枚配对 */
-    var fA = tf[0], fB = null;
-    for (var tb = tf.length - 1; tb >= 0; tb--) { if (tf[tb].s.length >= 60) { fB = tf[tb]; break; } }
-    var angs = [], sumAbsDx = 0, sumDy = 0;
-    if (fB) {
-      var np = Math.min(fA.s.length, fB.s.length);
-      for (var tp = 0; tp < np; tp++) {
-        var ddx = fB.s[tp].x - fA.s[tp].x;
-        var ddy = fB.s[tp].y - fA.s[tp].y;
-        if (ddy < 1) continue;
-        angs.push(Math.atan2(Math.abs(ddx), ddy) * 180 / Math.PI);
-        sumAbsDx += Math.abs(ddx); sumDy += ddy;
+    /* ⑦b 微跳 → 强重力急坠（Δ29 口径）
+     * headless 软件渲染只有 ~8~12fps，微跳往返仅 94~150ms、跳高 7~18px，
+     * **位置采样会整段跳过顶点**。故微跳按出生快照 vy0 判据：
+     * 全部 vy0 < 0（向上）+ 由 vy0²/(2g) 反算跳高，位置采样只用于末段急坠。 */
+    var fA = tf[0];
+    var G = traj.G || 6400;
+    var vy0s = fA.s.map(function (o) { return (o.vy0 != null ? o.vy0 : o.vy); });
+    var vyUp = vy0s.filter(function (v) { return v < 0; }).length;
+    var hopAvg = vy0s.length
+      ? vy0s.reduce(function (a, v) { return a + v * v; }, 0) / vy0s.length / (2 * G)
+      : NaN;
+    check('⑦ 起手全团竖直初速为负（向上微跳，Δ29 而非起手即坠）',
+      vy0s.length > 0 && vyUp === vy0s.length, 'vy<0 ' + vyUp + '/' + vy0s.length);
+    check('⑦ 微跳跳高 3~25px（vy0 480~300 / g 6400 → 7~18px ± 积分误差）',
+      isFinite(hopAvg) && hopAvg >= 3 && hopAvg <= 25, 'hop=' + (isFinite(hopAvg) ? hopAvg.toFixed(1) : '-') + 'px');
+
+    /* ⑦c 末段质心大幅下落（强重力急坠） */
+    var fB = null;
+    for (var tz = tf.length - 1; tz >= 0; tz--) { if (isFinite(tf[tz].cy) && tf[tz].n > 0) { fB = tf[tz]; break; } }
+    var dropEnd = NaN;
+    if (fB && isFinite(fA.cy)) dropEnd = fB.cy - fA.cy;
+    check('⑦ 末段质心累计下落 >= 250px（微跳后垂直加速急坠）',
+      isFinite(dropEnd) && dropEnd >= 250 && !!fB && fB.t >= 300,
+      (isFinite(dropEnd) ? dropEnd.toFixed(0) : '-') + 'px @' + (fB ? Math.round(fB.t) : '-') + 'ms');
+
+    /* ⑦d 末段倾角：强重力把轨迹压向垂直（Δ29 明确「垂直加速急坠」，
+     * 取代 Δ28f 的 5~40° 斜落口径；水平扫掠由 |dx| 单独守住） */
+    var dxC = NaN, angC = NaN;
+    if (fB && isFinite(fA.cx) && isFinite(fB.cx)) {
+      dxC = fB.cx - fA.cx;
+      if (isFinite(dropEnd) && dropEnd > 1) {
+        angC = Math.atan2(Math.abs(dxC), dropEnd) * 180 / Math.PI;
       }
     }
-    angs.sort(function (a, b) { return a - b; });
-    var angP50 = angs.length ? angs[Math.floor(angs.length / 2)] : NaN;
-    check('⑦ 轨迹倾角 p50 落 5~40°（斜着落下，既非垂直也非横飞）',
-      isFinite(angP50) && angP50 >= 5 && angP50 <= 40,
-      'p50=' + (isFinite(angP50) ? angP50.toFixed(1) : '-') + '° 配对=' + angs.length);
+    check('⑦ 水平扫掠仍存在（末帧质心 |dx| >= 8px，MUST NOT 纯垂直直线）',
+      isFinite(dxC) && Math.abs(dxC) >= 8, 'dx=' + (isFinite(dxC) ? dxC.toFixed(0) : '-') + 'px');
+    check('⑦ 末段倾角 <= 15°（强重力 → 近似垂直急坠）',
+      isFinite(angC) && angC <= 15, 'angle=' + (isFinite(angC) ? angC.toFixed(1) : '-') + '°');
 
-    /* ⑦c 首 100ms 竖直位移 */
-    var f100 = null;
-    for (var tq = 0; tq < tf.length; tq++) { if (tf[tq].t >= 95) { f100 = tf[tq]; break; } }
-    var drop100 = NaN;
-    if (f100) {
-      var nq = Math.min(fA.s.length, f100.s.length), acc = 0, cn2 = 0;
-      for (var pq = 0; pq < nq; pq++) { var dq = f100.s[pq].y - fA.s[pq].y; if (dq > 0) { acc += dq; cn2++; } }
-      drop100 = cn2 ? acc / cn2 : NaN;
-    }
-    check('⑦ 首 100ms 平均竖直位移 >= 40px（起手即下坠，不是飘）',
-      isFinite(drop100) && drop100 >= 40,
-      (isFinite(drop100) ? drop100.toFixed(1) : '-') + 'px');
-
-    /* ⑦d 墙钟下落速率（掉帧不改速度——Δ28f 根因修复的实机护栏） */
+    /* ⑦e 墙钟末段速率（掉帧不改速度——Δ28f 根因修复的实机护栏）
+     * 取「末帧」与「其前 100~200ms 的帧」求瞬时速率：t=400ms 时 vy≈2080px/s，
+     * 故阈值放到 800px/s 才能区分「强重力急坠」与「匀速飘落」。 */
     var wallRate = NaN;
-    if (fB && fB.t > fA.t + 1) {
-      var dtW = (fB.t - fA.t) / 1000;
-      var nw = Math.min(fA.s.length, fB.s.length), accY = 0, cnW = 0;
-      for (var pw = 0; pw < nw; pw++) { var dw = fB.s[pw].y - fA.s[pw].y; if (dw > 0) { accY += dw; cnW++; } }
-      if (cnW && dtW > 0) wallRate = (accY / cnW) / dtW;
+    if (fB) {
+      var fP = null;
+      for (var tw = tf.length - 1; tw >= 0; tw--) {
+        if (fB.t - tf[tw].t >= 100 && isFinite(tf[tw].cy)) { fP = tf[tw]; break; }
+      }
+      if (fP) {
+        var dtW = (fB.t - fP.t) / 1000;
+        if (dtW > 0) wallRate = (fB.cy - fP.cy) / dtW;
+      }
     }
-    check('⑦ 墙钟下落速率 >= 300 px/s（物理按墙钟积分，掉帧不减速）',
-      isFinite(wallRate) && wallRate >= 300,
+    check('⑦ 墙钟末段下落速率 >= 800 px/s（强重力急坠，掉帧不减速）',
+      isFinite(wallRate) && wallRate >= 800,
       (isFinite(wallRate) ? Math.round(wallRate) : '-') + ' px/s');
     await shot('shatter-traj.png');
   } else {
     check('⑦ 轨迹采样成功', false, traj ? JSON.stringify(traj.err || ('frames=' + (traj.frames ? traj.frames.length : 'null'))) : 'null');
   }
 
+  /* ---------- ⑧ 前摇时序（Δ29：膨胀闪白撑爆） ---------- */
+  console.log('\n⑧ 前摇时序与同帧清槽（Δ29）');
+  var pre = await ev(`(async function(){
+    var sleep = function(ms){ return new Promise(function(z){ setTimeout(z, ms); }); };
+    var r = window.__D27.rnd(), s = window.__D27.sess(), RE = window.STM.RulesEngine;
+    s.reset();
+    await sleep(150);
+    function firstOf(suit){
+      var st = s.state(), eng = s.engineState();
+      for (var i=0;i<st.board.length;i++){
+        var t = st.board[i];
+        if (!t || (t.s|0) !== suit) continue;
+        if (!RE.canTap(eng, t.id)) continue;
+        return t.id;
+      }
+      return null;
+    }
+    var st0 = s.state(), eng0 = s.engineState(), cnt = {};
+    for (var i0=0;i0<st0.board.length;i0++){
+      var b0 = st0.board[i0];
+      if (!b0 || !RE.canTap(eng0, b0.id)) continue;
+      var k0 = b0.s|0; cnt[k0] = (cnt[k0]||0)+1;
+    }
+    var target = -1, bestN = 0;
+    for (var kk in cnt) if (cnt[kk] > bestN) { bestN = cnt[kk]; target = kk|0; }
+    if (target < 0 || bestN < 3) return { err: 'no triple' };
+
+    /* 逐帧观测：前摇类名出现 → 消失（= 爆发帧）→ 同帧碎片已生成 */
+    var shatOnAt = -1, shatOffAt = -1, shardsAt = -1, dockTAtBurst = -1;
+    var animDur = null, animName = null, scaleAtOn = null;
+    var t0 = performance.now(), tapped = 0, lastTap = -1e9;
+    await new Promise(function(done){
+      function loop(){
+        var now = performance.now();
+        var el = now - t0;
+        if (tapped < 3 && now - lastTap > 110) {
+          var tid = firstOf(target);
+          if (tid != null) { s.tap(tid); tapped++; lastTap = now; }
+        }
+        var ns = document.querySelectorAll('#dock .slot');
+        var on = 0, firstOn = -1;
+        for (var q = 0; q < ns.length; q++) {
+          if ((ns[q].className || '').indexOf('slot-shattering') >= 0) { on++; if (firstOn < 0) firstOn = q; }
+        }
+        var nSh = r.vfxShardsOf().length;
+        if (on > 0 && shatOnAt < 0) {
+          shatOnAt = el;
+          /* 前摇真实时长 = 计算样式的 animationDuration（帧率无关的精确值） */
+          if (firstOn >= 0 && window.getComputedStyle) {
+            var cs = window.getComputedStyle(ns[firstOn]);
+            animDur = cs.animationDuration;
+            animName = cs.animationName;
+            scaleAtOn = cs.transform;
+          }
+        }
+        if (shatOnAt >= 0 && on === 0 && shatOffAt < 0) {
+          shatOffAt = el;
+          dockTAtBurst = (window.__D27.dockSig().match(/T/g) || []).length;
+        }
+        if (nSh > 0 && shardsAt < 0) shardsAt = el;
+        if (shardsAt >= 0 || el > 3000) { done(); return; }
+        requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);
+    });
+    return { shatOnAt: Math.round(shatOnAt), shatOffAt: Math.round(shatOffAt),
+             shardsAt: Math.round(shardsAt), dockTAtBurst: dockTAtBurst,
+             animDur: animDur, animName: animName, scaleAtOn: scaleAtOn };
+  })()`);
+  if (pre && !pre.err) {
+    check('⑧ 前摇类 .slot-shattering 确实上屏（可见前摇，非瞬时爆）', pre.shatOnAt >= 0,
+      'on@' + pre.shatOnAt + 'ms');
+    /* 精确时长取计算样式（帧率无关）；headless rAF ~100~230ms，观测跨度只能当上界 */
+    check('⑧ 前摇动画计算时长 = 0.07s（PRESHAKE 70ms 精确值）',
+      pre.animDur === '0.07s', 'animationDuration=' + pre.animDur + ' name=' + pre.animName);
+    check('⑧ 前摇动画名 = slot-shatter（膨胀闪白关键帧已生效）',
+      pre.animName === 'slot-shatter', pre.animName);
+    check('⑧ 前摇观测跨度 <= 400ms（受 headless 帧量化限制的上界）',
+      pre.shatOnAt >= 0 && pre.shatOffAt > pre.shatOnAt &&
+      (pre.shatOffAt - pre.shatOnAt) <= 400,
+      'Δ=' + (pre.shatOffAt - pre.shatOnAt) + 'ms');
+    check('⑧ 碎块与「前摇消失」同帧出现（同帧清槽，零空档）',
+      pre.shardsAt >= 0 && Math.abs(pre.shardsAt - pre.shatOffAt) <= 34,
+      'shards@' + pre.shardsAt + 'ms off@' + pre.shatOffAt + 'ms');
+    check('⑧ 爆发帧槽内已无 ghost 牌（3 张与前摇一同消失）',
+      pre.dockTAtBurst === 0, 'T×' + pre.dockTAtBurst);
+  } else {
+    check('⑧ 前摇时序采样成功', false, pre ? JSON.stringify(pre.err) : 'null');
+  }
+
+  /* ---------- ⑨ 碎块明暗切面与恒不透明（Δ29） ---------- */
+  console.log('\n⑨ 碎块明暗切面与 alpha 恒 1.0（Δ29）');
+  var tone = await ev(`(async function(){
+    var r = window.__D27.rnd();
+    r.clearVfx(false);
+    var ns = document.querySelectorAll('#dock .slot');
+    var rects = [];
+    for (var i = 0; i < 3 && i < ns.length; i++) rects.push(ns[i].getBoundingClientRect());
+    r.spawnDockShatter(rects);
+    var sh = r.vfxShardsOf();
+    var alpha0s = [], sizes = [];
+    for (var j = 0; j < sh.length; j++) { alpha0s.push(sh[j].alpha0); sizes.push(sh[j].size); }
+    await new Promise(function(z){ requestAnimationFrame(function(){ requestAnimationFrame(z); }); });
+    var cv = document.getElementById('vfx-canvas');
+    if (!cv) return { err: 'no #vfx-canvas' };
+    var ctx = cv.getContext('2d');
+    var dpr = cv.width / Math.max(1, cv.clientWidth);
+    var fl = r.vfxFlashInfo();
+    var d;
+    try { d = ctx.getImageData(0, 0, cv.width, cv.height).data; }
+    catch (e) { return { err: 'getImageData: ' + e.message }; }
+    var opaque = 0, dark = 0, light = 0, lumMin = 999, lumMax = -1;
+    for (var p = 0; p < d.length; p += 4) {
+      if (d[p + 3] <= 200) continue;
+      var px = ((p / 4) % cv.width), py = Math.floor((p / 4) / cv.width);
+      /* 排除爆心辉光（加性亮斑会污染「亮面」统计） */
+      if (fl) {
+        var dx = px - fl.x * dpr, dy = py - fl.y * dpr;
+        if (dx * dx + dy * dy <= fl.r * fl.r * dpr * dpr * 1.2) continue;
+      }
+      opaque++;
+      var lum = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
+      if (lum < lumMin) lumMin = lum;
+      if (lum > lumMax) lumMax = lum;
+      if (lum <= 120) dark++; else if (lum >= 190) light++;
+    }
+    return { n: sh.length, alpha0s: alpha0s, minSize: Math.min.apply(null, sizes),
+             maxSize: Math.max.apply(null, sizes), opaque: opaque, dark: dark, light: light,
+             lumMin: Math.round(lumMin), lumMax: Math.round(lumMax),
+             darkRatio: opaque ? dark / opaque : 0, lightRatio: opaque ? light / opaque : 0 };
+  })()`);
+  if (tone && !tone.err) {
+    check('⑨ 全部碎块 alpha0 === 1（恒不透明，MUST NOT 全程半透明）',
+      tone.alpha0s.length > 0 && tone.alpha0s.every(function (a) { return a === 1; }),
+      'n=' + tone.alpha0s.length + ' uniq=' + JSON.stringify(tone.alpha0s.filter(function (a, i, arr) { return arr.indexOf(a) === i; })));
+    check('⑨ 实机像素双极共存：暗面 <=120 占比 >= 15%（深色立体侧面保住）',
+      tone.opaque > 500 && tone.darkRatio >= 0.15,
+      (100 * tone.darkRatio).toFixed(1) + '% (opaque=' + tone.opaque + ')');
+    check('⑨ 实机像素双极共存：亮面 >=190 占比 >= 3%（高光/亮边保留）',
+      tone.lightRatio >= 0.03, (100 * tone.lightRatio).toFixed(1) + '%');
+    check('⑨ 明暗亮度跨度 >= 60（清晰立体切面，不是单色块）',
+      tone.lumMax - tone.lumMin >= 60, 'lum ' + tone.lumMin + '~' + tone.lumMax);
+    check('⑨ 主碎块尺寸 >= 48px（大颗粒，粒粒分明）', tone.maxSize >= 48,
+      'max=' + Math.round(tone.maxSize) + ' min=' + Math.round(tone.minSize));
+  } else {
+    check('⑨ 碎块像素采样成功', false, tone ? JSON.stringify(tone.err) : 'null');
+  }
+  var kc = await ev('(function(){var T=window.STM.rendererTest;return T?{fadeTail:T.DOCK_SHARDS.fadeTail,alphaMin:T.DOCK_SHARDS.alphaMin,alphaMax:T.DOCK_SHARDS.alphaMax}:null;})()');
+  check('⑨ 淡出只在末段 120ms（前段 alpha 恒 1.0）',
+    !!kc && kc.fadeTail === 120 && kc.alphaMin === 1 && kc.alphaMax === 1,
+    kc ? JSON.stringify(kc) : 'null');
+
   var errCount = await ev('(function(){return (window.__D27ERR||0);})()');
   check('③ 全程零未捕获异常', !errCount, errCount);
-
   cleanup();
 
   console.log('');
@@ -912,7 +1140,7 @@ async function main() {
     console.log('delta27-verify: FAILED — ' + fails.length + ' 失败项: ' + fails.join('; '));
     process.exit(1);
   } else {
-    console.log('delta27-verify: all green（编舞在途<=22 / 槽位零抖动 / 图层不反转 / 碎块 120~150 枚 + 图集命中>=90% / 碎裂出生点定位 / 单条扫掠轨迹）');
+    console.log('delta27-verify: all green（编舞在途<=22 / 槽位零抖动 / 图层不反转 / 碎块 36~54 枚大颗粒 + 图集命中>=90% / 前摇 70ms 同帧清槽 / 微跳急坠轨迹 / 明暗双极 + alpha 恒 1.0）');
     console.log('取证帧目录：shots/delta27/');
   }
 }

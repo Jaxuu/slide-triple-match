@@ -4,28 +4,48 @@
   border-radius: 10px;
 }
 
-/* Δ20/T092: 顶部待消槽匹配卡牌 180ms 碎裂驻留演出 */
-.slot-shattering {
-  animation: slot-shatter 180ms steps(6, end) forwards;
+/* Δ29b / FR-049 §2 ①②④: 顶部待消槽「挤压闪白前摇」（取代 Δ20 的 180ms 震颤裂纹）
+ *
+ * 语义：3 张牌全部落定后，先在 70ms 内做一记**非等比膨胀挤压 + 高光闪白**
+ * （横向与纵向相位相反 → 「被内部力量撑爆」），碎块在膨胀顶点那一帧生成，
+ * 同帧清空槽内 3 张牌（零空窗帧 / 零叠帧）。
+ *
+ * 样式边界（SC-017 ⑤）：只动 transform / filter / overflow 与关键帧时序，
+ * `.slot` 的 border / padding / background / border-radius 一字未改。
+ *
+ * 选择器必须写成 `#dock .slot.slot-shattering`（特异性 1,2,0）——
+ * 仅 `.slot-shattering`（0,1,0）会被 `.slot.has-tile / .is-filled / :not(:empty)`
+ * 的落座动画 `dock-seat`（0,2,0）整段覆盖，实测计算样式仍为 `dock-seat 0.26s`，
+ * 前摇在真机上**完全不播**。同时该选择器也压过 `#dock .slot { overflow: hidden }`，
+ * 否则膨胀会被裁成「原地放大」。 */
+#dock .slot.slot-shattering,
+#dock .slot.slot-shattering.has-tile,
+#dock .slot.slot-shattering.is-filled,
+#dock .slot.slot-shattering:not(:empty) {
+  animation: slot-shatter 70ms cubic-bezier(.34, .01, .58, 1) forwards;
   position: relative;
   overflow: visible;
+  will-change: transform, filter;
 }
-.slot-shattering::before,
-.slot-shattering::after {
-  content: '';
-  position: absolute;
-  inset: 6% 8%;
-  border-top: 1px solid rgba(255, 255, 255, 0.95);
-  pointer-events: none;
-}
-.slot-shattering::before { transform: rotate(18deg); top: 30%; }
-.slot-shattering::after { transform: rotate(-24deg); top: 62%; }
 @keyframes slot-shatter {
-  0%   { transform: translate(0, 0) rotate(0deg); opacity: 1; }
-  25%  { transform: translate(2px, -1px) rotate(2deg); opacity: 1; }
-  50%  { transform: translate(-2px, 1px) rotate(-2deg); opacity: 1; }
-  75%  { transform: translate(1px, 2px) rotate(1deg); opacity: 0.85; }
-  100% { transform: scale(0.55) rotate(6deg); opacity: 0; }
+  0%   { transform: scale(1, 1);            filter: brightness(1); }
+  28%  { transform: scale(1.16, 0.84);      filter: brightness(1.55) saturate(1.12); }
+  58%  { transform: scale(0.86, 1.18);      filter: brightness(1.95) saturate(1.2); }
+  82%  { transform: scale(1.24, 1.10);      filter: brightness(2.4); }
+  100% { transform: scale(1.36, 1.36);      filter: brightness(2.9); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* 降级：零挤压、零闪白抖动，只留一记极短的亮度抬升（不改变爆发时序） */
+  #dock .slot.slot-shattering,
+  #dock .slot.slot-shattering.has-tile,
+  #dock .slot.slot-shattering.is-filled,
+  #dock .slot.slot-shattering:not(:empty) {
+    animation: slot-shatter-static 70ms linear forwards;
+  }
+  @keyframes slot-shatter-static {
+    0%   { filter: brightness(1); }
+    100% { filter: brightness(1.5); }
+  }
 }
 /* =========================================================
  * Slide & Triple（滑块三消）— 9:16 响应式外壳（D-13）
@@ -81,10 +101,12 @@ html, body {
 }
 
 /* HUD / 棋盘 / Dock / 道具栏 / 教学层 抬升至背景层之上 */
-#hud, #board-wrap, #dock, #items, #toast, #challenge-banner {
+#hud, #board-wrap, #dock, #items, #toast {
   position: relative;
   z-index: 2;
 }
+/* Δ29a: 预警横幅是 `#dock` 之上的独立叠层（absolute，不参与 flex 列），
+ * 故单独抬升，不进上面的 position:relative 组（否则会重新占位挤压布局） */
 
 /* =========================================================
  * Δ19c/T085: 顶部导航栏三区 + IQ 指数条
@@ -784,53 +806,157 @@ html, body {
 }
 #toast.show { opacity: 1; }
 
-/* ---------- Δ14/T052e: 挑战关激励横幅（FR-036——绿金卷轴动效） ---------- */
-#challenge-banner {
+/* =========================================================
+ * Δ29a / FR-036: 困难关「险境预警」顶部流光横幅
+ *
+ * 为什么整块重写：旧 `#challenge-banner` 是**棋盘中央的墨绿弹窗**——
+ *   `position:absolute; top:34%; left:50%; transform:translate(-50%,-50%)`
+ *   的定位上下文是 `#app`（flex 列），top:34% 恰是棋盘区；
+ *   墨绿渐变底 + #FFC53D 黄边 + 两枚 10×46px 金色卷轴端饰 = 用户指认的
+ *   「照搬传统麻将」识别特征。Δ29a 把这三样**全部删除**。
+ *
+ * 新形态：与顶部待消槽融为一体的**通透毛玻璃流光条**——
+ *   · 矩形由 JS 与 `#dock` 完全对齐（position:absolute + left/top/width/height），
+ *     故包围盒与 `#board-wrap` 零相交（构造性，不靠数值调参）；
+ *   · `pointer-events: none` 恒定 → 非模态、不阻塞任何点击；
+ *   · 色相全部走 CSS 变量（--banner-hue-a / -b / --banner-glow），六画卷自适应，
+ *     **一次性写入**，不逐帧改样式、不起 rAF；
+ *   · 流光由纯 transform/opacity 的扫掠实现（零布局抖动）。
+ * ========================================================= */
+#peak-banner {
   position: absolute;
-  top: 34%;
-  left: 50%;
-  transform: translate(-50%, -50%) scale(.7);
-  max-width: 82%;
-  padding: 14px 26px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, #2E5E3E 0%, #3E7A52 45%, #2E5E3E 100%);
-  border: 2px solid #FFC53D;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 26;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 clamp(6px, 2.2vw, 12px);
+  border-radius: 14px;
+  overflow: visible;
+  pointer-events: none !important; /* 非模态：不阻塞输入、不冻结 rAF 与判定 */
+  /* 主色相由 --banner-hue-a 驱动；副色相 b 只出现在右段与流光上，
+     保证「主色相」在横幅主体上占绝对主导（门禁按主色相判偏差 <= 30°） */
+  background:
+    linear-gradient(96deg,
+      hsl(var(--banner-hue-a, 205) 78% 62% / 0.52) 0%,
+      hsl(var(--banner-hue-a, 205) 70% 56% / 0.44) 46%,
+      hsl(var(--banner-hue-b, 196) 74% 62% / 0.30) 100%);
+  border: 1px solid hsl(var(--banner-glow, 198) 92% 80% / 0.55);
   box-shadow:
-    0 0 0 4px rgba(76, 195, 138, .25),
-    0 12px 36px rgba(0, 0, 0, .45),
-    inset 0 1px 0 rgba(255, 255, 255, .18);
-  color: #FFEEB0;
-  font-size: clamp(14px, 4cqw, 19px);
+    0 6px 20px hsl(var(--banner-hue-a, 205) 60% 30% / 0.28),
+    inset 0 1px 0 hsl(var(--banner-glow, 198) 100% 92% / 0.42);
+  -webkit-backdrop-filter: blur(7px) saturate(1.18);
+  backdrop-filter: blur(7px) saturate(1.18);
+  color: #F7FBFF;
+  font-size: clamp(10px, 2.86vw, 13.5px);
   font-weight: 700;
-  text-align: center;
-  letter-spacing: .5px;
-  pointer-events: none; /* 非模态: 不阻塞输入与 rAF（Edge Case「横幅与开局输入竞态」） */
-  z-index: 25;
+  letter-spacing: .2px;
+  text-shadow: 0 1px 2px hsl(var(--banner-hue-a, 205) 70% 22% / 0.75);
   opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 260ms ease-out, transform 260ms ease-out;
 }
-#challenge-banner::before,
-#challenge-banner::after { /* 金色卷轴端饰 */
-  content: '';
+#peak-banner.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+/* 点击打断 / 换关清理：<= 100ms 内不可见（不硬切，80ms 淡出） */
+#peak-banner.hide {
+  opacity: 0;
+  transform: translateY(5px);
+}
+#peak-banner.hide.instant {
+  transition-duration: 80ms;
+}
+
+/* 搭档头像：溢出横幅左沿的「探头」构图（不是方形贴片） */
+#peak-banner .peak-banner-pet {
+  flex: 0 0 auto;
+  width: clamp(30px, 9.2vw, 42px);
+  height: clamp(30px, 9.2vw, 42px);
+  margin-left: calc(-1 * clamp(2px, 1.1vw, 6px));
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  overflow: visible;
+  background: radial-gradient(circle at 34% 28%,
+    hsl(var(--banner-glow, 198) 100% 96% / .95),
+    hsl(var(--banner-hue-a, 205) 70% 62% / .85) 62%,
+    hsl(var(--banner-hue-a, 205) 62% 40% / .92));
+  box-shadow:
+    0 0 0 1.5px hsl(var(--banner-glow, 198) 100% 88% / .85),
+    0 4px 12px hsl(var(--banner-hue-a, 205) 70% 24% / .38);
+  animation: peak-pet-peek 1400ms ease-in-out infinite;
+}
+#peak-banner .peak-banner-pet .pet-avatar-img,
+#peak-banner .peak-banner-pet canvas {
+  width: 92%;
+  height: 92%;
+  border-radius: 50%;
+  object-fit: contain;
+  display: block;
+}
+#peak-banner .peak-banner-pet .pet-avatar-emoji {
+  font-size: clamp(16px, 5.2vw, 24px);
+  line-height: 1;
+}
+/* 探身预警微动效：横向轻探 + 极轻微摆（幅度可辨但不喧闹） */
+@keyframes peak-pet-peek {
+  0%   { transform: translate(0, 0) rotate(0deg); }
+  35%  { transform: translate(-3px, -1px) rotate(-5deg); }
+  62%  { transform: translate(-1px, 0) rotate(2deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
+}
+
+/* 文案：单行可读；窄屏允许折两行，MUST NOT 截断、MUST NOT 出现省略号 */
+#peak-banner .peak-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.18;
+  text-align: center;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: break-word;
+}
+@media (max-width: 360px) {
+  #peak-banner .peak-banner-text { white-space: normal; }
+}
+
+/* 流光扫掠（纯 transform/opacity，零布局属性） */
+#peak-banner .peak-banner-sheen {
   position: absolute;
-  top: 50%;
-  width: 10px;
-  height: 46px;
-  transform: translateY(-50%);
-  border-radius: 5px;
-  background: linear-gradient(180deg, #FFD93B, #E8A81F);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(104deg,
+    transparent 26%,
+    hsl(var(--banner-glow, 198) 100% 92% / .10) 42%,
+    hsl(var(--banner-glow, 198) 100% 97% / .55) 50%,
+    hsl(var(--banner-glow, 198) 100% 92% / .10) 58%,
+    transparent 74%);
+  transform: translateX(-115%);
+  opacity: 0;
+  animation: peak-sheen 1400ms ease-in-out infinite;
 }
-#challenge-banner::before { left: -7px; }
-#challenge-banner::after { right: -7px; }
-#challenge-banner.show {
-  animation: challenge-in 1.6s ease-out forwards;
+@keyframes peak-sheen {
+  0%   { transform: translateX(-115%); opacity: 0; }
+  18%  { opacity: .9; }
+  72%  { opacity: .55; }
+  100% { transform: translateX(115%); opacity: 0; }
 }
-@keyframes challenge-in {
-  0%   { opacity: 0; transform: translate(-50%, -50%) scale(.7); }
-  12%  { opacity: 1; transform: translate(-50%, -50%) scale(1.06); }
-  20%  { transform: translate(-50%, -50%) scale(1); }
-  78%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -52%) scale(.96); }
+
+/* prefers-reduced-motion: 退化为静态半透明条 + 一次性淡出（零扫掠、零头像浮动），
+ * 展示时长与「可被点击打断」语义不变（时长由 JS 的 1400ms 计时器保证） */
+@media (prefers-reduced-motion: reduce) {
+  #peak-banner .peak-banner-pet { animation: none; }
+  #peak-banner .peak-banner-sheen { animation: none; opacity: 0; }
+  #peak-banner { transition: opacity 120ms linear; transform: none; }
+  #peak-banner.show { transform: none; }
+  #peak-banner.hide { transform: none; }
 }
 
 /* =========================================================
@@ -1530,7 +1656,7 @@ html, body {
 #app.scene-lobby #bg-canvas,
 #app.scene-lobby #fx-canvas,
 #app.scene-lobby #combo-float-layer,
-#app.scene-lobby #challenge-banner {
+#app.scene-lobby #peak-banner {
   display: none !important;
 }
 

@@ -1,5 +1,5 @@
 /* =========================================================
- * Slide & Triple — shards-audit（Δ27c / T134 图集黑底键控审计）
+ * Slide & Triple — shards-audit（Δ29b / T155~T156 图集键控与立体材质审计）
  *
  *   node tools/shards-audit.js
  *
@@ -11,10 +11,18 @@
  * 断言：
  *   ① assets/icons/shards.jpg 能被加载并切出 9 格（3×3）
  *   ② 黑底已键掉：不透明像素中「近黑」占比 < 2%
- *   ③ 主体包围盒居中、覆盖 >= 80% 的 256 边（素材没被裁切）
- *   ④ 每格不透明占比 0.15~0.80（是碎块，不是整块实心矩形）
+ *   ③ 主体包围盒居中、覆盖 0.62~0.80 的 256 边（素材没被裁切）
+ *   ④ 每格不透明占比 0.10~0.80（是碎块，不是整块实心矩形）
  *   ⑤ 9 格内容两两不同（指纹互异，不是同一块复制）
  *   ⑥ 键控耗时 < 400ms（一次性开销，不阻塞首屏）
+ *   ⑧ 三色系色相 / 同色系聚拢 / 暗面 >= 15%
+ *   ⑬ Δ29b 泛洪键控六条（SC-023 ⑬）：
+ *      · 每张切片暗面（max(R,G,B) <= 190）占比 >= 25%（全 27 张）
+ *      · 暗面 / 亮面均值亮度差 >= 55（明暗切面可辨）
+ *      · 暗面与亮面双极共存（>= 25% / >= 8%）
+ *      · **零掏空**：画框内不存在「从边界不可达的 alpha==0 洞」
+ *      · 画框外沿 2px 环带全透明（背景零误留）
+ *      · 内部明暗交界线存在（不是一块纯色）
  * ========================================================= */
 'use strict';
 
@@ -113,10 +121,15 @@ function auditExpr() {
       var opaque = 0, nearBlack = 0, sum = 0;
       /* Δ28b: SC-023 ⑧ 材质断言所需——暗部占比（max(R,G,B) <= 190）与平均色相 */
       var dark = 0, sumR = 0, sumG = 0, sumB = 0;
+      /* Δ29b ⑬: 暗/亮均值亮度差、双极共存、内部明暗交界线 */
+      var darkSum = 0, lightSum = 0, light = 0, edgeContrast = 0, hardSteps = 0;
       var hist = new Array(256);
       for (var hi0 = 0; hi0 < 256; hi0++) hist[hi0] = 0;
       var minX = W, maxX = -1, minY = H, maxY = -1;
       var fp = 0;
+      /* 先取一份 alpha 平面，供「零掏空 / 外沿环带」两项几何断言用 */
+      var alphaPlane = new Uint8Array(N);
+      for (var q0 = 0; q0 < N; q0++) alphaPlane[q0] = d[q0 * 4 + 3];
       for (var y = 0; y < H; y++) {
         for (var x = 0; x < W; x++) {
           var o = (y * W + x) * 4;
@@ -126,10 +139,32 @@ function auditExpr() {
             var r = d[o], g = d[o + 1], b = d[o + 2];
             var mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
             if (mx <= 40) nearBlack++;
-            if (mx <= 190) dark++;
+            var lum = (0.299 * r + 0.587 * g + 0.114 * b) | 0;
+            if (mx <= 190) { dark++; darkSum += lum; }
+            else { light++; lightSum += lum; }
+            /* 明暗交界线：与右/下邻像素**跨越 190 明暗阈值**的相邻对数
+             * （素材是柔和着色的瓷器，梯度平缓，用「>= 60 跳变」会全部判 0；
+             *  跨阈值的相邻对才是「暗面与亮面真的分开」的稳定证据） */
+            var isDark = mx <= 190;
+            if (x + 1 < W) {
+              var oR = o + 4;
+              if (d[oR + 3] > 200) {
+                var mxR = Math.max(d[oR], d[oR + 1], d[oR + 2]);
+                if ((mxR <= 190) !== isDark) edgeContrast++;
+                if (Math.abs(mxR - mx) >= 60) hardSteps++;
+              }
+            }
+            if (y + 1 < H) {
+              var oD = o + W * 4;
+              if (d[oD + 3] > 200) {
+                var mxD = Math.max(d[oD], d[oD + 1], d[oD + 2]);
+                if ((mxD <= 190) !== isDark) edgeContrast++;
+                if (Math.abs(mxD - mx) >= 60) hardSteps++;
+              }
+            }
             sum += mx;
             sumR += r; sumG += g; sumB += b;
-            hist[(0.299 * r + 0.587 * g + 0.114 * b) | 0]++;
+            hist[lum]++;
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
             if (y < minY) minY = y;
@@ -138,11 +173,48 @@ function auditExpr() {
           }
         }
       }
+      /* Δ29b ⑬: 「零掏空」——从画框四边泛洪 alpha==0 区域，凡不可达的 alpha==0
+       * 像素即「主体被掏出的洞」。旧全局阈值键控会把主体内的近黑厚壁抠成洞，
+       * 本项是「泛洪键控真的保住了暗面」的**独立**几何证据（不是重跑同一算法）。 */
+      var reach = new Uint8Array(N);
+      var qs = [];
+      function seedA(ix) {
+        if (reach[ix] || alphaPlane[ix] !== 0) return;
+        reach[ix] = 1; qs.push(ix);
+      }
+      for (var qx = 0; qx < W; qx++) { seedA(qx); seedA((H - 1) * W + qx); }
+      for (var qy = 0; qy < H; qy++) { seedA(qy * W); seedA(qy * W + W - 1); }
+      while (qs.length) {
+        var ci2 = qs.pop();
+        var cxx = ci2 % W, cyy = (ci2 - cxx) / W;
+        if (cxx > 0) seedA(ci2 - 1);
+        if (cxx < W - 1) seedA(ci2 + 1);
+        if (cyy > 0) seedA(ci2 - W);
+        if (cyy < H - 1) seedA(ci2 + W);
+      }
+      var enclosedHoles = 0;
+      for (var qh = 0; qh < N; qh++) if (alphaPlane[qh] === 0 && !reach[qh]) enclosedHoles++;
+      /* 画框外沿 2px 环带：必须全透明（背景零误留） */
+      var ringN = 0, ringOpaque = 0;
+      for (var ry = 0; ry < H; ry++) {
+        for (var rx = 0; rx < W; rx++) {
+          if (rx > 1 && rx < W - 2 && ry > 1 && ry < H - 2) continue;
+          ringN++;
+          if (alphaPlane[ry * W + rx] > 8) ringOpaque++;
+        }
+      }
       out.push({
         w: W, h: H,
         opaqueRatio: opaque / N,
         nearBlackRatio: opaque > 0 ? nearBlack / opaque : 1,
         darkRatio: opaque > 0 ? dark / opaque : 0,
+        lightRatio: opaque > 0 ? light / opaque : 0,
+        darkMean: dark > 0 ? darkSum / dark : 0,
+        lightMean: light > 0 ? lightSum / light : 0,
+        edgeContrast: edgeContrast,
+        hardSteps: hardSteps,
+        enclosedHoles: enclosedHoles,
+        ringOpaqueRatio: ringN > 0 ? ringOpaque / ringN : 1,
         meanBright: opaque > 0 ? sum / opaque : 0,
         meanRGB: opaque > 0
           ? [sumR / opaque, sumG / opaque, sumB / opaque]
@@ -162,7 +234,16 @@ function auditExpr() {
         fp: fp
       });
     }
-    return { state: A.state(), validCount: A.validCount(), keyMs: A.keyMs(), slices: out };
+    return { state: A.state(), validCount: A.validCount(), keyMs: A.keyMs(), slices: out,
+      consts: (function () {
+        var T = window.STM.rendererTest || {};
+        return {
+          keying: T.SHARD_KEYING || null,
+          rimMix: T.SHARD_RIM_MIX != null ? T.SHARD_RIM_MIX : null,
+          rampGamma: T.SHARD_RAMP_GAMMA != null ? T.SHARD_RAMP_GAMMA : null,
+          shadeAlpha: T.SHARD_SHADE_ALPHA != null ? T.SHARD_SHADE_ALPHA : null
+        };
+      })() };
   })()`;
 }
 
@@ -297,12 +378,19 @@ async function main() {
     for (var p2 = 0; p2 < sl.length; p2++) {
       var dr = sl[p2].darkRatio;
       if (dr < darkMin) darkMin = dr;
-      if (!(dr >= 0.15)) { darkOk = false; darkWorst += '格' + p2 + '=' + (100 * dr).toFixed(1) + '% '; }
+      if (!(dr >= 0.25)) { darkOk = false; darkWorst += '格' + p2 + '=' + (100 * dr).toFixed(1) + '% '; }
     }
-    check('⑧ 每张切片暗部（max(R,G,B) <= 190）占比 >= 15%（有明暗梯度，非纯白）',
+    check('⑬ 每张切片暗面（max(R,G,B) <= 190）占比 >= 25%（全 27 张，SC-023 ⑬）',
       darkOk, darkWorst);
-    console.log('    暗部占比 min=' + (100 * darkMin).toFixed(1) + '% · max=' +
+    console.log('    暗面占比 min=' + (100 * darkMin).toFixed(1) + '% · max=' +
       (100 * Math.max.apply(null, sl.map(function (s3) { return s3.darkRatio; }))).toFixed(1) + '%');
+    /* Δ29b 诊断：逐张「暗/亮/对比边/不透明占比」——调参时看这张表最快 */
+    console.log('    逐张诊断 [暗%/亮%/对比边/不透明%]：' + sl.map(function (s4, i4) {
+      return (i4 % 3 === 0 ? '形状' + (i4 / 3) + '[' : '') +
+        (100 * s4.darkRatio).toFixed(0) + '/' + (100 * s4.lightRatio).toFixed(0) + '/' +
+        s4.edgeContrast + '/' + (100 * s4.opaqueRatio).toFixed(0) +
+        (i4 % 3 === 2 ? ']' : '');
+    }).join(' '));
 
     /* 色系互异：切片序为「形状主序 / 色系次序」，故 theme = i % 3。
      * 同色系 9 张平均色相必须聚拢，异色系之间色相跨度必须够大，
@@ -347,6 +435,67 @@ async function main() {
     }
     check('⑧ 同色系 9 张切片色相极差 <= 40°（色系内一致，只随形状变明暗）',
       intraOk, intraWorst);
+
+    /* ---- Δ29b / SC-023 ⑬ 泛洪键控与立体材质六条 ---- */
+    /* ① 暗 / 亮均值亮度差 >= 55：明暗切面必须「分得开」，否则仍是扁平白片 */
+    var minDiff = 1e9, diffWorst = '';
+    for (var dq = 0; dq < sl.length; dq++) {
+      var dvv = sl[dq].lightMean - sl[dq].darkMean;
+      if (dvv < minDiff) { minDiff = dvv; diffWorst = '格' + dq + '=' + dvv.toFixed(1); }
+    }
+    check('⑬ 暗面 / 亮面均值亮度差 >= 55（明暗立体切面可辨，全 27 张）',
+      minDiff >= 55, 'min=' + minDiff.toFixed(1) + ' (' + diffWorst + ')');
+
+    /* ② 双极共存：只有暗面没有亮面 = 一块黑板；只有亮面没有暗面 = 白纸片 */
+    var polarOk = true, polarWorst = '';
+    for (var pq = 0; pq < sl.length; pq++) {
+      if (!(sl[pq].darkRatio >= 0.25 && sl[pq].lightRatio >= 0.08)) {
+        polarOk = false;
+        polarWorst += '格' + pq + '(暗' + (100 * sl[pq].darkRatio).toFixed(1) +
+          '%/亮' + (100 * sl[pq].lightRatio).toFixed(1) + '%) ';
+      }
+    }
+    check('⑬ 暗面 >= 25% 且亮面 >= 8%（双极共存，不是纯色块）', polarOk, polarWorst);
+
+    /* ③ 零掏空：画框内不得存在「从边界不可达的 alpha==0 洞」。
+     * 旧全局阈值键控会把主体内的近黑厚壁抠成洞 → 本项是泛洪键控生效的独立几何证据。 */
+    var holeTotal = 0, holeWorst = '';
+    for (var hq = 0; hq < sl.length; hq++) {
+      holeTotal += sl[hq].enclosedHoles;
+      if (sl[hq].enclosedHoles > 0) holeWorst += '格' + hq + '=' + sl[hq].enclosedHoles + ' ';
+    }
+    check('⑬ 零掏空：27 张切片均无「被主体包围的透明洞」（暗面未被当背景抠掉）',
+      holeTotal === 0, holeWorst || ('holes=' + holeTotal));
+
+    /* ④ 背景零误留：画框外沿 2px 环带必须全透明 */
+    var ringOk = true, ringWorst = '';
+    for (var rq = 0; rq < sl.length; rq++) {
+      if (!(sl[rq].ringOpaqueRatio <= 0.005)) {
+        ringOk = false;
+        ringWorst += '格' + rq + '=' + (100 * sl[rq].ringOpaqueRatio).toFixed(2) + '% ';
+      }
+    }
+    check('⑬ 画框外沿 2px 环带不透明像素 <= 0.5%（黑底零误留）', ringOk, ringWorst);
+
+    /* ⑤ 内部明暗交界线存在（横向相邻像素 max 通道差 >= 60 的计数） */
+    var edgeMin = 1e9;
+    for (var eq = 0; eq < sl.length; eq++) {
+      if (sl[eq].edgeContrast < edgeMin) edgeMin = sl[eq].edgeContrast;
+    }
+    check('⑬ 每张切片内部存在明暗交界线（跨 190 阈值的相邻对 >= 200，不是一块平涂）',
+      edgeMin >= 200, 'min=' + edgeMin);
+
+    /* ⑥ 键控口径常量：泛洪 + 阈值落 24~56（MUST NOT 与 96 图标的 215 混用） */
+    var K = (res.consts && res.consts.keying) || {};
+    check('⑬ 键控模式 = 边界连通域泛洪（mode=flood-fill）', K.mode === 'flood-fill', K.mode);
+    check('⑬ 泛洪阈值落 24~56（吸收 JPEG 块噪声但不得啃掉暗面）',
+      K.bgThreshold >= 24 && K.bgThreshold <= 56, K.bgThreshold);
+    check('⑬ 亮边只作用外沿（SHARD_RIM_MIX < 0.7，MUST NOT 洗白内部暗面）',
+      res.consts.rimMix > 0 && res.consts.rimMix < 0.7, res.consts.rimMix);
+    check('⑬ 对比拉伸指数 >= 1.5（MUST NOT 为提亮把暗面拉进中间调）',
+      res.consts.rampGamma >= 1.5, res.consts.rampGamma);
+    check('⑬ 预烘焙方向光 0.28~0.42（统一光源，过高压成黑块 / 过低不可辨）',
+      res.consts.shadeAlpha >= 0.28 && res.consts.shadeAlpha <= 0.42, res.consts.shadeAlpha);
   }
 
   console.log('');

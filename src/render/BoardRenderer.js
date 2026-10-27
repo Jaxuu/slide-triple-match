@@ -622,24 +622,40 @@
   })();
 
   /* =========================================================
-   * Δ27c / FR-049 §8~§10: ShardAtlas —— 3D 立体碎块图集
+   * Δ29b / FR-049 §17 a: ShardAtlas —— 3D 立体碎块图集（边界连通域泛洪键控）
    *
    * 素材：assets/icons/shards.jpg（2048×2048、3×3 九宫格共 9 枚白瓷 3D 碎块、
    *       **纯黑背景**、无 alpha）。`.jpg` 为权威路径；同名 `.png` 仅作可选
    *       增强（若带 alpha 则直接使用并跳过黑底键控），MUST NOT 因缺 `.png`
    *       判定素材缺失或降级。
    *
-   * 黑底键控（MUST NOT 用单阈值硬切——硬切会在碎块外圈留锯齿状黑边）：
-   *   max(R,G,B) <= 24         → alpha = 0（背景）
-   *   24 < max(R,G,B) <= 40    → alpha 线性渐变（吸收 JPEG 8×8 块噪声与
-   *                              边缘抗锯齿过渡），并把该带像素的 RGB 提到
-   *                              本格主体亮色，消除暗边/灰雾
-   *   max(R,G,B) > 40          → alpha = 255
+   * 黑底键控 = **边界连通域泛洪**（取代 Δ27 的逐像素全局阈值）。
+   *
+   * 为什么必须换（「扁平小白片」的直接成因，读代码 + 实测确认）：
+   *   Δ27 的口径是 `mx <= 24 → alpha 0 / 24 < mx <= 40 → 线性渐变 / mx > 40 → 255`。
+   *   它无法区分「纯黑背景」与「碎块背光侧的深灰蓝厚壁」——两者都落在近黑区间。
+   *   更致命的是第二段：渐变带像素在 `composeSlice` 里因 `a < 250` 被当作
+   *   「玻璃折射亮边」推向亮面（`SHARD_RIM_MIX`），于是**整块暗面被当成边缘洗白**，
+   *   只剩受光面 → 扁平白纸片（`shards-audit` 实测暗面占比仅 3.7%~14.4%）。
+   *
+   * 新口径：
+   *   ① 从九宫格单元的**四条边界**向内泛洪，只有「**与边界连通**且
+   *      max(R,G,B) <= SHARD_BG_THRESHOLD」的像素判为背景（alpha = 0）；
+   *   ② **被主体包围的近黑像素一律保留 alpha = 255**（背光侧立体厚壁 MUST 保留）；
+   *   ③ 泛洪边界上仍保留 alpha 软过渡带（硬切会在碎块外圈留锯齿黑边），
+   *      并对近黑外沿像素做半量提亮（防「黑描边」，MUST NOT 触及主体内部）。
+   *
+   * 阈值 44（允许区间 24~56）：比 Δ27 的 24 略宽，用于吸收 JPEG 8×8 块噪声；
+   * 不能再高——再高会把暗面啃边（`shards-audit` ⑬ 逐张断言暗面 >= 25%）。
+   * 注意：**96 图标键控阈值 215 与本处 44 是两套独立口径，MUST NOT 互相套用**。
    *
    * 切片：九宫格等分（格宽 W/3 = 682.67 —— **允许小数边界**，MUST NOT 因
    *   向下取整丢掉边缘 1~2px）→ 每格求非黑包围盒 → 正方形化 →
    *   等比居中置入 256×256（几何口径沿用 FR-044 §7）→ 会话级缓存。
    * ========================================================= */
+  var SHARD_BG_THRESHOLD = 44;   /* 背景核心阈值（泛洪只吃 <= 此值且与边界连通者） */
+  var SHARD_EDGE_SOFT_LO = 8;    /* 外沿 alpha 软过渡下界（近纯黑 → 最低 alpha） */
+  var SHARD_EDGE_LIFT = 0.55;    /* 外沿近黑像素向本切片亮面均值靠拢的比例（防黑描边） */
   var SHARD_SUBJECT_RATIO = 0.70; /* 256² 切片内主体长边占比。
                                    * Δ28b: 0.92 → 0.70——留出 30% 给预烘焙柔光晕，
                                    * 否则光晕会被画框裁成方角；绘制侧 drawSz = size / ratio
@@ -653,10 +669,14 @@
    * 素材是双峰分布（暗面 p10≈76~133 / 亮面 p50≈168~214，中间几乎没有过渡），
    * 中间调不压暗的话，拉伸后仍然只有「暗面 + 亮面」两片，暗部占比卡在 13%，
    * 且缩到 10~46px 时两块之间没有过渡色，观感仍是「白纸屑」。 */
+  /* Δ29b: 中间调整体再压暗一档（Δ28b-2 的 `#60 96 208` 系列 mx 仍 > 190，
+   * 导致「暗面」在 max(R,G,B) <= 190 口径下只占 18~21%，用户读到的仍是白瓷片）。
+   * 现在 mid 的 mx 落 178~186 → 暗面（sh→mid 整段）稳定 >= 25%，
+   * 且 mid→hi 一跳形成**明确的明暗交界线**（不是两块同亮度的白）。 */
   var SHARD_THEMES = [
-    { sh: [26, 56, 132], mid: [96, 150, 208], hi: [206, 230, 255] },   /* 冰蓝 */
-    { sh: [52, 38, 134], mid: [130, 112, 214], hi: [222, 212, 255] },  /* 淡紫 */
-    { sh: [136, 52, 100], mid: [212, 136, 180], hi: [255, 216, 234] }  /* 粉白 */
+    { sh: [26, 56, 132], mid: [70, 124, 178], hi: [206, 230, 255] },   /* 冰蓝 */
+    { sh: [52, 38, 134], mid: [104, 86, 186], hi: [222, 212, 255] },   /* 淡紫 */
+    { sh: [136, 52, 100], mid: [176, 102, 150], hi: [255, 230, 242] }  /* 粉白 */
   ];
   var SHARD_ATLAS_TOTAL = 27;   /* 9 形状 × 3 色系 */
   var SHARD_GLOW_ALPHA = 0.48;  /* 外晕强度（预烘焙，逐帧零开销） */
@@ -707,57 +727,111 @@
       img.src = src;
     }
 
-    /* 单格：键控 + 包围盒 + 正方形化 + 等比居中 */
+    /* 单格：键控（边界连通域泛洪）+ 包围盒 + 正方形化 + 等比居中
+     *
+     * 泛洪只在**格内**做（九宫格各自独立）：从四条边界的近黑像素出发，
+     * 四邻域扩散，凡「连通且 mx <= SHARD_BG_THRESHOLD」者判为背景。
+     * 被主体包住的近黑像素（背光侧厚壁）**永不被访问到** → 保留 alpha 255。 */
     function buildCell(data, W, x0, x1, y0, y1, hasAlpha) {
       var bw = x1 - x0, bh = y1 - y0;
       if (bw <= 0 || bh <= 0) return null;
-      var out = { w: bw, h: bh, px: new Uint8ClampedArray(bw * bh * 4) };
-      var minX = bw, maxX = -1, minY = bh, maxY = -1;
-      var brightSum = 0, brightN = 0;
-      var fringe = []; /* [di, r, g, b] —— 渐变带像素，稍后提亮 */
-      for (var y = 0; y < bh; y++) {
+      var N = bw * bh;
+      var out = { w: bw, h: bh, px: new Uint8ClampedArray(N * 4) };
+      var mxArr = new Uint8Array(N);
+      var i, x, y, di, si, r, g, b, mx;
+      /* ① 拷 RGB + 求每像素 max(R,G,B)（泛洪与 alpha 判定的唯一依据） */
+      for (y = 0; y < bh; y++) {
         var sy = y0 + y;
-        for (var x = 0; x < bw; x++) {
-          var si = (sy * W + (x0 + x)) * 4;
-          var r = data[si], g = data[si + 1], b = data[si + 2];
-          var a0 = data[si + 3];
-          var mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
-          var a;
-          if (hasAlpha && a0 < 250) {
-            a = a0;
-            if (a0 > 8) { /* 带 alpha 的素材直接用 */
-              if (mx > 120) { brightSum += mx; brightN++; }
-            }
-          } else if (mx <= 24) {
-            a = 0;
-          } else if (mx <= 40) {
-            a = Math.round(255 * (mx - 24) / 16);
-            fringe.push((y * bw + x) * 4, r, g, b);
-          } else {
-            a = 255;
-            if (mx > 120) { brightSum += mx; brightN++; }
-          }
-          var di = (y * bw + x) * 4;
-          out.px[di] = r; out.px[di + 1] = g; out.px[di + 2] = b; out.px[di + 3] = a;
-          if (a > 8) {
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-          }
+        for (x = 0; x < bw; x++) {
+          si = (sy * W + (x0 + x)) * 4;
+          di = (y * bw + x) * 4;
+          r = data[si]; g = data[si + 1]; b = data[si + 2];
+          out.px[di] = r; out.px[di + 1] = g; out.px[di + 2] = b;
+          mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+          mxArr[y * bw + x] = mx;
         }
       }
-      /* 渐变带提亮：避免「黑底残留 → 碎块外圈灰边」的观感（不改变 alpha） */
-      if (fringe.length) {
-        var lift = brightN > 0 ? Math.min(255, brightSum / brightN) : 200;
-        for (var fi = 0; fi < fringe.length; fi += 4) {
-          var di2 = fringe[fi];
-          out.px[di2] = Math.max(out.px[di2], lift * 0.86);
-          out.px[di2 + 1] = Math.max(out.px[di2 + 1], lift * 0.86);
-          out.px[di2 + 2] = Math.max(out.px[di2 + 2], lift * 0.86);
+
+      var bg = new Uint8Array(N); /* 1 = 与边界连通的背景 */
+      if (hasAlpha) {
+        /* .png 增强路径：素材自带 alpha → 直接采用，跳过泛洪（MUST NOT 二次键控） */
+        for (i = 0; i < N; i++) {
+          si = ((y0 + ((i / bw) | 0)) * W + (x0 + (i % bw))) * 4;
+          out.px[i * 4 + 3] = data[si + 3];
+        }
+      } else {
+        /* ② 边界种子入栈（四邻域 BFS） */
+        var stack = new Int32Array(N);
+        var sp = 0;
+        function seed(idx) {
+          if (bg[idx]) return;
+          if (mxArr[idx] > SHARD_BG_THRESHOLD) return;
+          bg[idx] = 1;
+          stack[sp++] = idx;
+        }
+        for (x = 0; x < bw; x++) { seed(x); seed((bh - 1) * bw + x); }
+        for (y = 0; y < bh; y++) { seed(y * bw); seed(y * bw + bw - 1); }
+        while (sp > 0) {
+          var cur = stack[--sp];
+          var cx = cur % bw, cy = (cur - cx) / bw;
+          if (cx > 0) seed(cur - 1);
+          if (cx < bw - 1) seed(cur + 1);
+          if (cy > 0) seed(cur - bw);
+          if (cy < bh - 1) seed(cur + bw);
+        }
+        /* ③ 先按「背景 / 主体」写 alpha，再单独处理外沿软过渡 */
+        for (i = 0; i < N; i++) {
+          out.px[i * 4 + 3] = bg[i] ? 0 : 255;
+        }
+      }
+
+      /* ④ 统计主体亮面均值（外沿提亮用）+ 包围盒 */
+      var brightSum = 0, brightN = 0;
+      var minX = bw, maxX = -1, minY = bh, maxY = -1;
+      for (y = 0; y < bh; y++) {
+        for (x = 0; x < bw; x++) {
+          di = (y * bw + x) * 4;
+          if (out.px[di + 3] <= 8) continue;
+          mx = mxArr[y * bw + x];
+          if (mx > 120) { brightSum += mx; brightN++; }
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
         }
       }
       if (maxX < minX || maxY < minY) return null;
+      var lift = brightN > 0 ? Math.min(255, brightSum / brightN) : 200;
+
+      /* ⑤ 外沿软过渡：只处理「主体像素且 4 邻域里存在背景」的那一圈（1~2px）。
+       *   · alpha 按 mx 从 SHARD_EDGE_SOFT_LO 到阈值线性抬到 255（硬切会留锯齿）；
+       *   · 近黑外沿做 SHARD_EDGE_LIFT 半量提亮（防黑描边），
+       *     **MUST NOT 触及主体内部**——暗面明暗交界线因此完整保留。 */
+      if (!hasAlpha) {
+        for (y = 0; y < bh; y++) {
+          for (x = 0; x < bw; x++) {
+            i = y * bw + x;
+            if (bg[i]) continue;
+            var edge = (x > 0 && bg[i - 1]) || (x < bw - 1 && bg[i + 1]) ||
+                       (y > 0 && bg[i - bw]) || (y < bh - 1 && bg[i + bw]);
+            if (!edge) continue;
+            mx = mxArr[i];
+            di = i * 4;
+            if (mx <= SHARD_BG_THRESHOLD) {
+              var t = (mx - SHARD_EDGE_SOFT_LO) / (SHARD_BG_THRESHOLD - SHARD_EDGE_SOFT_LO);
+              if (t < 0) t = 0; else if (t > 1) t = 1;
+              out.px[di + 3] = Math.round(255 * (0.34 + 0.66 * t));
+              out.px[di] = Math.round(out.px[di] * (1 - SHARD_EDGE_LIFT) + lift * SHARD_EDGE_LIFT);
+              out.px[di + 1] = Math.round(out.px[di + 1] * (1 - SHARD_EDGE_LIFT) + lift * SHARD_EDGE_LIFT);
+              out.px[di + 2] = Math.round(out.px[di + 2] * (1 - SHARD_EDGE_LIFT) + lift * SHARD_EDGE_LIFT);
+            } else if (mx <= SHARD_BG_THRESHOLD + 26) {
+              /* 略亮的紧邻一圈：只降一点点 alpha，避免轮廓出现硬阶梯 */
+              out.px[di + 3] = 236;
+            }
+          }
+        }
+      }
+
       var bw2 = maxX - minX + 1, bh2 = maxY - minY + 1;
       var size = Math.max(bw2, bh2);
       var area = bw2 * bh2;
@@ -1062,55 +1136,56 @@
   var SHARD_LIFE_MAX = 900;
   var SHARD_COUNT_MIN = 48;
   var SHARD_COUNT_MAX = 60;  /* T084: 碎片数 MUST 落入 45~60 区间（Δ19e/FR-049） */
-/* Δ20/T093 → Δ27c/T135~T136: 顶部待消槽全屏 3D 碎块瀑布
- *   · 数量收口 120~150 枚（原固定 90 枚，与 FR-049 §2 不符）
- *   · 三级尺寸按素材可见长边换算：大 26~40 / 中 14~24 / 小 8~14
- *   · 配比沿用 FR-049 §3 的 15% / 45% / 40%
- *   · 重力 920 → 2600 px/s²（原值偏轻是「慢吞吞飘落」的主因）
- *   · 生命周期恒定 480 → 420~620ms 区间随机 */
-var DOCK_SHARD_TOTAL_MIN = 120;
-var DOCK_SHARD_TOTAL_MAX = 150;
-var DOCK_SHARD_LIFE_MIN = 420;
-var DOCK_SHARD_LIFE_MAX = 620;
-var DOCK_SHARD_GRAVITY = 2600;      /* px/s²（Δ27c：原 920 太飘） */
-/* Δ28e: 运动模型从「径向爆开」改为「**斜向抛物线**」。
+/* Δ29b / FR-049 §11~§14: 顶部待消槽全屏 3D 碎块瀑布（「少而精 · 微跳急坠 · 立体厚壁」）
  *
- * 为什么改：Δ28c 的全周角迸射（含向上分量）在观感上是「礼花」——碎片先向四周
- * 炸散，再被重力压下来，轨迹看不出方向；而参考效果是「顺着一个斜角被扫下去」，
- * 起手就有明确的水平去向，重力只负责把弧线压弯。
+ * 为什么推倒重定标（用户第三轮反馈「糊成一团 + 扁平 + 飘」的算术必然）：
+ *   Δ27c 的 `120~150 枚 / 10~46px` 全塞进 3 槽并集（padX = 0.75 槽宽），
+ *   而中心距只约束 `0.5 × min(长边)` → 大面积相切重叠，视觉上就是一团白糊。
+ *   尺寸 30~46px 时，256² 素材上的折面与厚壁会被压成一个白点，3D 感无从谈起。
  *
- * 新口径：初速**恒向下**（vy > 0，MUST NOT 有向上分量），水平分量按「远离爆心」
- * 定向（左槽向左、右槽向右），因此整团碎片呈扇形斜落；重力 2600 把直线压成
- * 抛物线，落地干脆。
+ * Δ29b 四项定标：
+ *   · 数量 36~54 枚（每卡 12~18 枚）——MUST NOT 以「堆数量」换丰满感；
+ *   · 尺寸整体放大：大 48~72 / 中 28~42 / 小 14~20（放大是让棱角可辨的唯一手段）；
+ *   · 疏密：拒绝采样阈值 0.5× → **0.85 × min(两者长边)**（粒粒分明）；
+ *   · alpha 恒 1.0（通透感交给暗面 / 亮边 / 方向光，MUST NOT 用 alpha 表达）。
  *
- * Δ28e-2: 首版水平 200~520 / 垂直 30~150 的**初始切角只有 10~30°**，实测像
- * 「横向喷出去」而不是「斜着落下」。垂直分量必须够大，起手才是斜的。
- *
- * Δ28f（用户第二轮反馈）：**不是「三条轨迹」**——按「远离爆心」定向会得到
- * 左/中/右三束对称扇形，读起来是「炸开」。参考轨迹是**一整条向下偏一侧的弧**：
- * 全团共用**同一个扫掠方向**（`sweepDir`，取屏幕较近的一侧），水平分量只做
- * 幅度抖动形成「一条带」的厚度，方向绝不翻转。
- * 同时「飘」的观感来自垂直初速偏小 → 起手就慢、全靠重力追；现改为**起手即
- * 高速下坠**（垂直 `340~560 px/s`），重力只负责把直线压弯，落得干脆。
- *
- * Δ28f-2: 垂直初速下限（340）**不低于**水平上限（340）——这条不等式把「干脆下落」
- * 编码成可断言的不变量：任何一枚碎片的起手方向都至少 45° 朝下，永不出现
- * 「横向喷出去」。 */
-var DOCK_SHARD_VX_MIN = 150;        /* 水平初速下限 px/s（扫掠方向上的漂移量） */
-var DOCK_SHARD_VX_MAX = 340;        /* 水平初速上限 px/s */
-var DOCK_SHARD_VY_MIN = 340;        /* 垂直初速下限 px/s（起手即高速下坠，MUST > 0） */
-var DOCK_SHARD_VY_MAX = 560;        /* 垂直初速上限 px/s（余下交给重力） */
-var DOCK_SHARD_ALPHA_MIN = 0.84;    /* Δ28c: 半透明玻璃感（原为全不透明 1.0） */
-var DOCK_SHARD_ALPHA_MAX = 0.96;
+ * 物理（§12 第四次修订）——「微跳急坠」：
+ *   vy0 = -300~-480（**必须有向上分量**，Δ28f 的「起手即高速下坠」读作平推）；
+ *   重力 6400 px/s²（取 §12 窗口 5600~7200 的中值，单值保证物理可离线断言）；
+ *   → 翻转时刻 |vy0|/g = 47~75ms ∈ [40,90]，跳高 vy0²/(2g) = 7.0~18.0px ∈ [6,21]，
+ *     翻转后 100ms 竖直速度 640 px/s >= 500（「急坠」编码成可断言不变量）；
+ *   水平 60~180 px/s 且**全团同号**（sweepDir 保留，方向 MUST NOT 翻转），
+ *     并按「全程水平位移 <= 1.5 槽宽」反算上限（见 spawnDockShatter 的 budget）；
+ *   生命周期 300~520ms；物理仍按**墙钟 dt** 积分（MUST NOT 写死 0.016）。 */
+var DOCK_SHARD_TOTAL_MIN = 36;
+var DOCK_SHARD_TOTAL_MAX = 54;
+var DOCK_SHARD_LIFE_MIN = 300;
+var DOCK_SHARD_LIFE_MAX = 520;
+var DOCK_SHARD_GRAVITY = 6400;      /* px/s²（Δ29b：2600 → 6400，急坠） */
+var DOCK_SHARD_FADE_TAIL = 120;     /* 末段淡出时长 ms（此前 alpha 恒 1.0） */
+/* Δ29b: 运动模型 = 先向上/向前微跳，再被强重力翻转为垂直急坠。
+ *   · 水平分量**全团同号**（sweepDir，Δ28f 口径保留，MUST NOT 翻转）；
+ *   · 竖直初速**必须为负**（向上）——这是「炸开那一瞬」的来源。 */
+var DOCK_SHARD_VX_MIN = 60;         /* 水平初速下限 px/s（扫掠方向上的漂移量） */
+var DOCK_SHARD_VX_MAX = 180;        /* 水平初速上限 px/s */
+var DOCK_SHARD_VY_MIN = -480;       /* 垂直初速下限 px/s（负 = 向上微跳） */
+var DOCK_SHARD_VY_MAX = -300;       /* 垂直初速上限 px/s（负 = 向上微跳） */
+var DOCK_SHARD_HOP_MAX_RATIO = 1.5; /* 全程水平位移上限 = 1.5 槽宽（MUST NOT 漫天乱飞） */
+var DOCK_SHARD_ALPHA_MIN = 1.0;     /* Δ29b: 恒 1.0（原 0.84~0.96 在浅色画卷上洗掉暗面） */
+var DOCK_SHARD_ALPHA_MAX = 1.0;
 var DOCK_SHARD_VR_MIN = 4;          /* 角速度下限 rad/s */
-var DOCK_SHARD_RATIO_LARGE = 0.15;
-var DOCK_SHARD_RATIO_MEDIUM = 0.45;
-/* Δ28c: 三级尺寸整体上调 ~30%——256² 素材缩到 8~24px 时 3D 明暗全部糊成白块，
- * 放大后才看得出瓷面折面与暗面。 */
-var DOCK_SHARD_SIZE_LARGE = [30, 46];
-var DOCK_SHARD_SIZE_MEDIUM = [18, 28];
-var DOCK_SHARD_SIZE_SMALL = [10, 15];
+var DOCK_SHARD_TUMBLE_RATE = 1.6;   /* 2.5D 翻滚相位倍率（相对自转，§12 ④） */
+var DOCK_SHARD_TUMBLE_FLOOR = 0.35; /* 透视压缩下限（|cos θ| 不低于此值） */
+var DOCK_SHARD_RATIO_LARGE = 0.25;
+var DOCK_SHARD_RATIO_MEDIUM = 0.55;
+var DOCK_SHARD_RATIO_SMALL = 0.20;
+/* Δ29b: 三级可见长边整体放大（30~46 / 18~28 / 10~15 → 48~72 / 28~42 / 14~20）。
+ * 尺寸放大是让 3D 棱角与厚度在高分屏上**可辨**的唯一手段。 */
+var DOCK_SHARD_SIZE_LARGE = [48, 72];
+var DOCK_SHARD_SIZE_MEDIUM = [28, 42];
+var DOCK_SHARD_SIZE_SMALL = [14, 20];
 var DOCK_SHARD_ATLAS_KINDS_MIN = 6; /* 同一帧内至少 6 种不同切片 */
+var DOCK_SHARD_GAP_RATIO = 0.85;    /* 中心距下限 = 0.85 × min(两者长边) */
 
 /* Δ27a / FR-053: 卡牌点击方向性飞行轨迹（纯表现层）
  *   U（朝上）    —— 单段直飞入槽，<= 240ms
@@ -2490,10 +2565,16 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         /* Δ27c/T136 物理定标：重力 2600 px/s² 持续加速 + 恒定翻滚。
          * MUST NOT 施加空气阻力或终速限制（会拖出「先减速→悬停→再飘落」的
          * 三段式，正是「慢吞吞飘落」的成因）。越过屏幕下沿即回收。 */
+        /* Δ29b: 用**常加速度精确解**积分（先按 (vy + ½g·dt)·dt 位移，再加 g·dt），
+         * 而不是朴素显式欧拉。这样同一段墙钟时间内，无论切成几帧（8/16/33ms），
+         * 位置**逐点相同**——「帧率无关性」从「误差可接受」升级为「恒等」，
+         * 掉帧时既不变慢也不会把急坠摊薄。 */
         vsh.x += vsh.vx * dtVfx;
-        vsh.y += vsh.vy * dtVfx;
+        vsh.y += (vsh.vy + 0.5 * DOCK_SHARD_GRAVITY * dtVfx) * dtVfx;
         vsh.vy += DOCK_SHARD_GRAVITY * dtVfx;
         vsh.rot += (vsh.vr || 0) * dtVfx; /* vr = rad/s */
+        /* Δ29b: 2.5D 翻滚相位独立推进（MUST NOT 与平面自转同相） */
+        vsh.tumble = (vsh.tumble || 0) + (vsh.vr || 0) * DOCK_SHARD_TUMBLE_RATE * dtVfx;
         vsh.life -= dtVfx * 1000;
         if (vsh.life <= 0 || (vsh.y - 80 > vfxViewH())) vfxShards.splice(i, 1);
       }
@@ -2600,11 +2681,13 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         var rh = Math.max(1, maxY - minY);
         /* 出生半径 <= 槽宽（槽宽 = 联合矩形高，即单槽边长）
          * Δ28e: 出生区改为「贴着 3 个槽位的一横条」——水平方向比 3 槽并集各外扩
-         * 0.75 槽宽，垂直方向只外扩 0.85 槽宽。旧口径 1.35 槽宽四周等距外扩，
-         * 出生云是个大方块，碎片看起来「凭空出现在槽位附近」而不是「从牌里崩出来」。 */
+         * 0.75 槽宽，垂直方向只外扩 0.62 槽宽。旧口径 1.35 槽宽四周等距外扩，
+         * 出生云是个大方块，碎片看起来「凭空出现在槽位附近」而不是「从牌里崩出来」。
+         * Δ29b: 水平外扩 0.75 → 1.0 槽宽、垂直 0.62 → 0.95 槽宽——数量降到 36~54 枚
+         * 且尺寸放大后，需要更大的出生面积才能满足 0.85× 中心距（粒粒分明）。 */
         var slotW = Math.max(28, Math.min(rh, rw / 3));
-        var padX = slotW * 0.75;
-        var padY = slotW * 0.62;
+        var padX = slotW * 1.0;
+        var padY = slotW * 0.95;
         var bx0 = minX - padX, bx1 = maxX + padX;
         var by0 = minY - padY, by1 = maxY + padY;
         var bboxW = Math.max(1, bx1 - bx0);
@@ -2637,9 +2720,13 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         var atlasSlices = ShardAtlas.slices(); /* null → 程序化兜底（FR-049 §3） */
         var total = DOCK_SHARD_TOTAL_MIN +
           Math.floor(Math.random() * (DOCK_SHARD_TOTAL_MAX - DOCK_SHARD_TOTAL_MIN + 1));
-        var largeCount = Math.round(total * DOCK_SHARD_RATIO_LARGE);
-        var mediumCount = Math.round(total * DOCK_SHARD_RATIO_MEDIUM);
-        var smallCount = total - largeCount - mediumCount;
+        /* Δ29b: 配比用「大块向上取整 / 细粉向下取整」保证两条硬指标恒成立——
+         *   大块占比 >= 25%（ceil 保证不低于下限）且每卡 >= 3 枚；
+         *   细粉占比 <= 20%（floor 保证不超上限）。中块吃余数。
+         * 旧写法 `round(large)+round(medium)+余数` 在 total=37 时细粉会溢到 21.6%。 */
+        var largeCount = Math.ceil(total * DOCK_SHARD_RATIO_LARGE);
+        var smallCount = Math.floor(total * DOCK_SHARD_RATIO_SMALL);
+        var mediumCount = total - largeCount - smallCount;
         var kinds = [];
         var a, b, c;
         for (a = 0; a < largeCount; a++) kinds.push('large');
@@ -2665,16 +2752,26 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
           var kind = kinds[ki];
           var rg = sizeRangeOf(kind);
           var vis = rg[0] + Math.random() * (rg[1] - rg[0]); /* 可见长边 px */
-          /* 疏密：拒绝采样，中心距 >= 0.5 × min(两者长边) */
+          /* 疏密：两级拒绝采样（Δ29b）
+           *   硬约束（必须满足）：中心距 >= 0.5 × min(两者长边) —— 这是「糊成一团」的
+           *     直接判据，任何情况下不得违反；
+           *   软目标（尽量满足）：中心距 >= 0.85 × min(两者长边) —— 「粒粒分明」。
+           * 为什么分两级：36~54 枚 14~72px 的碎块塞进一横条，0.85× 是**过约束**
+           * （面积核算见 shard-vfx-smoke ② 注释），只按 0.85 采样会让兜底分支
+           * 把碎片堆到同一处（实测出现 127 对重度重叠）。先试 0.85（64 次），
+           * 不成立再试 0.5（128 次），最后才取「预算内最好的一枚」。 */
           var px = 0, py = 0, ok = false, bestX = 0, bestY = 0, bestGap = -1;
+          var gapSoft = DOCK_SHARD_GAP_RATIO;   /* 0.85 */
+          var gapHard = 0.5;
           var tries = 0;
-          while (tries < 48) {
+          while (tries < 192) {
             tries++;
+            var needK = (tries <= 64) ? gapSoft : gapHard;
             var cx2 = bx0 + Math.random() * bboxW;
             var cy2 = by0 + Math.random() * bboxH;
             var minGap = Infinity;
             for (var pi2 = 0; pi2 < placed.length; pi2++) {
-              var need = 0.5 * Math.min(vis, placed[pi2].vis);
+              var need = needK * Math.min(vis, placed[pi2].vis);
               var dx2 = cx2 - placed[pi2].x, dy2 = cy2 - placed[pi2].y;
               var d2 = Math.sqrt(dx2 * dx2 + dy2 * dy2) - need;
               if (d2 < minGap) minGap = d2;
@@ -2691,27 +2788,37 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
             atlas = (ki < SHARD_ATLAS_TOTAL) ? ki : Math.floor(Math.random() * SHARD_ATLAS_TOTAL);
             if (picked.indexOf(atlas) < 0) picked.push(atlas);
           }
-          /* Δ28f: 全团共用**一个扫掠方向**——`sweepDir` 取屏幕较近的一侧（爆心在
-           * 左半屏就向左扫、右半屏就向右扫），水平分量只抖动幅度形成「一条带」的
-           * 厚度，方向**绝不翻转**。这样整团读起来是一条向下偏一侧的弧，
-           * 而不是左/中/右三束对称扇形（Δ28e 的「三条轨迹」）。 */
+          /* Δ28f 口径保留：全团共用**一个扫掠方向**（sweepDir，取屏幕较近的一侧），
+           * 水平分量只抖动幅度形成「一条带」的厚度，方向**绝不翻转**。
+           * Δ29b：水平位移受「全程 <= 1.5 槽宽」反算的上限钳制——
+           *   budget = 1.5 × slotW / life（px/s）；|vx| = min(抽取值, budget)。
+           * 否则 180px/s × 520ms = 93.6px 会突破 1.5 槽宽（≈60px），碎片漫天乱飞。 */
+          var life = DOCK_SHARD_LIFE_MIN +
+            Math.floor(Math.random() * (DOCK_SHARD_LIFE_MAX - DOCK_SHARD_LIFE_MIN + 1));
+          var vxBudget = (DOCK_SHARD_HOP_MAX_RATIO * slotW) * 1000 / Math.max(1, life);
           var vxMag = DOCK_SHARD_VX_MIN + Math.random() * (DOCK_SHARD_VX_MAX - DOCK_SHARD_VX_MIN);
+          if (vxMag > vxBudget) vxMag = vxBudget;
+          if (vxMag < DOCK_SHARD_VX_MIN) vxMag = DOCK_SHARD_VX_MIN;
           var vx = sweepDir * vxMag;
+          /* Δ29b: 竖直初速**必须为负**（向上微跳），随后被 6400 的重力翻转为急坠 */
           var vy = DOCK_SHARD_VY_MIN + Math.random() * (DOCK_SHARD_VY_MAX - DOCK_SHARD_VY_MIN);
           var vrMag = DOCK_SHARD_VR_MIN + Math.random() * 8;
           var vr = (Math.random() < 0.5 ? -1 : 1) * vrMag;
-          var life = DOCK_SHARD_LIFE_MIN +
-            Math.floor(Math.random() * (DOCK_SHARD_LIFE_MAX - DOCK_SHARD_LIFE_MIN + 1));
           var rec = {
             x: px, y: py,
             vx: vx, vy: vy,
             rot: Math.random() * Math.PI * 2,
             vr: vr,               /* rad/s（Δ27c：改为角速度量纲，更新时 × dt） */
+            /* Δ29b: 2.5D 翻滚相位——独立于 rot，避免与平面自转同相（同相会读成「转圈」） */
+            tumble: Math.random() * Math.PI * 2,
             verts: atlas ? null : makeVerts(4 + Math.floor(Math.random() * 3), Math.max(3, vis * 0.42)),
             size: vis,            /* 可见长边（px） */
             kind: kind,
             atlas: atlas,         /* 图集切片索引；null = 程序化兜底 */
-            alpha0: DOCK_SHARD_ALPHA_MIN + Math.random() * (DOCK_SHARD_ALPHA_MAX - DOCK_SHARD_ALPHA_MIN),
+            alpha0: DOCK_SHARD_ALPHA_MIN, /* Δ29b: 恒 1.0（末段才淡出） */
+            /* Δ29b: 出生竖直初速快照（vy 会被逐帧积分改写；门禁需用它反算
+             * 微跳高度 vy0²/2g —— headless ~10fps 采不到 94~150ms 的往返） */
+            vy0: vy,
             flip: Math.random() < 0.5,
             life: life,
             life0: life
@@ -2822,29 +2929,44 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
           }
         }
       }
-      /* Δ27c/T135: 图集切片（会话级缓存；未就绪 → 本次静默走程序化兜底） */
+      /* Δ27c/T135: 图集切片（会话级缓存；未就绪 → 本次静默走程序化兜底）
+       * Δ29b: 2.5D 空间翻滚 —— 自转相位驱动 `|cos θ|` 透视压缩 + 明暗面互换 +
+       *   侧壁偏移，使碎块在空中读得出是「块」而不是「片」。
+       *   实现走**合成变换**（scale 的正负号 + 非等比压缩 + 平移偏移），
+       *   MUST NOT 逐帧新建 canvas、MUST NOT 逐帧回读像素、MUST NOT 逐枚 filter。 */
       var shardImgs = ShardAtlas.slices();
       for (var i = 0; i < vfxShards.length; i++) {
         var sh = vfxShards[i];
-        var ratio = sh.life0 > 0 ? (sh.life / sh.life0) : 0;
-        /* Δ28c: 半透明玻璃感（alpha0 0.84~0.96）+ 末段 18% 淡出 */
-        var a = (sh.alpha0 != null) ? sh.alpha0 : 0.92;
-        if (ratio <= 0.18) a *= (ratio / 0.18);
-        if (a < 0) a = 0;
-        vfxCtx.globalAlpha = a;
+        /* Δ29b: alpha 恒 1.0 —— 仅「生命末段 <= 120ms」线性淡出（越出屏幕下沿直接回收）。
+         * MUST NOT 全程半透明、MUST NOT 起手就淡（通透感由暗面 / 亮边 / 方向光表达）。 */
+        var a = (sh.alpha0 != null) ? sh.alpha0 : 1;
+        if (sh.life <= DOCK_SHARD_FADE_TAIL) {
+          a *= Math.max(0, sh.life / DOCK_SHARD_FADE_TAIL);
+        }
+        if (a <= 0) continue;
+        vfxCtx.globalAlpha = a > 1 ? 1 : a;
         vfxCtx.save();
         vfxCtx.translate(sh.x, sh.y);
         vfxCtx.rotate(sh.rot);
         /* 严禁 shadowBlur / ctx.filter（性能 + 零描边红线） */
         vfxCtx.shadowBlur = 0;
+        /* 2.5D 翻滚：|cos| 压缩（下限 0.35）+ 背向时明暗面互换（x 取负） */
+        var ct = Math.cos(sh.tumble || 0);
+        var sq = DOCK_SHARD_TUMBLE_FLOOR + (1 - DOCK_SHARD_TUMBLE_FLOOR) * Math.abs(ct);
+        var back = ct < 0;
+        var sxk = (back ? -1 : 1) * (sh.flip ? -1 : 1);
         var img = (shardImgs && sh.atlas != null) ? shardImgs[sh.atlas] : null;
         if (img) {
-          /* 图集路径：**单枚一次 drawImage**（3D 立体感由素材自身承载） */
-          if (sh.flip) vfxCtx.scale(-1, 1);
+          /* 图集路径：**单枚一次 drawImage**（3D 立体感由素材自身 + 上述合成变换承载） */
           var drawSz = (sh.size || 14) / SHARD_SUBJECT_RATIO;
-          vfxCtx.drawImage(img, -drawSz / 2, -drawSz / 2, drawSz, drawSz);
+          /* 侧壁偏移：压缩方向让出 `(1-sq)` 的位移，读作「厚度绕轴转过去」 */
+          var wallDx = (1 - sq) * drawSz * 0.16;
+          vfxCtx.scale(sxk, sq);
+          vfxCtx.drawImage(img, -drawSz / 2 + wallDx, -drawSz / 2, drawSz, drawSz);
         } else {
-          /* 程序化 Low-Poly 兜底（素材缺失 / 首组三消尚未就绪） */
+          /* 程序化 Low-Poly 兜底（素材缺失 / 首组三消尚未就绪）
+           * Δ29b: 同样吃 2.5D 压缩，避免兜底形态与图集形态的体感割裂 */
+          vfxCtx.scale(1, sq);
           var verts = sh.verts;
           if (!verts || verts.length < 3) {
             var r = (sh.size != null ? sh.size * 0.42 : 3);
@@ -4027,7 +4149,9 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
   STM.BackdropStage = BackdropStage;
   STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets, dockIconDataURL: dockIconDataURL, paintDockIcons: paintDockIcons, DIR_COLORS: DIR_COLORS };
   /* T084: Δ19 渲染常量外露（离线自测断言用——不参与运行时逻辑）
-   * Δ27c: 数量改为 120~150 枚区间（原固定 90），尺寸档位与物理常量一并外露 */
+   * Δ29b: 数量 36~54 / 三级尺寸放大 / 微跳急坠 / alpha 恒 1.0 / 2.5D 翻滚。
+   * ⚠ 本表 MUST 与实现**同源同步**——不同步会让门禁常量断言读到旧值、
+   * 实现已改 → 「假绿」（Δ29 的隐藏地雷，T159 ④）。 */
   STM.rendererTest.SHARDS = { min: SHARD_COUNT_MIN, max: SHARD_COUNT_MAX };
   STM.rendererTest.DOCK_SHARDS = {
     min: DOCK_SHARD_TOTAL_MIN,
@@ -4035,14 +4159,19 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     lifeMin: DOCK_SHARD_LIFE_MIN,
     lifeMax: DOCK_SHARD_LIFE_MAX,
     gravity: DOCK_SHARD_GRAVITY,
-    /* Δ28e: 斜向抛物线参数（取代 Δ28c 的全周角径向迸射） */
+    /* Δ29b: 微跳急坠——vyMin/vyMax 为**负值**（向上），水平同号且受 1.5 槽宽预算钳制 */
     vxMin: DOCK_SHARD_VX_MIN,
     vxMax: DOCK_SHARD_VX_MAX,
     vyMin: DOCK_SHARD_VY_MIN,
     vyMax: DOCK_SHARD_VY_MAX,
+    hopMaxRatio: DOCK_SHARD_HOP_MAX_RATIO,
     alphaMin: DOCK_SHARD_ALPHA_MIN,
     alphaMax: DOCK_SHARD_ALPHA_MAX,
+    fadeTail: DOCK_SHARD_FADE_TAIL,
     vrMin: DOCK_SHARD_VR_MIN,
+    tumbleRate: DOCK_SHARD_TUMBLE_RATE,
+    tumbleFloor: DOCK_SHARD_TUMBLE_FLOOR,
+    gapRatio: DOCK_SHARD_GAP_RATIO,
     ratio: { large: DOCK_SHARD_RATIO_LARGE, medium: DOCK_SHARD_RATIO_MEDIUM, small: 1 - DOCK_SHARD_RATIO_LARGE - DOCK_SHARD_RATIO_MEDIUM },
     size: { large: DOCK_SHARD_SIZE_LARGE, medium: DOCK_SHARD_SIZE_MEDIUM, small: DOCK_SHARD_SIZE_SMALL },
     atlasKindsMin: DOCK_SHARD_ATLAS_KINDS_MIN
@@ -4108,5 +4237,39 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
   STM.rendererTest.SHARD_RAMP_MID = SHARD_RAMP_MID;
   STM.rendererTest.SHARD_RAMP_GAMMA = SHARD_RAMP_GAMMA;
   STM.rendererTest.SHARD_SHADE_ALPHA = SHARD_SHADE_ALPHA;
+  STM.rendererTest.SHARD_RIM_MIX = SHARD_RIM_MIX;
+  /* Δ29b: 泛洪键控口径外露（shards-audit ⑬ 断言「暗面 >= 25% 且主体零掏空」） */
+  STM.rendererTest.SHARD_KEYING = {
+    bgThreshold: SHARD_BG_THRESHOLD,
+    edgeSoftLo: SHARD_EDGE_SOFT_LO,
+    edgeLift: SHARD_EDGE_LIFT,
+    mode: 'flood-fill'
+  };
+  /* Δ29b: 纯函数——给定一串帧时长，推进一枚碎块的物理（帧率无关性离线断言用）。
+   * 与 tick() 内的积分序**完全一致**（先位移、再加重力），MUST NOT 另写一份。 */
+  STM.rendererTest.pumpShard = function (rec, dtMsList) {
+    var r = {
+      x: rec.x, y: rec.y, vx: rec.vx, vy: rec.vy,
+      rot: rec.rot || 0, vr: rec.vr || 0, tumble: rec.tumble || 0,
+      life: rec.life != null ? rec.life : 400
+    };
+    for (var i = 0; i < dtMsList.length; i++) {
+      var dt = Math.max(0, Math.min(100, dtMsList[i])) / 1000;
+      r.x += r.vx * dt;
+      r.y += (r.vy + 0.5 * DOCK_SHARD_GRAVITY * dt) * dt;
+      r.vy += DOCK_SHARD_GRAVITY * dt;
+      r.rot += r.vr * dt;
+      r.tumble += r.vr * DOCK_SHARD_TUMBLE_RATE * dt;
+      r.life -= dt * 1000;
+    }
+    return r;
+  };
+  /* 竖直速度翻转时刻（ms）与跳高（px）——纯解析式，供门禁断言 §12 ④ */
+  STM.rendererTest.shardHopOf = function (vy0, g) {
+    var gg = g || DOCK_SHARD_GRAVITY;
+    var tFlipMs = Math.abs(vy0) / gg * 1000;
+    var hop = (vy0 * vy0) / (2 * gg);
+    return { flipMs: tFlipMs, hopPx: hop, vyAfter100: gg * 0.1 };
+  };
 
 })(typeof window !== 'undefined' ? window : globalThis);

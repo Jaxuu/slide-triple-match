@@ -1788,6 +1788,193 @@ function scenarioDelta22Intro() {
   pumpFrames(2);
 }
 
+/* =========================================================
+ * Δ29a / FR-036: 困难关「险境预警」顶部流光横幅（静态口径 + 契约）
+ *
+ * 本组是 Node 侧可判定的部分：触发集合、主题表、文案契约、时序常量、
+ * 以及「旧墨绿中央弹窗已彻底删除」的源码/样式残留断言。
+ * 真实 DOM 的几何/时序/像素（父级、零相交、1.4s、点击打断、六画卷实拍色相）
+ * 由 tools/banner-verify.js 在无头浏览器里验收。
+ * ========================================================= */
+function scenarioDelta29Banner() {
+  console.log('\n[Δ29a] 困难关预警横幅（触发集合 / 主题色 / 文案 / 时序 / 旧形态残留）');
+  require('../src/data/peak-levels.js');
+  var PB = STM.PeakBanner;
+  var fs = require('fs');
+  var root = __dirname + '/..';
+  var cssSrc = fs.readFileSync(root + '/css/style.css', 'utf8');
+  /* 注释剥离版：本轮保留了「旧 #challenge-banner 为何被删」的说明性注释，
+   * 直接对原文做 indexOf 会把注释里的历史色值当成残留。断言只看真实声明。 */
+  var cssCode = cssSrc.replace(/\/\*[\s\S]*?\*\//g, '');
+  var mainSrc = fs.readFileSync(root + '/src/main.js', 'utf8');
+  var mainCode = mainSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  var htmlSrc = fs.readFileSync(root + '/index.html', 'utf8');
+
+  check('T150: STM.PeakBanner 已挂载（单一源模块）', !!PB && !!STM.PEAK_LEVELS);
+  /* 触发集合逐项 */
+  var WANT = [6, 12, 18, 24, 30, 36, 42, 48, 54, 60, 66, 72];
+  check('T150: PEAK_LEVELS 逐项 = [6,12,18,24,30,36,42,48,54,60,66,72]',
+    Array.isArray(STM.PEAK_LEVELS) && STM.PEAK_LEVELS.length === WANT.length &&
+    WANT.every(function (v, i2) { return STM.PEAK_LEVELS[i2] === v; }),
+    (STM.PEAK_LEVELS || []).join(','));
+  /* 1..72 全量遍历：恰好 12 关命中，其余 60 关（含 L3）零横幅 */
+  var hits = [];
+  for (var lv2 = 1; lv2 <= 72; lv2++) if (PB.isPeakLevel(lv2)) hits.push(lv2);
+  check('T150: 1..72 全量遍历恰命中 12 关', hits.length === 12, hits.join(','));
+  check('T150: 命中集合与 PEAK_LEVELS 完全一致',
+    hits.join(',') === WANT.join(','));
+  check('T150: L3 不在集合内（FR-046 引导期，MUST 零横幅）', PB.isPeakLevel(3) === false);
+  check('T150: 其余 60 关（含 L3/L1/L2/L5/L7）零横幅',
+    [1, 2, 3, 5, 7, 8, 9, 11, 13, 17, 71].every(function (v) { return PB.isPeakLevel(v) === false; }));
+  check('T150: 非数值 / 越界入参安全返回 false',
+    PB.isPeakLevel(null) === false && PB.isPeakLevel('abc') === false &&
+    PB.isPeakLevel(0) === false && PB.isPeakLevel(73) === false);
+  /* 单一源：main.js 不得再写区间/取模判定 */
+  check('T150: main.js 不再出现旧判定 `(id - 4) % 3`（单一源）',
+    mainSrc.indexOf('(id - 4) % 3') === -1 && mainSrc.indexOf('(id-4)%3') === -1);
+  check('T150: main.js 的 isChallengeLevel 委托 STM.PeakBanner.isPeakLevel',
+    /function isChallengeLevel\(id\)[\s\S]{0,220}isPeakLevel/.test(mainSrc));
+
+  /* 六画卷主题色 */
+  var TH = STM.PEAK_BANNER_THEMES;
+  check('T152: 主题表 6 套（每幅画卷一套）', Array.isArray(TH) && TH.length === 6,
+    TH ? TH.length : 'null');
+  var hueDiff = function (a, b) { var d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
+  var hueBad = '';
+  for (var t2 = 0; t2 < (TH || []).length; t2++) {
+    if (hueDiff(TH[t2].a, TH[t2].ref) > 30) hueBad += '画卷' + TH[t2].id + '偏差' + hueDiff(TH[t2].a, TH[t2].ref).toFixed(1) + '° ';
+  }
+  check('T152: 六画卷主色相与画卷基准偏差 <= 30°', hueBad === '', hueBad);
+  check('T152: 主色相 MUST NOT 落墨绿带（#2E5E3E ≈ 140°）±25°',
+    TH.every(function (t3) { return hueDiff(t3.a, 140) > 25; }),
+    TH.map(function (t4) { return t4.a; }).join(','));
+  check('T152: 每套均给出主/副/辉光三色相（0~359）',
+    TH.every(function (t5) {
+      return [t5.a, t5.b, t5.glow].every(function (h2) { return typeof h2 === 'number' && h2 >= 0 && h2 < 360; });
+    }));
+  /* 画卷序号映射（与 STM.Bestiary.PAINTINGS 同口径） */
+  var mapOk = PB.paintingIndexOf(1) === 1 && PB.paintingIndexOf(12) === 1 &&
+    PB.paintingIndexOf(13) === 2 && PB.paintingIndexOf(66) === 6 &&
+    PB.paintingIndexOf(72) === 6;
+  check('T152: 画卷序号 = floor((id-1)/12)+1（L6→1 / L18→2 / L66→6）',
+    mapOk && PB.paintingIndexOf(6) === 1 && PB.paintingIndexOf(18) === 2 &&
+    PB.paintingIndexOf(30) === 3 && PB.paintingIndexOf(42) === 4 &&
+    PB.paintingIndexOf(54) === 5);
+  check('T152: themeOf 返回对应画卷主题（L66 → 星穹紫）',
+    PB.themeOf(66).id === 6 && PB.themeOf(66).a === 265);
+
+  /* 文案契约 + 通关率同源 */
+  check('T153: 文案逐字 `✦ 险境预警 · 仅 XX% 探险家一次突破 ✦`',
+    PB.TEXT(34) === '\u2726 险境预警 \u00b7 仅 34% 探险家一次突破 \u2726', PB.TEXT(34));
+  check('T153: 文案不含省略号 / 不截断（无 … 或 ...）',
+    PB.TEXT(34).indexOf('\u2026') === -1 && PB.TEXT(34).indexOf('...') === -1);
+  check('T153: 横幅文案取自 PeakBanner.TEXT（main.js 不另拼一份）',
+    /PeakBanner|api\.TEXT|api && api\.TEXT/.test(mainSrc) &&
+    mainSrc.indexOf('险境预警') !== -1);
+  check('T153: 通关率复用既有 challengePercent（MUST NOT 复制第二份）',
+    (mainSrc.match(/function challengePercent\(/g) || []).length === 1);
+
+  /* 时序常量 */
+  check('T154: 横幅展示时长 1400ms（1.4s ± 0.2s 的中值）', PB.SHOW_MS === 1400, PB.SHOW_MS);
+  check('T154: 打断淡出 <= 100ms（MUST 在 100ms 内不可见）',
+    PB.DISMISS_MS > 0 && PB.DISMISS_MS <= 100, PB.DISMISS_MS);
+  check('T154: 自然消散走淡出（FADE_MS 200~320ms，MUST NOT 硬切）',
+    PB.FADE_MS >= 200 && PB.FADE_MS <= 320, PB.FADE_MS);
+
+  /* 旧形态彻底删除（样式层）—— 只看剥离注释后的真实声明 */
+  check('T151: css 中已无 `top: 34%`（棋盘中央定位的根因）',
+    cssCode.indexOf('top: 34%') === -1);
+  check('T151: css 中已无墨绿 #2E5E3E，且横幅规则不引用黄边 #FFC53D',
+    cssCode.indexOf('#2E5E3E') === -1 &&
+    !/#(?:peak|challenge)-banner[^{}]*\{[^}]*#FFC53D/i.test(cssCode));
+  check('T151: css 中已无金色卷轴端饰（#challenge-banner 规则整块删除）',
+    cssCode.indexOf('#challenge-banner') === -1);
+  check('T151: 新节点样式存在且 pointer-events: none',
+    cssSrc.indexOf('#peak-banner {') !== -1 &&
+    /#peak-banner \{[\s\S]{0,1400}pointer-events: none/.test(cssSrc));
+  check('T152: 色相经 CSS 变量驱动（--banner-hue-a / -b / --banner-glow）',
+    cssSrc.indexOf('--banner-hue-a') !== -1 && cssSrc.indexOf('--banner-hue-b') !== -1 &&
+    cssSrc.indexOf('--banner-glow') !== -1);
+  check('T154: prefers-reduced-motion 降级块存在（零扫掠 / 零浮动）',
+    /prefers-reduced-motion: reduce[\s\S]{0,400}peak-banner-sheen \{ animation: none/.test(cssSrc));
+  check('T151: 大厅泳道隐藏清单已随节点改名同步（#peak-banner）',
+    /#app\.scene-lobby #peak-banner/.test(cssSrc));
+
+  /* 旧形态彻底删除（DOM / JS 层） */
+  check('T151: index.html 中 #peak-banner 位于 #dock 之后、#board-wrap 之前',
+    (function () {
+      var iDock = htmlSrc.indexOf('id="dock"');
+      var iBanner = htmlSrc.indexOf('id="peak-banner"');
+      var iBoard = htmlSrc.indexOf('id="board-wrap"');
+      return iDock > 0 && iBanner > iDock && iBoard > iBanner;
+    })());
+  check('T151: main.js 不再向 #app appendChild 横幅（旧遮挡根因）',
+    !/getElementById\('app'\)\.appendChild\(b\)/.test(mainSrc) &&
+    mainSrc.indexOf("getElementById('challenge-banner')") === -1);
+  check('T151: 横幅定位由 #dock 的 getBoundingClientRect 反算（零相交的构造性保证）',
+    /function positionBanner[\s\S]{0,900}getBoundingClientRect/.test(mainSrc) &&
+    /function positionBanner[\s\S]{0,900}getElementById\('dock'\)/.test(mainSrc));
+  check('T151: 定位只在「显示 / resize」时算，不逐帧读布局',
+    (mainSrc.match(/positionBanner\(/g) || []).length <= 4);
+  check('T153: 头像复用 STM.petAvatarHTML + STM.paintAvatarCanvases（与大厅/结算同源）',
+    /showChallengeBanner[\s\S]{0,2600}STM\.petAvatarHTML/.test(mainSrc) &&
+    /showChallengeBanner[\s\S]{0,2600}STM\.paintAvatarCanvases/.test(mainSrc));
+  check('T154: 点击打断路径存在（捕获阶段旁观，不消费事件）',
+    /function bindPeakBannerDismiss[\s\S]{0,700}addEventListener\('pointerdown'/.test(mainSrc) &&
+    /function bindPeakBannerDismiss[\s\S]{0,700}dismissPeakBanner\(true\)/.test(mainSrc));
+  check('T154: 换关 / 重置 / 复活均调用 resetPeakBanner（零残留）',
+    (mainSrc.match(/resetPeakBanner\(\)/g) || []).length >= 3);
+  check('T154: 同一开局会话不重复弹出（bannerShownForLevel 去重）',
+    /bannerShownForLevel === currentId/.test(mainSrc));
+
+  /* Δ29b 前摇时序（横幅与碎块同批交付，一并锁常量） */
+  var pre = mainSrc.match(/var PRESHAKE_MS = (\d+);/);
+  var freeze = mainSrc.match(/var DOCK_FREEZE_MS = (\d+);/);
+  check('T160: 挤压闪白前摇 PRESHAKE_MS 落 60~80ms',
+    !!pre && +pre[1] >= 60 && +pre[1] <= 80, pre ? pre[1] : 'null');
+  check('T160: 冻结窗口 DOCK_FREEZE_MS 覆盖「前摇 + 爆发」（>= 180ms）',
+    !!freeze && +freeze[1] >= 180 && +freeze[1] <= 260, freeze ? freeze[1] : 'null');
+  check('T160: 碎块在膨胀顶点生成且同帧清槽（preshakeTimer 内 spawn + renderDock）',
+    /preshakeTimer = setTimeout\(function[\s\S]{0,900}spawnDockShatter[\s\S]{0,400}renderDock\(\)/.test(mainSrc));
+  check('T160: 槽位 rect 在挂动画**之前**取（避免取到放大后的盒子）',
+    (function () {
+      var fn = mainSrc.indexOf('function fireDockShatter');
+      if (fn < 0) return false;
+      var seg = mainSrc.slice(fn, fn + 2600);
+      var iMeasure = seg.indexOf('getBoundingClientRect');
+      var iShatter = seg.indexOf('shatter: true');
+      return iMeasure > 0 && iShatter > iMeasure;
+    })());
+  check('T160: 辉光起点在爆发帧（spawnDockShatter 内建 vfxFlash，不早于前摇）',
+    (function () {
+      var src = fs.readFileSync(root + '/src/render/BoardRenderer.js', 'utf8');
+      var fn = src.indexOf('function spawnDockShatter');
+      if (fn < 0) return false;
+      /* 窗口放宽到 7000 字符：爆心辉光在出生盒计算之后，距函数头约 4.5k 字符 */
+      var body = src.slice(fn, fn + 7000);
+      var iFlash = body.search(/vfxFlash\s*=\s*\{/);
+      var iEnd = body.indexOf('\n      function ', 10);
+      if (iEnd < 0) iEnd = body.length;
+      return iFlash > 0 && iFlash < iEnd;
+    })());
+  /* .slot-shattering 关键帧：70ms + 非等比 + 闪白 */
+  check('T160: .slot-shattering 动画 70ms（原 180ms 震颤裂纹作废）',
+    /#dock \.slot\.slot-shattering[\s\S]{0,400}animation: slot-shatter 70ms/.test(cssSrc));
+  /* 特异性护栏：`.slot-shattering` 单类（0,1,0）会被 `.slot.has-tile`（0,2,0）
+   * 的落座动画 dock-seat 覆盖 → 真机上「前摇根本不播」。必须带 #dock .slot 前缀。 */
+  check('T160: 前摇选择器压过 .slot.has-tile 的 dock-seat（含 #dock .slot 前缀）',
+    /#dock \.slot\.slot-shattering\.has-tile/.test(cssSrc) &&
+    /#dock \.slot\.slot-shattering\.is-filled/.test(cssSrc));
+  check('T160: 关键帧含非等比缩放（横纵相位相反）与 brightness 闪白',
+    /@keyframes slot-shatter \{[\s\S]{0,700}scale\(1\.16, 0\.84\)[\s\S]{0,400}scale\(0\.86, 1\.18\)/.test(cssSrc) &&
+    /@keyframes slot-shatter \{[\s\S]{0,900}brightness\(/.test(cssSrc));
+  check('T160: 前摇不改写 .slot 的 border/padding/background/border-radius',
+    !/#dock \.slot\.slot-shattering[\s\S]{0,420}(border|padding|background)/.test(cssSrc));
+  check('T160: 旧震颤裂纹伪元素已删除（::before/::after 白色裂纹线）',
+    cssSrc.indexOf('.slot-shattering::before') === -1 &&
+    cssSrc.indexOf('.slot-shattering::after') === -1);
+}
+
 scenarioBlocked();
 scenarioMechAnims();
 scenarioPrismBlocked();
@@ -1801,6 +1988,7 @@ scenarioDelta19();
 scenarioHitGeometry();
 scenarioAnimLayerZOrder();
 scenarioDelta22Intro();
+scenarioDelta29Banner();
 
 console.log('');
 if (failures.length) {

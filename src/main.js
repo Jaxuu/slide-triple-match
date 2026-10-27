@@ -505,6 +505,9 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
       paintBg();
     });
 
+    /* Δ29a: 预警横幅「点击即消散」旁观监听（捕获阶段，不消费事件） */
+    bindPeakBannerDismiss();
+
     /* T051: 静音开关（muted 持久化于 progress） */
     if (els.btnMute) {
       els.btnMute.addEventListener('pointerdown', onMuteDown);
@@ -900,10 +903,12 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
     /* Δ27b/T128: 换关清掉上一关残留的碎裂驻留窗口（否则新关前 180ms 内 Dock 不重绘） */
     if (dockFreezeTimer) { clearTimeout(dockFreezeTimer); dockFreezeTimer = null; }
     if (pendingShatterTimer) { clearTimeout(pendingShatterTimer); pendingShatterTimer = null; }
+    if (preshakeTimer) { clearTimeout(preshakeTimer); preshakeTimer = null; } /* Δ29b: 前摇不得跨关残留 */
     dockFreezeUntil = 0;
     pendingShatter = null;
     dockGhost = null;
     resyncDockMirror(); /* Δ28e: 新一关的待消槽镜像（通常为空） */
+    resetPeakBanner(); /* Δ29a: 换关立即清理预警横幅（计时器 + 节点内容，零残留叠层） */
 
     renderer = STM.createBoardRenderer(els.board, session, {
       onShake: shakeBoard,
@@ -991,14 +996,38 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
   }
 
   /* =========================================================
-   * Δ14/T052e: 困难关挑战横幅（FR-036）
-   * 挑战位集合 = L3 ∪ (id-4)%3==2 位（L6/L9/…/L72，共 24 关——
-   * Δ16a: 20→24 关（72 关 = 24 个三关循环，每循环 1 难关 + L3）；
-   * 内嵌精确集合，勿只取 (id-4)%3==2 漏 L3）
-   * 非模态: pointer-events:none + 不冻结 rAF/判定；1.6s 自动消散
+   * Δ29a / FR-036: 困难关「险境预警」顶部流光横幅
+   *
+   * 旧实现的三处根因（读代码确认）：
+   *   ① 节点 appendChild 到 `#app`（flex 列容器），样式 `position:absolute;
+   *      top:34%; left:50%; transform:translate(-50%,-50%)` → 定位上下文就是
+   *      `#app`，横幅天然压在**棋盘中央**（用户反馈「遮挡棋盘」）；
+   *   ② 墨绿渐变底 + `#FFC53D` 黄边 + 两枚 10×46px 金色卷轴端饰 → 用户指认的
+   *      「照搬传统麻将」识别特征；
+   *   ③ `setTimeout(..., 1600)` 无打断路径，而这段正是玩家最想动手的开局段。
+   *
+   * Δ29a 口径：
+   *   · 节点 = `#app` 内 **`#dock` 之后的兄弟**（index.html 静态占位），
+   *     `position:absolute` + `pointer-events:none`，矩形与 `#dock` 完全重合
+   *     → 包围盒与 `#board-wrap` **零相交**（构造性保证，不靠调数值）；
+   *   · 触发集合只读 `STM.PeakBanner.isPeakLevel`（单一源，12 关）；
+   *   · 六画卷色相经 CSS 变量一次性写入（不逐帧改样式、不起 rAF）；
+   *   · 展示 1.4s 后淡出 + 轻微下沉；任意 pointerdown 立即消散（<= 100ms），
+   *     且该次点击照常被棋盘判定（横幅 pointer-events:none，监听只做旁观）。
    * ========================================================= */
+  var PEAK_BANNER_ID = 'peak-banner';
+  var PEAK_SHOW_MS = 1400;
+  var PEAK_DISMISS_MS = 80;
+
+  function peakBannerApi() {
+    return STM.PeakBanner || null;
+  }
+
+  /* 触发判定唯一出口——委托给 STM.PeakBanner（单一源，MUST NOT 在此另写区间判定） */
   function isChallengeLevel(id) {
-    return id === 3 || (id - 4) % 3 === 2;
+    var api = peakBannerApi();
+    if (api && api.isPeakLevel) return api.isPeakLevel(id);
+    return false;
   }
 
   /* XX% = 关卡难度指标确定性函数（同关恒定——FR-036 §1）
@@ -1011,6 +1040,11 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
   }
 
   var bannerTimer = null;
+  var bannerFadeTimer = null;
+  var bannerShownForLevel = 0;   /* 同一次开局会话内不重复弹出（换关/重置后清 0） */
+  var bannerSplashTimer = null;  /* 等待启动遮罩移除的重试计时器 */
+  var bannerSplashTries = 0;     /* 重试次数上限（40 × 160ms ≈ 6.4s 兜底） */
+  var bannerLayoutHooked = false;
 
   /* =========================================================
    * Δ22c/T112: 开局编舞闸门（FR-052 §3 §5）
@@ -1053,27 +1087,164 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
 
   function showChallengeBanner() {
     if (!isChallengeLevel(currentId)) return;
+    if (bannerShownForLevel === currentId) return; /* 同一次开局会话内不重复弹出 */
+    /* 启动遮罩（#splash-screen）仍在时**必须延后**：深链 `?level=N` 会在 boot 阶段
+     * 就 loadLevel，若此时开播，1.4s 的横幅整段藏在遮罩背后 → 玩家永远看不到。
+     * 轮询到遮罩节点被移除（preload 完成 + 500ms 淡出）再开播；40 次（≈6.4s）后
+     * 放弃等待直接开播（遮罩异常滞留时也不能吞掉预警）。 */
+    var splashEl = global.document ? global.document.getElementById('splash-screen') : null;
+    if (splashEl) {
+      if (bannerSplashTimer) return;              /* 已在等待中，避免叠加计时器 */
+      if (bannerSplashTries >= 40) {
+        bannerSplashTries = 0;                    /* 兜底：不再等，落到下面正常开播 */
+      } else {
+        bannerSplashTries++;
+        bannerSplashTimer = setTimeout(function () {
+          bannerSplashTimer = null;
+          showChallengeBanner();
+        }, 160);
+        return;
+      }
+    }
+    bannerSplashTries = 0;
+    bannerShownForLevel = currentId;
     if (bannerTimer) { clearTimeout(bannerTimer); bannerTimer = null; }
+    if (bannerFadeTimer) { clearTimeout(bannerFadeTimer); bannerFadeTimer = null; }
     var el = ensureBannerEl();
-    el.textContent = '🔥 挑战关卡！只有 ' + challengePercent(currentId) + '% 的玩家能一次通过这一关';
-    el.classList.remove('show');
-    void el.offsetWidth; /* 重启动画 */
+    if (!el) return;
+
+    /* 色相一次性写入（六画卷自适应；MUST NOT 逐帧改样式） */
+    var api = peakBannerApi();
+    var th = api && api.themeOf ? api.themeOf(currentId) : null;
+    if (th) {
+      el.style.setProperty('--banner-hue-a', String(th.a));
+      el.style.setProperty('--banner-hue-b', String(th.b));
+      el.style.setProperty('--banner-glow', String(th.glow));
+      el.setAttribute('data-painting', String(th.id));
+    }
+
+    /* 文案 + 搭档头像（与大厅 / 结算同源同缓存链：STM.petAvatarHTML） */
+    var pct = challengePercent(currentId);
+    var text = api && api.TEXT ? api.TEXT(pct) : ('\u2726 险境预警 \u00b7 仅 ' + pct + '% 探险家一次突破 \u2726');
+    var av = null;
+    try {
+      av = (STM.Profile && STM.Profile.get) ? STM.Profile.get().avatar : null;
+    } catch (eAv) { av = null; }
+    var avatarHtml = '';
+    if (STM.petAvatarHTML) {
+      try { avatarHtml = STM.petAvatarHTML(av == null ? 0 : av); } catch (ePa) { avatarHtml = ''; }
+    }
+    el.innerHTML = '<span class="peak-banner-pet" aria-hidden="true">' + avatarHtml + '</span>' +
+      '<span class="peak-banner-text">' + text + '</span>' +
+      '<span class="peak-banner-sheen" aria-hidden="true"></span>';
+    if (STM.paintAvatarCanvases) {
+      try { STM.paintAvatarCanvases(el); } catch (ePaint) { /* 兜底直绘失败不阻断横幅 */ }
+    }
+
+    positionBanner(el); /* 一次性反算（resize 时重算，MUST NOT 每帧读布局） */
+    if (!bannerLayoutHooked) {
+      bannerLayoutHooked = true;
+      try {
+        global.addEventListener('resize', function () {
+          var b = global.document.getElementById(PEAK_BANNER_ID);
+          if (b && b.classList.contains('show')) positionBanner(b);
+        });
+      } catch (eRz) { /* 无 resize 能力的环境忽略 */ }
+    }
+
+    el.classList.remove('hide', 'instant');
     el.classList.add('show');
     bannerTimer = setTimeout(function () {
-      el.classList.remove('show');
       bannerTimer = null;
-    }, 1600);
+      dismissPeakBanner(false); /* 自然消散：淡出 + 轻微下沉，MUST NOT 硬切 */
+    }, PEAK_SHOW_MS);
+  }
+
+  /* 消散：`instant` 为真时 80ms 内不可见（点击打断 / 换关清理），
+   * 为假时走 260ms 自然淡出。两路都不动 DOM 结构（零布局抖动）。 */
+  function dismissPeakBanner(instant) {
+    if (bannerTimer) { clearTimeout(bannerTimer); bannerTimer = null; }
+    var d = global.document;
+    var el = d ? d.getElementById(PEAK_BANNER_ID) : null;
+    if (!el) return;
+    if (!el.classList.contains('show')) return;
+    el.classList.remove('show');
+    el.classList.add('hide');
+    if (instant) el.classList.add('instant');
+    if (bannerFadeTimer) clearTimeout(bannerFadeTimer);
+    bannerFadeTimer = setTimeout(function () {
+      bannerFadeTimer = null;
+      var e2 = global.document ? global.document.getElementById(PEAK_BANNER_ID) : null;
+      if (!e2) return;
+      e2.classList.remove('hide', 'instant');
+      e2.innerHTML = '';
+    }, instant ? PEAK_DISMISS_MS + 20 : 280);
+  }
+
+  /* 换关 / 重置 / 失败复活：立即清理计时器与节点内容（防残留叠层） */
+  function resetPeakBanner() {
+    bannerShownForLevel = 0;
+    bannerSplashTries = 0;
+    if (bannerSplashTimer) { clearTimeout(bannerSplashTimer); bannerSplashTimer = null; }
+    if (bannerTimer) { clearTimeout(bannerTimer); bannerTimer = null; }
+    if (bannerFadeTimer) { clearTimeout(bannerFadeTimer); bannerFadeTimer = null; }
+    var d = global.document;
+    var el = d ? d.getElementById(PEAK_BANNER_ID) : null;
+    if (!el) return;
+    el.classList.remove('show', 'hide', 'instant');
+    el.innerHTML = '';
+  }
+
+  /* 矩形与 `#dock` 完全重合 → 与 `#board-wrap` 零相交（构造性，不靠数值调参）。
+   * 只在「显示」与「resize」时读布局，MUST NOT 每帧读。 */
+  function positionBanner(el) {
+    var d = global.document;
+    if (!d || !el) return;
+    var app = d.getElementById('app');
+    var dock = d.getElementById('dock');
+    if (!app || !dock || !dock.getBoundingClientRect || !app.getBoundingClientRect) return;
+    var ar = app.getBoundingClientRect();
+    var dr = dock.getBoundingClientRect();
+    if (!(dr.width > 0) || !(dr.height > 0)) return;
+    el.style.left = Math.round(dr.left - ar.left) + 'px';
+    el.style.top = Math.round(dr.top - ar.top) + 'px';
+    el.style.width = Math.round(dr.width) + 'px';
+    el.style.height = Math.round(dr.height) + 'px';
   }
 
   function ensureBannerEl() {
     var d = global.document;
-    var b = d.getElementById('challenge-banner');
-    if (!b) {
-      b = d.createElement('div');
-      b.id = 'challenge-banner';
-      d.getElementById('app').appendChild(b);
-    }
+    if (!d) return null;
+    var b = d.getElementById(PEAK_BANNER_ID);
+    if (b) return b;
+    /* 静态占位缺失时补建——**必须**紧跟在 `#dock` 之后（不是 appendChild 到 #app 末尾），
+     * 否则定位上下文/层级关系与静态路径不一致。 */
+    var dock = d.getElementById('dock');
+    var app = d.getElementById('app');
+    if (!dock || !app) return null;
+    b = d.createElement('div');
+    b.id = PEAK_BANNER_ID;
+    b.className = 'peak-banner';
+    b.setAttribute('role', 'status');
+    b.setAttribute('aria-live', 'polite');
+    if (dock.nextSibling) app.insertBefore(b, dock.nextSibling);
+    else app.appendChild(b);
     return b;
+  }
+
+  /* 点击可打断（FR-036 §8）：捕获阶段旁观，**不消费事件**——横幅自身
+   * `pointer-events:none`，故该次点击照常落到棋盘并产生正常飞出/受阻反馈。 */
+  function bindPeakBannerDismiss() {
+    var d = global.document;
+    if (!d || d.__stmPeakBannerBound) return;
+    d.__stmPeakBannerBound = true;
+    var onDown = function () {
+      var el = d.getElementById(PEAK_BANNER_ID);
+      if (el && el.classList.contains('show')) dismissPeakBanner(true);
+    };
+    try { d.addEventListener('pointerdown', onDown, true); } catch (ePd) {
+      try { d.addEventListener('mousedown', onDown, true); } catch (eMd) {}
+    }
   }
 
   /* =========================================================
@@ -1319,7 +1490,27 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
     try { fireDockShatter(ps.slots, ps.suits); } catch (eF) { /* VFX 失败不阻断主流程 */ }
   }
 
-  /* 真正的碎裂：先渲染「有牌 + 震颤」的 ghost，再取实时 rect 爆发，最后冻结 180ms */
+  /* =========================================================
+   * Δ29b / FR-049 §2 ①②④ §15: 「挤压闪白前摇 → 膨胀顶点同帧撑爆」
+   *
+   * 取代 Δ20 的「槽内保留 180ms 播放震颤裂纹」：用户要的是**一记短促的挤压闪白**，
+   * 而不是慢慢裂开。时序：
+   *
+   *   t = 0ms      ghost 上屏（3 张牌原位）→ 挂 `.slot-shattering`
+   *                → CSS 在 PRESHAKE_MS 内做**非等比膨胀挤压 + 高光闪白**
+   *   t = 0ms      取**未变形**的槽位 rect（必须先取——CSS 动画一旦起跑，
+   *                getBoundingClientRect 会返回放大后的盒子，碎块出生点会外扩）
+   *   t = PRESHAKE_MS（膨胀顶点）  spawnDockShatter(rects) + 同帧清空 ghost 并重绘
+   *                → 零空窗帧（牌消失的那一帧碎块已存在）、零叠帧（碎块出现时牌已清）
+   *
+   * `#dock` 的 DOM 冻结窗口覆盖「前摇 + 爆发」两段（DOCK_FREEZE_MS = 180ms），
+   * 否则 match 事件处理末尾的 renderDock() 会把 `.slot-shattering` 抹掉。
+   * ========================================================= */
+  var PRESHAKE_MS = 70;      /* 前摇时长（FR-049 §2 ②：60~80ms） */
+  var DOCK_FREEZE_MS = 180;  /* 冻结窗口 = 前摇 + 爆发 */
+  var preshakeTimer = null;
+
+  /* 真正的碎裂：先渲染「有牌 + 挤压闪白」的 ghost，膨胀顶点同帧爆发，最后解冻 */
   function fireDockShatter(slotIndices, suits) {
     slotIndices = slotIndices || [];
     suits = suits || [];
@@ -1328,25 +1519,43 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
     for (g = 0; g < slotIndices.length; g++) {
       if (suits[g] != null) map[slotIndices[g]] = suits[g];
     }
-    dockGhost = { map: map, shatter: true };
+    if (preshakeTimer) { clearTimeout(preshakeTimer); preshakeTimer = null; }
+
+    /* ① 先让 ghost 上屏（有牌态、无动画）→ 立刻取未变形 rect */
+    dockGhost = { map: map, shatter: false };
     dockFreezeUntil = 0;
-    renderDock(); /* ghost 上屏（`.slot-shattering` 的 CSS 动画随插入即起） */
-    /* 此刻槽位已有牌 → 取实时 rect（border-box 中心与槽位同框，样式零改动） */
+    renderDock();
     var nodes = els.dock ? els.dock.querySelectorAll('.slot') : [];
     var rects = [];
     for (var k = 0; k < slotIndices.length; k++) {
       var idx = slotIndices[k];
       if (nodes[idx] && nodes[idx].getBoundingClientRect) rects.push(nodes[idx].getBoundingClientRect());
     }
-    if (rects.length && renderer && renderer.spawnDockShatter) renderer.spawnDockShatter(rects);
-    dockFreezeUntil = Date.now() + 180;
+
+    /* ② 挂前摇动画（`.slot-shattering` 复用既有类名，只改时序与关键帧） */
+    dockGhost = { map: map, shatter: true };
+    renderDock();
+    dockFreezeUntil = Date.now() + DOCK_FREEZE_MS;
     if (dockFreezeTimer) clearTimeout(dockFreezeTimer);
     dockFreezeTimer = setTimeout(function () {
       dockFreezeTimer = null;
       dockFreezeUntil = 0;
+      /* 前摇回调被节流推迟时，交给它自己清槽，避免这里提前抹掉动画 */
+      if (preshakeTimer) return;
       dockGhost = null;
       if (session && els.dock) renderDock();
-    }, 180);
+    }, DOCK_FREEZE_MS);
+
+    /* ③ 膨胀顶点：同帧「出碎块 + 清槽」 */
+    preshakeTimer = setTimeout(function () {
+      preshakeTimer = null;
+      dockFreezeUntil = 0;
+      if (rects.length && renderer && renderer.spawnDockShatter) {
+        try { renderer.spawnDockShatter(rects); } catch (eVfx) { /* VFX 异常不阻断清槽 */ }
+      }
+      dockGhost = null;
+      if (session && els.dock) renderDock();
+    }, PRESHAKE_MS);
   }
 
   function renderItems() {
@@ -1539,6 +1748,7 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
     if (e.e === 'reset') {
       if (dockFreezeTimer) { clearTimeout(dockFreezeTimer); dockFreezeTimer = null; }
       if (pendingShatterTimer) { clearTimeout(pendingShatterTimer); pendingShatterTimer = null; }
+      if (preshakeTimer) { clearTimeout(preshakeTimer); preshakeTimer = null; } /* Δ29b: 重置清前摇 */
       dockFreezeUntil = 0;
       pendingShatter = null;
       dockGhost = null;
@@ -1785,6 +1995,7 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
     renderItems();
     STM.Fail.hide();
     scene = SCENE.GAME;
+    resetPeakBanner(); /* Δ29a: 复活清理预警横幅（计时器 + 节点，零残留） */
     toast('棱晶净化完成，继续挑战！');
   }
 
@@ -1926,6 +2137,8 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
     renderDock();
     renderItems();
     renderDebugInfo();
+    /* Δ29a: 重置本关是一次新开局 → 允许横幅再弹（先清掉上一轮的残留与去重标记） */
+    resetPeakBanner();
     afterIntro(showChallengeBanner);
   }
 
@@ -2300,7 +2513,40 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
     /* Δ20 Bug 1：有效已通关最大关卡号（大厅晶片点亮态的权威口径） */
     maxPassedLevel: maxPassedLevel,
     findBestMove: function (state) { return STM.RulesEngine.findBestMove(state); },
-    nextHint: function () { return onDebugHintDown(); }
+    nextHint: function () { return onDebugHintDown(); },
+    /* Δ29 门禁只读探针（不参与运行时逻辑）：
+     *   · isChallengeLevel / challengePercent —— 触发集合与通关率同源函数
+     *   · peakTiming —— 前摇 / 冻结 / 横幅展示时序常量（delta27-verify ⑧、
+     *     banner 专项断言「前摇 ∈ [60,80]ms」直接读这里，避免常量漂移成假绿）
+     *   · peakBannerState —— 横幅可见性 / 主色相 / 去重标记（banner 专项断言） */
+    isChallengeLevel: isChallengeLevel,
+    challengePercent: challengePercent,
+    peakTiming: {
+      preshakeMs: PRESHAKE_MS,
+      freezeMs: DOCK_FREEZE_MS,
+      showMs: PEAK_SHOW_MS,
+      dismissMs: PEAK_DISMISS_MS
+    },
+    peakBannerState: function () {
+      var d = global.document;
+      var el = d ? d.getElementById(PEAK_BANNER_ID) : null;
+      if (!el) return { exists: false };
+      var cs = d.defaultView && d.defaultView.getComputedStyle ? d.defaultView.getComputedStyle(el) : null;
+      return {
+        exists: true,
+        show: el.classList.contains('show'),
+        hide: el.classList.contains('hide'),
+        text: (el.querySelector('.peak-banner-text') || {}).textContent || '',
+        painting: el.getAttribute('data-painting'),
+        hueA: el.style.getPropertyValue('--banner-hue-a'),
+        hueB: el.style.getPropertyValue('--banner-hue-b'),
+        glow: el.style.getPropertyValue('--banner-glow'),
+        opacity: cs ? parseFloat(cs.opacity) : null,
+        visibility: cs ? cs.visibility : null,
+        pointerEvents: cs ? cs.pointerEvents : null,
+        shownForLevel: bannerShownForLevel
+      };
+    }
   };
   try { global.findBestMove = STM.RulesEngine.findBestMove; global.nextHint = onDebugHintDown; } catch (e) { }
 })(typeof window !== 'undefined' ? window : globalThis);
