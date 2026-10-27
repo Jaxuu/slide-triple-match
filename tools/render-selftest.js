@@ -1603,14 +1603,14 @@ function scenarioDelta22Intro() {
     }
     return true;
   })());
-  check('T111②: 留白 180ms / 单卡 260ms / 层补偿 55ms / 落定阈值 0.85',
-    I.LEAD_MS === 180 && I.TILE_MS === 260 && I.Z_STEP_MS === 55 && I.TICK_AT === 0.85);
-  check('T111②: 逐牌步长下限 12ms / 展开期下限 260ms（Δ27b 容量自适应）',
-    I.STAGGER_MS === 12 && I.SPREAD_MIN_MS === 260);
-  check('T111②: 时长公式 L1/L46/L33 = 700/1546/2340ms',
-    RT.introDealTotalMs(18, 0) === 700 &&
-    RT.introDealTotalMs(84, 2) === 1546 &&
-    RT.introDealTotalMs(141, 4) === 2340);
+  check('T111②: 留白 120ms / 单卡 180ms / 层补偿 55ms / 落定阈值 0.85（Δ28f 提速）',
+    I.LEAD_MS === 120 && I.TILE_MS === 180 && I.Z_STEP_MS === 55 && I.TICK_AT === 0.85);
+  check('T111②: 逐牌步长下限 9ms / 展开期下限 180ms（Δ28f 提速）',
+    I.STAGGER_MS === 9 && I.SPREAD_MIN_MS === 180);
+  check('T111②: 时长公式 L1/L46/L33 = 480/1157/1780ms（Δ28f 提速）',
+    RT.introDealTotalMs(18, 0) === 480 &&
+    RT.introDealTotalMs(84, 2) === 1157 &&
+    RT.introDealTotalMs(141, 4) === 1780);
 
   /* 逐模式 × 逐坐标：规格有限性 + ord 值域 + 规格互异 */
   var n = 6;
@@ -1660,7 +1660,7 @@ function scenarioDelta22Intro() {
     if (layerDelays[lj].d - layerDelays[lj - 1].d < sc.step - 1e-6) zGapOk = false;
   }
   check('T111③: 同坐标高层延迟严格大于低层（层序锁——倒序输入也不穿模）', zMonotone);
-  check('T111③: 层间延迟差 >= 逐牌步长（12ms 硬下限）', zGapOk && sc.step >= I.STAGGER_MS - 1e-6);
+  check('T111③: 层间延迟差 >= 逐牌步长（9ms 硬下限）', zGapOk && sc.step >= I.STAGGER_MS - 1e-6);
 
   /* 逐张可辨：步长均匀 + 单帧在途 <= 22 */
   var scDelays = [];
@@ -1679,7 +1679,7 @@ function scenarioDelta22Intro() {
     }
     if (scn > scPeak) scPeak = scn;
   }
-  check('T111③: 相邻落点恒差 >= 12ms（逐张可辨）', scMinGap >= I.STAGGER_MS - 1e-6,
+  check('T111③: 相邻落点恒差 >= 9ms（逐张可辨）', scMinGap >= I.STAGGER_MS - 1e-6,
     'minGap=' + scMinGap.toFixed(3));
   check('T111③: 单帧在途 <= 22 张（旧式 108 张 → 成团堆积）', scPeak <= 22, 'peak=' + scPeak);
   check('T111③: 排程总时长 === 公式值', Math.abs(sc.totalMs - RT.introDealTotalMs(60, 4)) < 1e-6,
@@ -1762,8 +1762,8 @@ function scenarioDelta22Intro() {
   rnd.setReducedMotion(true);
   rnd.startDeal(4);
   var rm = RT.INTRO;
-  pumpFrames(14); /* ≈224ms → 越过 180ms 留白，进入淡入期 */
-  check('T112⑥: reduced-motion 下仍保留 180ms 底图留白节奏', rm.LEAD_MS === 180);
+  pumpFrames(14); /* ≈224ms → 越过 120ms 留白，进入淡入期 */
+  check('T112⑥: reduced-motion 下仍保留 120ms 底图留白节奏', rm.LEAD_MS === 120);
   try { pumpFrames(120); check('T112⑥: reduced-motion 降级路径零异常', true); }
   catch (e2) { check('T112⑥: reduced-motion 降级路径零异常 [' + e2.message + ']', false); }
   check('T112⑥: reduced-motion 降级后同样完全归位', rnd.isDealing() === false);

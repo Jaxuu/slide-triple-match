@@ -112,9 +112,9 @@ console.log('Δ22c/Δ27b 开局编舞冒烟（FR-052 / SC-019/SC-020 自动化�
 /* ---------- ① 常量与模式表 ---------- */
 console.log('① 常量与 15 模式表');
 check('15 种编舞模式全部登记', !!I && I.MODES.length === 15);
-check('留白 180ms / 单卡 260ms / 层补偿 55ms / 落定阈值 0.85',
-  I.LEAD_MS === 180 && I.TILE_MS === 260 && I.Z_STEP_MS === 55 && I.TICK_AT === 0.85);
-check('逐牌步长硬下限 12ms / 展开期下限 260ms', I.STAGGER_MS === 12 && I.SPREAD_MIN_MS === 260);
+check('留白 120ms / 单卡 180ms / 层补偿 55ms / 落定阈值 0.85（Δ28f 提速）',
+  I.LEAD_MS === 120 && I.TILE_MS === 180 && I.Z_STEP_MS === 55 && I.TICK_AT === 0.85);
+check('逐牌步长 9ms / 展开期下限 180ms（Δ28f 提速）', I.STAGGER_MS === 9 && I.SPREAD_MIN_MS === 180);
 check('模式名两两互异', (function () {
   var seen = {};
   for (var i = 0; i < I.MODES.length; i++) { if (seen[I.MODES[i]]) return false; seen[I.MODES[i]] = 1; }
@@ -124,12 +124,15 @@ check('模式名两两互异', (function () {
 /* ---------- ② 时长公式（FR-052 §10） ---------- */
 console.log('\n② 时长公式（FR-052 §10）');
 var T = RT.introDealTotalMs;
-check('L1（N=18, zMax=0）= 700ms', T(18, 0) === 700, T(18, 0));
-check('L46（N=84, zMax=2）= 1546ms', T(84, 2) === 1546, T(84, 2));
-check('L33（N=141, zMax=4）= 2340ms', T(141, 4) === 2340, T(141, 4));
-check('公式 = 180 + max(260,(N-1)×12) + 260 + 55×zMax',
-  T(10, 0) === 180 + 260 + 260 && T(60, 3) === 180 + 59 * 12 + 260 + 165);
-check('单帧在途硬上限 ceil(TILE/STAGGER) = 22 张', Math.ceil(I.TILE_MS / I.STAGGER_MS) === 22);
+check('L1（N=18, zMax=0）= 480ms', T(18, 0) === 480, T(18, 0));
+check('L46（N=84, zMax=2）= 1157ms', T(84, 2) === 1157, T(84, 2));
+check('L33（N=141, zMax=4）= 1780ms', T(141, 4) === 1780, T(141, 4));
+check('公式 = 120 + max(180,(N-1)×9) + 180 + 55×zMax',
+  T(10, 0) === 120 + 180 + 180 && T(60, 3) === 120 + 59 * 9 + 180 + 165);
+/* Δ28f: 「逐张可辨」的真正指标是**单帧在途张数**，不是步长本身。
+ * 提速靠同时缩短单卡行进时长（260→180），故在途上限反而从 22 降到 20。 */
+check('单帧在途上限 ceil(TILE/STAGGER) <= 22 张（实测 20，提速后更疏）',
+  Math.ceil(I.TILE_MS / I.STAGGER_MS) <= 22, Math.ceil(I.TILE_MS / I.STAGGER_MS));
 
 /* ---------- ③ 逐模式规格有限性 / ord 值域 / 互异 ---------- */
 console.log('\n③ 逐模式规格（8×8 全坐标）');
@@ -212,7 +215,7 @@ for (var pi = 0; pi < planIds.length; pi++) {
 }
 delays.sort(function (a, b) { return a - b; });
 check('全部 delay 为有限数值', dFinite);
-check('全部 delay >= 留白 180ms（0~180ms 纯底图）', dLead);
+check('全部 delay >= 留白 120ms（0~120ms 纯底图）', dLead);
 check('delay 两两互异（无并列 → 无「成团同时落」）', (function () {
   for (var k = 1; k < delays.length; k++) if (Math.abs(delays[k] - delays[k - 1]) < 1e-6) return false;
   return true;
@@ -224,7 +227,7 @@ for (var k2 = 1; k2 < delays.length; k2++) {
   if (g < minGap) minGap = g;
   if (g > maxGap) maxGap = g;
 }
-check('相邻落点恒差 >= 12ms（逐张可辨的硬下限）', minGap >= I.STAGGER_MS - 1e-6, 'minGap=' + minGap.toFixed(3));
+check('相邻落点恒差 >= 9ms（逐张可辨的硬下限）', minGap >= I.STAGGER_MS - 1e-6, 'minGap=' + minGap.toFixed(3));
 check('相邻落点间隔均匀（max/min <= 1.001，无疏密突变）', maxGap / minGap <= 1.001,
   'min=' + minGap.toFixed(3) + ' max=' + maxGap.toFixed(3));
 
@@ -415,7 +418,7 @@ check('降级后计划仍覆盖全部卡牌', !!rplan && Object.keys(rplan).leng
   rplan ? Object.keys(rplan).length : 'null');
 try { pumpFrames(300); check('降级路径零异常', true); } catch (e) { check('降级路径零异常', false, e.message); }
 check('降级后同样完全归位', rnd.isDealing() === false);
-check('降级仍保留 180ms 底图留白节奏（LEAD_MS 不变）', I.LEAD_MS === 180);
+check('降级仍保留 120ms 底图留白节奏（LEAD_MS 不变）', I.LEAD_MS === 120);
 rnd.setReducedMotion(false);
 
 /* ---------- ⑩ 纯表现层 ---------- */

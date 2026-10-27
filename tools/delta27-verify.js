@@ -9,7 +9,11 @@
  *   ② 飞行期间棋盘静态层绘制序恒按 (z,r,c) 升序（相邻卡牌绝不变底层）
  *   ③ 编舞单帧在途 <= 22 张（真实 rAF 时序下复验）
  *   ④ 三消碎块：120~150 枚 + 图集切片命中率 >= 90%
- * 同时把 6 张取证帧写到 shots/delta27/（.gitignore 已忽略，不入库）。
+ *   ⑤ 爆心辉光（0~180ms 可见、之后零残留）
+ *   ⑥ 碎裂出生点 = 本轮三消真实所在槽位（不是「最左 3 槽」）
+ *   ⑦ 碎块轨迹形态：全团 vx 同号 / 倾角 5~40° / 首 100ms 下坠 >= 40px /
+ *      墙钟下落速率 >= 300 px/s（Δ28f：单条扫掠 + 干脆下落 + 掉帧不减速）
+ * 同时把 8 张取证帧写到 shots/delta27/（.gitignore 已忽略，不入库）。
  *
  * 零 npm 依赖（Node 内置 http / WebSocket + 本机 Chrome，宪章 II）。
  * ========================================================= */
@@ -321,7 +325,7 @@ async function main() {
     var peak = 0;
     for (var i = 0; i < ds.length; i++) {
       var c = 0;
-      for (var j = 0; j < ds.length; j++) if (ds[j] <= ds[i] && ds[i] < ds[j] + 260) c++;
+      for (var j = 0; j < ds.length; j++) if (ds[j] <= ds[i] && ds[i] < ds[j] + 180) c++;
       if (c > peak) peak = c;
     }
     var minGap = Infinity;
@@ -332,9 +336,9 @@ async function main() {
     planInfo ? planInfo.n : 'null');
   check('① 单帧在途 <= 22 张（真实关卡数据）', planInfo && planInfo.peak <= 22,
     planInfo ? 'peak=' + planInfo.peak : '-');
-  check('① 相邻落点 >= 12ms（粒粒分明）', planInfo && planInfo.minGap >= 12 - 1e-6,
+  check('① 相邻落点 >= 9ms（粒粒分明，Δ28f 提速后口径）', planInfo && planInfo.minGap >= 9 - 1e-6,
     planInfo ? 'minGap=' + planInfo.minGap.toFixed(2) : '-');
-  check('① 编舞总时长 = 2340ms（公式值）', planInfo && Math.abs(planInfo.total - 2340) < 1,
+  check('① 编舞总时长 = 1780ms（公式值，Δ28f 提速后）', planInfo && Math.abs(planInfo.total - 1780) < 1,
     planInfo ? planInfo.total : '-');
   await sleep(500);
   await shot('deal-800ms.png');
@@ -774,6 +778,130 @@ async function main() {
     check('⑥ 出生点采样成功', false, birth ? JSON.stringify(birth.err || birth) : 'null');
   }
 
+  /* ---------- ⑦ 碎块轨迹形态（Δ28f：单条扫掠 + 干脆下落） ----------
+   * 用户两轮反馈的验收点：
+   *   「不是三条轨迹」→ 全团 vx MUST 同号（旧实现按「远离爆心」定向 = 左/中/右三束）
+   *   「像红线那样斜着落下」→ 轨迹倾角 MUST 斜但明确向下（p50 <= 40°）
+   *   「现在感觉是飘下去的」→ 首 100ms 竖直位移 MUST 够大 + 墙钟下落速率 MUST 够快
+   * 最后一条同时守住 Δ28f 的根因修复：物理若按「帧数」而非「墙钟」积分，
+   * 掉帧时速度会被摊薄（headless 只有 8fps，旧实现会掉到 ~60px/s）。 */
+  console.log('\n⑦ 碎块轨迹形态（Δ28f）');
+  var traj = await ev(`(async function(){
+    var sleep = function(ms){ return new Promise(function(z){ setTimeout(z, ms); }); };
+    var r = window.__D27.rnd(), s = window.__D27.sess(), RE = window.STM.RulesEngine;
+    s.reset();
+    await sleep(150);
+    function firstOf(suit){
+      var st = s.state(), eng = s.engineState();
+      for (var i=0;i<st.board.length;i++){
+        var t = st.board[i];
+        if (!t || (t.s|0) !== suit) continue;
+        if (!RE.canTap(eng, t.id)) continue;
+        return t.id;
+      }
+      return null;
+    }
+    var st0 = s.state(), eng0 = s.engineState(), cnt = {};
+    for (var i0=0;i0<st0.board.length;i0++){
+      var b0 = st0.board[i0];
+      if (!b0 || !RE.canTap(eng0, b0.id)) continue;
+      var k0 = b0.s|0; cnt[k0] = (cnt[k0]||0)+1;
+    }
+    var target = -1, bestN = 0;
+    for (var kk in cnt) if (cnt[kk] > bestN) { bestN = cnt[kk]; target = kk|0; }
+    if (target < 0 || bestN < 3) return { err: 'no triple' };
+    var tapped = 0;
+    while (tapped < 8) {
+      var stc = s.state(), c2 = 0;
+      for (var ci=0;ci<stc.dock.length;ci++) if ((stc.dock[ci].s|0) === target) c2++;
+      if (c2 >= 3) break;
+      var tid = firstOf(target);
+      if (tid == null) break;
+      s.tap(tid); tapped++;
+      await sleep(110);
+    }
+    var t0 = performance.now();
+    while (performance.now() - t0 < 2000 && r.vfxShardsOf().length === 0) await sleep(6);
+    if (r.vfxShardsOf().length === 0) return { err: 'no shards' };
+
+    var frames = [];
+    var start = performance.now();
+    await new Promise(function(done){
+      function loop(){
+        var now = performance.now() - start;
+        var list = r.vfxShardsOf();
+        frames.push({
+          t: now,
+          s: list.map(function(x){ return { x: x.x, y: x.y, vx: x.vx, vy: x.vy }; })
+        });
+        if (now < 460) requestAnimationFrame(loop); else done();
+      }
+      requestAnimationFrame(loop);
+    });
+    return { frames: frames };
+  })()`);
+
+  if (traj && !traj.err && traj.frames && traj.frames.length >= 2) {
+    var tf = traj.frames;
+    /* ⑦a 全团 vx 同号 */
+    var vPos = 0, vNeg = 0;
+    for (var tf1 = 0; tf1 < tf.length; tf1++) {
+      for (var ts1 = 0; ts1 < tf[tf1].s.length; ts1++) {
+        if (tf[tf1].s[ts1].vx > 0) vPos++; else if (tf[tf1].s[ts1].vx < 0) vNeg++;
+      }
+    }
+    check('⑦ 全团 vx 同号（单条扫掠轨迹，MUST NOT 左/中/右三束扇形）',
+      vPos === 0 || vNeg === 0, '正 ' + vPos + ' / 负 ' + vNeg);
+
+    /* ⑦b 轨迹倾角：首帧 → 末个「仍 >= 60 枚」的帧，逐枚配对 */
+    var fA = tf[0], fB = null;
+    for (var tb = tf.length - 1; tb >= 0; tb--) { if (tf[tb].s.length >= 60) { fB = tf[tb]; break; } }
+    var angs = [], sumAbsDx = 0, sumDy = 0;
+    if (fB) {
+      var np = Math.min(fA.s.length, fB.s.length);
+      for (var tp = 0; tp < np; tp++) {
+        var ddx = fB.s[tp].x - fA.s[tp].x;
+        var ddy = fB.s[tp].y - fA.s[tp].y;
+        if (ddy < 1) continue;
+        angs.push(Math.atan2(Math.abs(ddx), ddy) * 180 / Math.PI);
+        sumAbsDx += Math.abs(ddx); sumDy += ddy;
+      }
+    }
+    angs.sort(function (a, b) { return a - b; });
+    var angP50 = angs.length ? angs[Math.floor(angs.length / 2)] : NaN;
+    check('⑦ 轨迹倾角 p50 落 5~40°（斜着落下，既非垂直也非横飞）',
+      isFinite(angP50) && angP50 >= 5 && angP50 <= 40,
+      'p50=' + (isFinite(angP50) ? angP50.toFixed(1) : '-') + '° 配对=' + angs.length);
+
+    /* ⑦c 首 100ms 竖直位移 */
+    var f100 = null;
+    for (var tq = 0; tq < tf.length; tq++) { if (tf[tq].t >= 95) { f100 = tf[tq]; break; } }
+    var drop100 = NaN;
+    if (f100) {
+      var nq = Math.min(fA.s.length, f100.s.length), acc = 0, cn2 = 0;
+      for (var pq = 0; pq < nq; pq++) { var dq = f100.s[pq].y - fA.s[pq].y; if (dq > 0) { acc += dq; cn2++; } }
+      drop100 = cn2 ? acc / cn2 : NaN;
+    }
+    check('⑦ 首 100ms 平均竖直位移 >= 40px（起手即下坠，不是飘）',
+      isFinite(drop100) && drop100 >= 40,
+      (isFinite(drop100) ? drop100.toFixed(1) : '-') + 'px');
+
+    /* ⑦d 墙钟下落速率（掉帧不改速度——Δ28f 根因修复的实机护栏） */
+    var wallRate = NaN;
+    if (fB && fB.t > fA.t + 1) {
+      var dtW = (fB.t - fA.t) / 1000;
+      var nw = Math.min(fA.s.length, fB.s.length), accY = 0, cnW = 0;
+      for (var pw = 0; pw < nw; pw++) { var dw = fB.s[pw].y - fA.s[pw].y; if (dw > 0) { accY += dw; cnW++; } }
+      if (cnW && dtW > 0) wallRate = (accY / cnW) / dtW;
+    }
+    check('⑦ 墙钟下落速率 >= 300 px/s（物理按墙钟积分，掉帧不减速）',
+      isFinite(wallRate) && wallRate >= 300,
+      (isFinite(wallRate) ? Math.round(wallRate) : '-') + ' px/s');
+    await shot('shatter-traj.png');
+  } else {
+    check('⑦ 轨迹采样成功', false, traj ? JSON.stringify(traj.err || ('frames=' + (traj.frames ? traj.frames.length : 'null'))) : 'null');
+  }
+
   var errCount = await ev('(function(){return (window.__D27ERR||0);})()');
   check('③ 全程零未捕获异常', !errCount, errCount);
 
@@ -784,7 +912,7 @@ async function main() {
     console.log('delta27-verify: FAILED — ' + fails.length + ' 失败项: ' + fails.join('; '));
     process.exit(1);
   } else {
-    console.log('delta27-verify: all green（编舞在途<=22 / 槽位零抖动 / 图层不反转 / 碎块 120~150 枚 + 图集命中>=90% / 碎裂出生点定位）');
+    console.log('delta27-verify: all green（编舞在途<=22 / 槽位零抖动 / 图层不反转 / 碎块 120~150 枚 + 图集命中>=90% / 碎裂出生点定位 / 单条扫掠轨迹）');
     console.log('取证帧目录：shots/delta27/');
   }
 }

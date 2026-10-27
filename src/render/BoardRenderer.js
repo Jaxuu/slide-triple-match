@@ -1084,14 +1084,22 @@ var DOCK_SHARD_GRAVITY = 2600;      /* px/s²（Δ27c：原 920 太飘） */
  * 抛物线，落地干脆。
  *
  * Δ28e-2: 首版水平 200~520 / 垂直 30~150 的**初始切角只有 10~30°**，实测像
- * 「横向喷出去」而不是「斜着落下」。垂直分量必须够大，起手才是斜的——
- * 现取水平 160~420 / 垂直 120~300，初始切角 16~59°（均值 ~35°），
- * 之后重力持续加速 → 越落越陡的抛物线。 */
-var DOCK_SHARD_VX_MIN = 160;        /* 水平初速下限 px/s（斜角来源） */
-var DOCK_SHARD_VX_MAX = 420;        /* 水平初速上限 px/s */
-var DOCK_SHARD_VY_MIN = 120;        /* 垂直初速下限 px/s（恒 > 0：绝不上飘） */
-var DOCK_SHARD_VY_MAX = 300;        /* 垂直初速上限 px/s（余下交给重力） */
-var DOCK_SHARD_VX_DEAD = 0.12;      /* 落在爆心中轴 ±12% 的碎片几乎直落（避免全团同向） */
+ * 「横向喷出去」而不是「斜着落下」。垂直分量必须够大，起手才是斜的。
+ *
+ * Δ28f（用户第二轮反馈）：**不是「三条轨迹」**——按「远离爆心」定向会得到
+ * 左/中/右三束对称扇形，读起来是「炸开」。参考轨迹是**一整条向下偏一侧的弧**：
+ * 全团共用**同一个扫掠方向**（`sweepDir`，取屏幕较近的一侧），水平分量只做
+ * 幅度抖动形成「一条带」的厚度，方向绝不翻转。
+ * 同时「飘」的观感来自垂直初速偏小 → 起手就慢、全靠重力追；现改为**起手即
+ * 高速下坠**（垂直 `340~560 px/s`），重力只负责把直线压弯，落得干脆。
+ *
+ * Δ28f-2: 垂直初速下限（340）**不低于**水平上限（340）——这条不等式把「干脆下落」
+ * 编码成可断言的不变量：任何一枚碎片的起手方向都至少 45° 朝下，永不出现
+ * 「横向喷出去」。 */
+var DOCK_SHARD_VX_MIN = 150;        /* 水平初速下限 px/s（扫掠方向上的漂移量） */
+var DOCK_SHARD_VX_MAX = 340;        /* 水平初速上限 px/s */
+var DOCK_SHARD_VY_MIN = 340;        /* 垂直初速下限 px/s（起手即高速下坠，MUST > 0） */
+var DOCK_SHARD_VY_MAX = 560;        /* 垂直初速上限 px/s（余下交给重力） */
 var DOCK_SHARD_ALPHA_MIN = 0.84;    /* Δ28c: 半透明玻璃感（原为全不透明 1.0） */
 var DOCK_SHARD_ALPHA_MAX = 0.96;
 var DOCK_SHARD_VR_MIN = 4;          /* 角速度下限 rad/s */
@@ -1482,11 +1490,22 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
    *      卡牌 100% 精确落在 getTileCssRect 给出的标准网格坐标；
    *   ③ 编舞期间不触发任何 Solver / 关卡生成 / 持久化写入。
    * ========================================================= */
-  var INTRO_LEAD_MS = 180;        /* 纯背景留白（兼作解码/预排版窗口） */
-  var INTRO_STAGGER_MS = 12;      /* 逐牌错峰步长（硬下限——见 §9） */
-  var INTRO_SPREAD_MIN_MS = 260;  /* 展开期下限（小盘保护——避免「啪一下全出来」） */
+  /* Δ28f: 开局编舞整体提速 ~25~31%（用户实测「落子太慢」）。
+   *
+   * 关键是**不靠压低步长换时长**——那样只会把牌挤成一坨。真正同时改善
+   * 「总时长」与「逐张可辨」的做法是**同时缩短单卡行进时长**：
+   *   旧：LEAD 180 / STAGGER 12 / TILE 260 → 在途上限 ceil(260/12) = 22
+   *   新：LEAD 120 / STAGGER  9 / TILE 180 → 在途上限 ceil(180/9)  = 20
+   * 单卡从 260ms 缩到 180ms（起手更脆），总时长同时下降：
+   *   L1(N=18,z=0)  700 → 480ms（-31%）
+   *   L46(N=84,z=2) 1546 → 1157ms（-25%）
+   *   L33(N=141,z=4) 2340 → 1780ms（-24%）
+   * `INTRO_Z_STEP_MS` 保持 55（零穿模的层序锁依赖它，不动）。 */
+  var INTRO_LEAD_MS = 120;        /* 纯背景留白（兼作解码/预排版窗口） */
+  var INTRO_STAGGER_MS = 9;       /* 逐牌错峰步长 */
+  var INTRO_SPREAD_MIN_MS = 180;  /* 展开期下限（小盘保护——避免「啪一下全出来」） */
   var INTRO_Z_STEP_MS = 55;       /* 每层 +55ms（零穿模的关键，常量不许改） */
-  var INTRO_TILE_MS = 260;        /* 单卡进场持续时长（常量不许改） */
+  var INTRO_TILE_MS = 180;        /* 单卡进场持续时长 */
   var INTRO_TICK_AT = 0.85;       /* 落盘定格瞬间 → 落牌涟漪音 */
   var INTRO_ALPHA0 = 0.62;        /* Δ27b §8 入场起点透明度（>= 0.55——不再从 0 起跳发灰） */
   var INTRO_ALPHA_MIN_SAFE = 0.55;/* 起点透明度硬下限（FR-052 §8） */
@@ -2428,6 +2447,18 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     function tick(now) {
       var active = false;
       var i;
+      /* Δ28f: 碎块物理 MUST 用**墙钟 dt**，不能写死每帧 16ms。
+       * 写死 16ms 等于把物理绑在「帧数」而不是「时间」上：60fps 机器看着正常，
+       * 一旦掉到 30fps 就变成半速、20fps 变成三分速——观感正是用户说的
+       * 「飘下去」（起手速度被摊薄、重力追不上）。碎裂瞬间要同时画 120~150 枚
+       * 碎块 + 爆心辉光，正是最容易掉帧的时刻，所以这条必须先修。
+       * 上限 100ms：切后台回来时 rAF 会给出巨大的间隔，不夹会让碎块瞬移出屏。 */
+      var dtVfx = 0.016;
+      if (lastTickTime != null) {
+        var dtRaw = (now - lastTickTime) / 1000;
+        if (dtRaw > 0) dtVfx = (dtRaw > 0.1) ? 0.1 : dtRaw;
+      }
+      lastTickTime = now;
       for (i = anims.length - 1; i >= 0; i--) {
         var a = anims[i];
         if ((now - a.t0) / a.dur >= 1) {
@@ -2459,11 +2490,11 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         /* Δ27c/T136 物理定标：重力 2600 px/s² 持续加速 + 恒定翻滚。
          * MUST NOT 施加空气阻力或终速限制（会拖出「先减速→悬停→再飘落」的
          * 三段式，正是「慢吞吞飘落」的成因）。越过屏幕下沿即回收。 */
-        vsh.x += vsh.vx * 0.016;
-        vsh.y += vsh.vy * 0.016;
-        vsh.vy += DOCK_SHARD_GRAVITY * 0.016;
-        vsh.rot += (vsh.vr || 0) * 0.016; /* vr = rad/s */
-        vsh.life -= 16;
+        vsh.x += vsh.vx * dtVfx;
+        vsh.y += vsh.vy * dtVfx;
+        vsh.vy += DOCK_SHARD_GRAVITY * dtVfx;
+        vsh.rot += (vsh.vr || 0) * dtVfx; /* vr = rad/s */
+        vsh.life -= dtVfx * 1000;
         if (vsh.life <= 0 || (vsh.y - 80 > vfxViewH())) vfxShards.splice(i, 1);
       }
       if (vfxShards.length > 0) active = true;
@@ -2580,6 +2611,9 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         var bboxH = Math.max(1, by1 - by0);
         /* 爆心 = 3 槽并集中心（不是出生盒中心——盒在垂直方向不对称于槽位行） */
         var burstCX = (minX + maxX) / 2;
+        /* Δ28f: 扫掠方向 = 屏幕较近的一侧（爆心在左半屏 → 向左下扫，否则向右下扫）。
+         * 全团共用同一方向，观感才是一条弧而不是对称扇形。 */
+        var sweepDir = (burstCX < vfxViewW() * 0.5) ? -1 : 1;
         /* Δ28d: 爆心辉光定位在 3 槽中心 */
         vfxFlash = {
           x: burstCX,
@@ -2657,17 +2691,12 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
             atlas = (ki < SHARD_ATLAS_TOTAL) ? ki : Math.floor(Math.random() * SHARD_ATLAS_TOTAL);
             if (picked.indexOf(atlas) < 0) picked.push(atlas);
           }
-          /* Δ28e: 斜向抛物线——水平分量按「远离爆心中轴」定向（左半向左、右半向右），
-           * 垂直分量恒为正（绝不上飘）。重力 2600 把直线压成弧，观感是「被扫下去」
-           * 而不是「炸开后飘落」。落在中轴附近的碎片给极小水平速度 → 直落，
-           * 让扇形不是死板的左右对称。 */
-          var offX = px - burstCX;
-          var dir = offX < 0 ? -1 : 1;
-          if (Math.abs(offX) < bboxW * DOCK_SHARD_VX_DEAD) {
-            dir = (Math.random() < 0.5 ? -1 : 1) * 0.18;
-          }
+          /* Δ28f: 全团共用**一个扫掠方向**——`sweepDir` 取屏幕较近的一侧（爆心在
+           * 左半屏就向左扫、右半屏就向右扫），水平分量只抖动幅度形成「一条带」的
+           * 厚度，方向**绝不翻转**。这样整团读起来是一条向下偏一侧的弧，
+           * 而不是左/中/右三束对称扇形（Δ28e 的「三条轨迹」）。 */
           var vxMag = DOCK_SHARD_VX_MIN + Math.random() * (DOCK_SHARD_VX_MAX - DOCK_SHARD_VX_MIN);
-          var vx = dir * vxMag;
+          var vx = sweepDir * vxMag;
           var vy = DOCK_SHARD_VY_MIN + Math.random() * (DOCK_SHARD_VY_MAX - DOCK_SHARD_VY_MIN);
           var vrMag = DOCK_SHARD_VR_MIN + Math.random() * 8;
           var vr = (Math.random() < 0.5 ? -1 : 1) * vrMag;
@@ -2747,6 +2776,11 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       if (typeof global !== 'undefined' && global.innerHeight) return global.innerHeight;
       if (vfxCanvas && vfxCanvas.clientHeight) return vfxCanvas.clientHeight;
       return 640;
+    }
+    function vfxViewW() {
+      if (typeof global !== 'undefined' && global.innerWidth) return global.innerWidth;
+      if (vfxCanvas && vfxCanvas.clientWidth) return vfxCanvas.clientWidth;
+      return 360;
     }
 
     /* Δ20/T093 → Δ27c/T135: 全屏 #vfx-canvas 3D 立体碎块瀑布绘制
@@ -4006,7 +4040,6 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     vxMax: DOCK_SHARD_VX_MAX,
     vyMin: DOCK_SHARD_VY_MIN,
     vyMax: DOCK_SHARD_VY_MAX,
-    vxDead: DOCK_SHARD_VX_DEAD,
     alphaMin: DOCK_SHARD_ALPHA_MIN,
     alphaMax: DOCK_SHARD_ALPHA_MAX,
     vrMin: DOCK_SHARD_VR_MIN,

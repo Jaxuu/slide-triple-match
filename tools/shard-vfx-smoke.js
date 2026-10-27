@@ -41,6 +41,13 @@ function pumpFrames(n) {
     for (var j = 0; j < q.length; j++) q[j](clockNow);
   }
 }
+/* Δ28f: 推进**任意间隔**的一帧（用于验证物理是否按墙钟积分） */
+function pumpOne(dtMs) {
+  var q = rafQ.splice(0, rafQ.length);
+  clockNow += dtMs;
+  for (var j = 0; j < q.length; j++) q[j](clockNow);
+  return q.length;
+}
 
 var drawImageCalls = 0, fillCalls = 0;
 function makeCtx() {
@@ -84,10 +91,12 @@ console.log('① 常量口径');
 check('数量区间 120~150 枚', D.min === 120 && D.max === 150);
 check('生命周期 420~620ms', D.lifeMin === 420 && D.lifeMax === 620);
 check('重力 2600 px/s²（原 920 太飘）', D.gravity === 2600);
-check('Δ28e 斜向抛物线：水平初速 160~420 px/s（弧线的「斜」来自这里）',
-  D.vxMin === 160 && D.vxMax === 420, D.vxMin + '~' + D.vxMax);
-check('Δ28e 垂直初速 120~300 px/s 且恒为正（起手即斜落，MUST NOT 横飘/上飘）',
-  D.vyMin === 120 && D.vyMax === 300, D.vyMin + '~' + D.vyMax);
+check('Δ28f 单条扫掠轨迹：水平初速 150~340 px/s（弧线的「斜」来自这里）',
+  D.vxMin === 150 && D.vxMax === 340, D.vxMin + '~' + D.vxMax);
+check('Δ28f 垂直初速 340~560 px/s 且恒为正（起手即高速下坠，MUST NOT 飘/上飘）',
+  D.vyMin === 340 && D.vyMax === 560, D.vyMin + '~' + D.vyMax);
+check('Δ28f 垂直初速下限 >= 水平上限（起手方向恒 >= 45° 朝下 → 干脆下落，不是横向喷出）',
+  D.vyMin >= D.vxMax, D.vyMin + ' vs ' + D.vxMax);
 check('Δ28c 半透明玻璃 alpha 0.84~0.96', D.alphaMin === 0.84 && D.alphaMax === 0.96);
 check('角速度下限 4 rad/s', D.vrMin === 4);
 check('三级配比 15% / 45% / 40%',
@@ -141,6 +150,7 @@ var RECTS = [
 ];
 
 var cntOk = true, ratioOk = true, sizeOk = true, vyOk = true, vxOk = true, vrOk = true, lifeOk = true, alphaOk = true;
+var signOk = true, signSeen = [];
 var totalSeen = [], ratioSeen = [], upSeen = [];for (var trial = 0; trial < 3; trial++) {
   rnd.cancelFlights();
   var beforeN = rnd.vfxShardsOf().length;
@@ -149,6 +159,7 @@ var totalSeen = [], ratioSeen = [], upSeen = [];for (var trial = 0; trial < 3; t
   totalSeen.push(list.length);
   if (list.length < 120 || list.length > 150) cntOk = false;
   var big = 0, mid = 0, small = 0, upCnt = 0;
+  var posN = 0, negN = 0;
   for (var si = 0; si < list.length; si++) {
     var s = list[si];
     if (s.kind === 'large') big++;
@@ -157,15 +168,18 @@ var totalSeen = [], ratioSeen = [], upSeen = [];for (var trial = 0; trial < 3; t
     /* 尺寸必须落在该级区间 */
     var rg = s.kind === 'large' ? D.size.large : (s.kind === 'medium' ? D.size.medium : D.size.small);
     if (!(s.size >= rg[0] - 1e-9 && s.size <= rg[1] + 1e-9)) sizeOk = false;
-    /* Δ28e: 斜向抛物线——vy 恒为正（30~150），绝无向上分量 */
+    /* Δ28f: vy 恒落 340~560，绝无向上分量（起手即高速下坠） */
     if (!(s.vy >= D.vyMin - 1e-9 && s.vy <= D.vyMax + 1e-9)) vyOk = false;
     if (s.vy <= 0) upCnt++;
-    /* 水平分量 = dir × (200~520)，dir ∈ [-1, 1] → |vx| <= 520 */
-    if (!(Math.abs(s.vx) <= D.vxMax + 1e-6)) vxOk = false;
+    /* Δ28f: |vx| 恒落 vxMin~vxMax，且**全团同号**（单条扫掠轨迹，不是对称扇形） */
+    if (!(Math.abs(s.vx) >= D.vxMin - 1e-6 && Math.abs(s.vx) <= D.vxMax + 1e-6)) vxOk = false;
+    if (s.vx > 0) posN++; else if (s.vx < 0) negN++;
     if (!(Math.abs(s.vr) >= D.vrMin - 1e-9)) vrOk = false;
     if (!(s.life >= D.lifeMin && s.life <= D.lifeMax)) lifeOk = false;
     if (!(s.alpha0 >= D.alphaMin - 1e-9 && s.alpha0 <= D.alphaMax + 1e-9)) alphaOk = false;
   }
+  if (posN > 0 && negN > 0) signOk = false;
+  signSeen.push(posN + '/' + negN);
   upSeen.push(upCnt);
   ratioSeen.push([big / list.length, mid / list.length, small / list.length]);
   if (Math.abs(big / list.length - D.ratio.large) > 0.03) ratioOk = false;
@@ -175,10 +189,12 @@ check('单次爆发数量恒落 120~150', cntOk, totalSeen.join('/'));
 check('三级配比贴近 15/45/40（±3~4%）', ratioOk,
   ratioSeen.map(function (r) { return r.map(function (v) { return v.toFixed(2); }).join('/'); }).join(' | '));
 check('每枚可见长边落在所属级区间', sizeOk);
-check('Δ28e 垂直初速恒落 30~150 px/s（无向上分量）', vyOk);
-check('Δ28e 全帧零向上分量（抛物线只有下坠弧，不是礼花）',
+check('Δ28f 垂直初速恒落 340~560 px/s（无向上分量）', vyOk);
+check('Δ28f 全帧零向上分量（只有下坠弧，不是礼花）',
   upSeen.every(function (n) { return n === 0; }), '违例枚数 ' + upSeen.join('/'));
-check('水平分量 |vx| <= vxMax（520 px/s）', vxOk);
+check('Δ28f 水平分量 |vx| 恒落 150~340 px/s', vxOk);
+check('Δ28f 全团 vx 同号（单条扫掠轨迹，MUST NOT 左/中/右三束扇形）',
+  signOk, '正/负枚数 ' + signSeen.join(' | '));
 check('角速度 |vr| >= 4 rad/s（翻滚感）', vrOk);
 check('生命周期恒落 420~620ms', lifeOk);
 check('Δ28c 半透明 alpha 落 0.84~0.96（玻璃通透）', alphaOk);
@@ -233,6 +249,47 @@ if (snap.length && pool1.length) {
   vyDelta = pool1[0].vy - snap[0].vy;
 }
 check('Δvy 与 2600 px/s² × 48ms 吻合（124.8 ± 1）', Math.abs(vyDelta - 124.8) < 1.2, vyDelta.toFixed(2));
+
+/* ---------- ③b 墙钟积分（Δ28f：物理 MUST NOT 绑在帧数上） ----------
+ * 旧实现每帧写死 16ms → 60fps 正常、30fps 半速、20fps 三分速。碎裂瞬间要画
+ * 120~150 枚碎块 + 辉光，正是最容易掉帧的时刻，于是「掉帧 → 变慢 → 飘下去」。
+ * 对照实验：同样经过 40ms 墙钟，一次 40ms 帧与四次 10ms 帧必须得到相同 Δvy。 */
+console.log('\n③b 墙钟积分（掉帧不改速度）');
+rnd.cancelFlights();
+pumpFrames(70); /* 排空上一轮 */
+check('③b 前置：碎块池已排空', rnd.vfxShardsOf().length === 0, rnd.vfxShardsOf().length);
+pumpOne(16); /* 让 lastTickTime 落定 */
+rnd.spawnDockShatter(RECTS);
+var aPool = rnd.vfxShardsOf();
+var aShard = aPool[aPool.length - 1];
+var aV0 = aShard.vy;
+pumpOne(40);
+var aDv = aShard.vy - aV0;
+check('③b 单帧 40ms → Δvy = 2600×0.04 = 104（按墙钟而非帧数）',
+  Math.abs(aDv - 104) < 1.5, aDv.toFixed(2));
+
+rnd.spawnDockShatter(RECTS);
+var bPool = rnd.vfxShardsOf();
+var bShard = bPool[bPool.length - 1];
+var bV0 = bShard.vy;
+for (var q4 = 0; q4 < 4; q4++) pumpOne(10);
+var bDv = bShard.vy - bV0;
+check('③b 四帧 10ms → Δvy 同为 104（帧率无关）', Math.abs(bDv - 104) < 1.5, bDv.toFixed(2));
+check('③b 两种帧切法 Δvy 一致（差 < 1.5）', Math.abs(aDv - bDv) < 1.5,
+  '40ms=' + aDv.toFixed(2) + ' 4×10ms=' + bDv.toFixed(2));
+check('③b 单帧超长间隔被夹到 100ms（切后台回来不瞬移）', (function () {
+  rnd.cancelFlights();
+  pumpFrames(70);
+  pumpOne(16);
+  rnd.spawnDockShatter(RECTS);
+  var p = rnd.vfxShardsOf();
+  var sh = p[p.length - 1];
+  var v0 = sh.vy, y0 = sh.y;
+  pumpOne(3000); /* 模拟切后台 3 秒 */
+  var dv = sh.vy - v0;
+  var dy = sh.y - y0;
+  return Math.abs(dv - 2600 * 0.1) < 1.5 && dy < 200;
+})());
 
 pumpFrames(60);
 check('1 秒后碎块池完全回收（无泄漏）', rnd.vfxShardsOf().length === 0, rnd.vfxShardsOf().length);
