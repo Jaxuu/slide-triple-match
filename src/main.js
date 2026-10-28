@@ -466,6 +466,16 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
   function boot() {
     cacheEls();
     startPreloadResources();
+    /* Δ31a §19 ⑤：`#dock` 受击微震的摘类 MUST 走 `animationend`——
+     * 用 setTimeout 摘会与动画时钟不同源（后台节流 / 掉帧后残留类，
+     * 下一次三消因「类已在」而不再重播）。只认 `#dock` 自身的动画名。 */
+    if (els.dock && els.dock.addEventListener) {
+      els.dock.addEventListener('animationend', function (ev) {
+        if (ev && ev.animationName === 'dock-hit' && els.dock.classList) {
+          els.dock.classList.remove('dock-hit');
+        }
+      });
+    }
     var LEVELS = STM.LEVELS || [];
     if (!LEVELS.length) {
       showError('关卡数据为空（STM.LEVELS 未加载）');
@@ -635,8 +645,7 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
       debugHint: d.getElementById('debug-hint'),
       debugAuto: d.getElementById('debug-auto'),
       debugInfo: d.getElementById('debug-info'),
-      debugMute: d.getElementById('debug-mute'),
-      debugIntro: d.getElementById('debug-intro')
+      debugMute: d.getElementById('debug-mute')
     };
   }
   /* M4 T053: 移动端调试面板折叠按钮（PC 端不显示）
@@ -929,9 +938,8 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     });
     renderer.setLevel(currentLevel); /* Δ14: 渲染层花色映射/背景随当前关 id 切换 */
     renderer.refresh();
-    /* Δ22c/T111+T112: 开局进场编舞——15 种随机抽取、相邻两次不重复；
-     * 0~180ms 纯底图留白，180~1000ms 花式落牌（z=4 满载上界；z≤2 典型 820ms），
-     * 逐牌落定配落子涟漪音 */
+    /* Δ31b: 开局进场编舞——唯一模式「原位对角波浪层叠弹入」；
+     * 先预热稳定帧率再记 t0（帧闸门在 renderer.frame 内），全段约 415ms */
     startDealChoreography();
 
     /* Δ15/T052i: 贴图就绪惰性换装——Dock chip 同步刷新（棋盘由渲染器
@@ -1073,16 +1081,12 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     if (!introGateTimer) introGateTimer = setTimeout(flushIntroGate, d);
   }
 
-  /* 抽取并启动本局编舞（进入关卡 / 重置本关都走这里） */
+  /* 启动本局编舞（进入关卡 / 重置本关都走这里）
+   * Δ31b: 无模式参数、无锁定——开局只有「原位对角波浪层叠弹入」一种。 */
   function startDealChoreography() {
-    if (!renderer || !renderer.startDeal) return -1;
+    if (!renderer || !renderer.startDeal) return false;
     clearIntroGate();
-    var m = renderer.startDeal(); /* 相邻两次开局 MUST NOT 重复（渲染器内部保证） */
-    if (els.debugIntro) {
-      els.debugIntro.value = (renderer.getDealModeLock && renderer.getDealModeLock() != null)
-        ? String(renderer.getDealModeLock()) : 'random';
-    }
-    return m;
+    return renderer.startDeal();
   }
 
   function showChallengeBanner() {
@@ -1405,19 +1409,25 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
   }
 
   /* =========================================================
-   * Δ30a / FR-049 §18: 三消「三合一磁吸碰撞 + 闪白高光坍缩」
+   * Δ31a / FR-049 §19: 三消「纯卡牌自身力学」四段演出
    *
-   * 时序（总长 220ms，与 css/style.css 的 slot-shatter 三段一一对应）：
+   * 时序（总长 210ms，与 css/style.css 的 chip-rush / chip-impact 一一对应）：
    *
-   *   t = 0ms    三张牌全部落定 → 一次性写入 --suck-dx（**实时 rect 差值**）
-   *              + 挂 `.slot-shattering` → CSS 在 0~80ms 把三张滑到中间那张、
-   *              80~140ms 闪白膨胀 + 微震、140~220ms 收到 0
-   *   t = 140ms  坍缩段首帧 → renderer.spawnCollapseImpact(纯白 + 冰晶蓝双环 + 四角星芒)
-   *   t = 220ms  清本组 ghost → 若无活跃组则按最新真值重建 #dock（FLIP 补位）
+   *   0~70ms    左右两张 `chip-rush`：强初速滑行猛撞中心牌（cubic-bezier(.12,.72,.22,1)，
+   *             前 30% 时长完成 >= 70% 位移 → 读作「撞过去」而非「被吸过去」）；
+   *             到位后 1 帧内 opacity → 0（三张牌合体的视觉完成）
+   *   70~95ms   中心牌 `chip-impact` 挤压：scale(0.92, 1.08) + brightness(2.1)
+   *             + `.dock-chip::after` 纯白覆盖层峰值 0.70（同帧达峰）
+   *   95~115ms  猛烈回弹：scale → 1.32（峰值落 115~130ms，MUST NOT > 1.40）
+   *   115~130ms 峰值保持，brightness / 覆盖层回落至 <= 1.15× / <= 0.15
+   *   130ms     `#dock` 受击微震 `dock-hit`（仅纵向 2.0px / <= 90ms）
+   *             + 坍缩段起跑（加速收到 scale 0）
+   *   210ms     清本组 ghost → 若无活跃组则按最新真值重建 #dock（200ms 弹簧补位）
    *
-   * 为什么不再有「碎块」：Δ27→Δ29 三轮堆出来的 shards 图集 / 九宫格切片 /
-   * 泛洪键控 / 27 张染色 / 柔光预烘焙 / 抛物线物理 / 爆心辉光已**整体下线**
-   * （用户判定「向下掉落的碎块」是累赘杂物）。
+   * 为什么不再有任何光圈 / 星星 / 碎块：Δ27→Δ30 三轮堆出来的 shards 图集、
+   * 双环星芒、爆心辉光、重力粒子已**整体下线**（用户判定全是「廉价几何特效」）。
+   * 三消反馈 100% 交给 `#dock` 内 3 张真实卡牌的**位移 / 形变 / 亮度**——
+   * `#vfx-canvas` 在三消窗口内 MUST 一个亮像素都没有。
    *
    * 三条时序不变量（MUST 保留）：
    *   ① `match` 在点击结算瞬间下发 → MUST NOT 在 `match` 里直接起演出；
@@ -1426,11 +1436,12 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
    *      读当前 dock / 快照（会退化成「最左 3 槽」）。
    *   ③ `dockGhost` 只影响 `renderDock()` 的 HTML，不写回 session、不参与判定。
    * ========================================================= */
-  var COLLAPSE_TOTAL_MS = 220;    /* 演出总时长（== css slot-shatter 总时长） */
-  var COLLAPSE_RING_AT_MS = 140;  /* 光环起跑 == 坍缩段首帧 */
+  var COLLAPSE_TOTAL_MS = 210;      /* 演出总时长（== css chip-impact 总时长） */
+  var COLLAPSE_SHUDDER_AT_MS = 130; /* #dock 受击微震 + 坍缩段起跑 */
+  var DOCK_HIT_MS = 90;             /* 托盘微震总时长（<= 90ms） */
   var DOCK_FREEZE_MS = COLLAPSE_TOTAL_MS;
-  var DOCK_FLIP_MS = 140;         /* FLIP 补位过渡（SC-025 ⑥ 的 120~160ms 窗口） */
-  var collapseTimers = [];        /* [{ gid, ring, end }] —— 每组两个计时器句柄 */
+  var DOCK_FLIP_MS = 200;           /* FLIP 弹簧补位（§19 ⑥ 的 180~240ms 窗口） */
+  var collapseTimers = [];          /* [{ gid, hit, end }] —— 每组两个计时器句柄 */
 
   function prefersReducedMotion() {
     try {
@@ -1517,26 +1528,60 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
   }
 
   /* 直接改 DOM（**不重建 innerHTML**）——重建会让上一组的 CSS 动画从头再来，
-   * 并发两组时表现为「第一组跳回起点」。只触碰本组的 3 个槽位。 */
+   * 并发两组时表现为「第一组跳回起点」。只触碰本组的 3 个槽位。
+   *
+   * Δ31a / FR-049 §19 ②⑧：按槽位序号的中位牌打 `data-collapse-role`——
+   *   · `center` → `chip-impact`（挤压 → 回弹 → 坍缩）
+   *   · `side`   → `chip-rush`（左右滑行猛撞 → 到位即隐）
+   *   · `solo`   → 可用槽位不足 3 个时的退化（原位闪白 + 直接缩至 0）
+   * MUST 用**属性**而非新增 class：`.slot-shattering` 的选择器特异性已经
+   * 是 `1,2,0`，再加 class 会与它纠缠；属性选择器写法可读且零副作用。
+   *
+   * 中心牌层级 MUST 设在 `.slot` 上而非 `.dock-chip`：`dock-seat` 动画期间
+   * `.slot` 带 `transform` 会形成层叠上下文，`.dock-chip` 的 z-index 跨不了槽，
+   * 结果是「两张牌盖住中间」而非「三张合体」。`z-index` 不属于 SC-017 ⑤ 冻结项。 */
   function applyCollapseDom(slotIndices) {
     if (!els.dock) return;
     var nodes = els.dock.querySelectorAll('.slot');
     var map = (dockGhost && dockGhost.map) ? dockGhost.map : {};
+    var order = (slotIndices || []).slice().sort(function (a, b) { return a - b; });
+    var midIdx = order.length ? order[Math.floor(order.length / 2)] : -1;
+    var solo = order.length < 3;
     for (var i = 0; i < slotIndices.length; i++) {
       var idx = slotIndices[i];
       var nd = nodes[idx];
       var g = map[idx];
       if (!nd || !g) continue;
+      var role = solo ? 'solo' : (idx === midIdx ? 'center' : 'side');
       nd.className = 'slot has-tile is-filled filled slot-shattering';
+      nd.setAttribute('data-collapse-role', role);
+      nd.style.zIndex = (role === 'center') ? '3' : '1';
       nd.innerHTML = '<div class="dock-chip" style="--suck-dx:' +
         (Number(g.dx) || 0).toFixed(2) + 'px">' + STM.chipSVG(g.suit, currentLevel) + '</div>';
     }
     if (STM.paintDockIcons) STM.paintDockIcons();
   }
 
-  /* 解除冻结时的 FLIP 补位（SC-025 ⑥）：重建前记录剩余槽位的旧 rect，
-   * 重建后对 `.dock-chip` 施加 `translateX(旧−新)` 并在 120~160ms 内回到 0。
-   * MUST NOT 瞬跳、MUST NOT 出现「空槽闪一下再填上」的中间帧。 */
+  /* 摘除演出属性（收尾 / 重置 / 换关 MUST 调用——否则残留 `z-index: 3`） */
+  function clearCollapseRoles(scope) {
+    var root = scope || els.dock;
+    if (!root || !root.querySelectorAll) return;
+    var nodes = root.querySelectorAll('.slot');
+    for (var i = 0; i < nodes.length; i++) {
+      var nd = nodes[i];
+      if (!nd) continue;
+      if (nd.hasAttribute && nd.hasAttribute('data-collapse-role')) {
+        nd.removeAttribute('data-collapse-role');
+        nd.style.zIndex = '';
+      }
+    }
+  }
+
+  /* 解除冻结时的 FLIP 弹簧补位（§19 ⑥）：重建前记录剩余槽位的旧 rect，
+   * 重建后对 `.dock-chip` 施加 `translateX(旧−新)` 并在 200ms 内欠阻尼回 0
+   * （`cubic-bezier(.34,1.28,.64,1)` → 过冲约 4%，落进 `<= 6%` 窗口）。
+   * MUST NOT 瞬跳、MUST NOT 出现「空槽闪一下再填上」的中间帧。
+   * MUST 只动 `.dock-chip` 的 transform —— `.slot` MUST NOT 位移。 */
   function renderDockWithFlip() {
     if (!els.dock || !session) { renderDock(); return; }
     var dockArr = session.state().dock || [];
@@ -1558,11 +1603,13 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
       if (!chip) continue;
       var dx = old - nodes2[i].getBoundingClientRect().left;
       if (!(Math.abs(dx) > 0.5)) continue;
+      /* 两段式（MUST 保留）：先写 transition:none + 位移 → 强制一次重排
+       * （读 offsetWidth）→ 再写 transition + 归零。少了这次强制重排，
+       * 位移会与过渡合并成**瞬跳**（Δ30 已踩过）。 */
       chip.style.transition = 'none';
       chip.style.transform = 'translateX(' + dx.toFixed(2) + 'px)';
-      /* 强制一次重排，保证过渡从位移态起跑（否则会与首帧合并成瞬跳） */
       if (chip.offsetWidth >= 0) { /* read-only flush */ }
-      chip.style.transition = 'transform ' + DOCK_FLIP_MS + 'ms cubic-bezier(.16,.84,.24,1)';
+      chip.style.transition = 'transform ' + DOCK_FLIP_MS + 'ms cubic-bezier(.34,1.28,.64,1)';
       chip.style.transform = 'translateX(0px)';
     }
   }
@@ -1583,10 +1630,11 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
      * ⚠ Δ30a 真机踩坑：`.slot.has-tile` 挂着 `dock-seat` 入场动画
      * （`scale(.72) → 1.08 → 1`，260ms）。坍缩恰好在「第 3 张刚落定」那一帧起演，
      * 此时 `getBoundingClientRect()` 返回的是**被 transform 缩放过的**盒子——
-     * 实测槽宽 44 → 31.68（×0.72），光环半径与内环间距整体缩水 28%。
+     * 实测槽宽 44 → 31.68（×0.72），滑行距离整体缩水 28%。
      * 故基准几何 MUST 取布局尺寸 `offsetWidth/offsetHeight`（不含 transform），
      * 再用「rect 中心」反推未缩放左上角（scale 以中心为原点 → 中心不变）。
-     * 取不到 rect 时退化为「原位闪白 + 双环」——时序与总时长不变。 */
+     * 取不到 rect 时 `dx` 退化为 0（原位演出）——时序与总时长不变。
+     * ⚠ 每次演出重新采集，MUST NOT 跨尺寸缓存 `--suck-dx`。 */
     var nodes = els.dock ? els.dock.querySelectorAll('.slot') : [];
     var rects = [];
     for (k = 0; k < slotIndices.length; k++) {
@@ -1603,12 +1651,6 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     var midIdx = order[Math.floor(order.length / 2)];
     var midRect = null;
     for (k = 0; k < slotIndices.length; k++) if (slotIndices[k] === midIdx) midRect = rects[k];
-    var cx = 0, cy = 0, slotW = 0;
-    if (midRect) {
-      cx = midRect.left + midRect.width / 2;
-      cy = midRect.top + midRect.height / 2;
-      slotW = midRect.width;
-    }
     var reduced = prefersReducedMotion();
 
     /* ② ghost 落位（按槽位映射；并发时保留其他组的条目） */
@@ -1628,16 +1670,20 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     /* ③ 只改本组 3 个槽位的 DOM（零重建 → 上一组动画不受影响） */
     applyCollapseDom(slotIndices);
 
-    /* ④ 坍缩段首帧：纯白 + 冰晶蓝双环 + 四角星芒（零掉落物） */
-    var ringTimer = setTimeout(function () {
-      if (renderer && renderer.spawnCollapseImpact && slotW > 0) {
-        try { renderer.spawnCollapseImpact(cx, cy, slotW, reduced); } catch (eR) { /* VFX 异常不阻断 */ }
-      }
-    }, COLLAPSE_RING_AT_MS);
+    /* ④ 130ms：`#dock` 受击微震 + 坍缩段起跑。
+     * MUST 只走纵向 2.0px —— 横向不动，`--suck-dx` 与飞行终点 X 完全不受影响；
+     * 纵向 2px 恰好卡在 `flight-smoke` 的「落定偏差 <= 2px」容差内。
+     * 摘类 MUST 走 `animationend`（定时器与动画时钟不同源，会残留类）。 */
+    var hitTimer = setTimeout(function () {
+      if (!els.dock || !els.dock.classList) return;
+      els.dock.classList.remove('dock-hit');
+      void els.dock.offsetWidth; /* 强制重排——同一组连续三消也能重播 */
+      els.dock.classList.add('dock-hit');
+    }, COLLAPSE_SHUDDER_AT_MS);
 
     /* ⑤ 收尾：清本组 ghost → 若无活跃组则重建 + FLIP 补位 */
     var endTimer = setTimeout(function () { finishCollapseGroup(gid); }, COLLAPSE_TOTAL_MS);
-    collapseTimers.push({ gid: gid, ring: ringTimer, end: endTimer });
+    collapseTimers.push({ gid: gid, hit: hitTimer, end: endTimer });
   }
 
   /* 一组演出结束：清本组条目；还有更晚结束的组则只清本组槽位，否则重建 + FLIP */
@@ -1666,25 +1712,32 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
         if (nodes[i] && nodes[i].classList && nodes[i].classList.contains('slot-shattering')) {
           nodes[i].className = 'slot empty';
           nodes[i].innerHTML = '';
+          if (nodes[i].removeAttribute) nodes[i].removeAttribute('data-collapse-role');
+          nodes[i].style.zIndex = '';
         }
       }
       return;
     }
     dockFreezeUntil = 0;
     dockGhost = null;
+    /* Δ31a §19 ⑧：收尾 MUST 一并摘除角色属性与 z-index（否则残留 `z-index: 3`
+     * 会让后续落座的牌永久盖住邻槽）。 */
+    clearCollapseRoles();
     if (session && els.dock) renderDockWithFlip();
   }
 
   /* 换关 / 重置：清空全部演出计时器与 ghost（不得跨局残留） */
   function resetCollapseState() {
     for (var i = 0; i < collapseTimers.length; i++) {
-      if (collapseTimers[i].ring) clearTimeout(collapseTimers[i].ring);
+      if (collapseTimers[i].hit) clearTimeout(collapseTimers[i].hit);
       if (collapseTimers[i].end) clearTimeout(collapseTimers[i].end);
     }
     collapseTimers = [];
     groupEndAt = {};
     dockFreezeUntil = 0;
     dockGhost = null;
+    clearCollapseRoles();
+    if (els.dock && els.dock.classList) els.dock.classList.remove('dock-hit');
   }
 
   function renderItems() {
@@ -2168,16 +2221,9 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
       els.debugMute.checked = sound ? !sound.isMuted() : !progress.muted;
     }
 
-    /* Δ22c/T112 ②: 编舞模式锁定下拉（15 种 + 随机）——评委逐种回放验收 */
-    if (els.debugIntro) {
-      var im = (STM.rendererTest && STM.rendererTest.INTRO_MODES) || [];
-      var iopts = '<option value="random">随机（相邻不重复）</option>';
-      for (var ii = 0; ii < im.length; ii++) {
-        iopts += '<option value="' + ii + '">' + ii + ' · ' + im[ii] + '</option>';
-      }
-      els.debugIntro.innerHTML = iopts;
-      els.debugIntro.value = 'random';
-    }
+    /* Δ31b / FR-052 §14.1: 「编舞模式锁定」下拉**整块删除**——
+     * 开局只剩唯一模式，MUST NOT 保留「模式 0」作为唯一项的下拉
+     * （那会让维护者误以为还有 15 种可选，Δ30 的同类教训）。 */
 
     /* T053: 移动端浮动按钮 + 抽屉切换 */
     if (els.debugToggle) {
@@ -2189,15 +2235,6 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     if (els.debugHint) els.debugHint.addEventListener('pointerdown', onDebugHintDown);
     if (els.debugAuto) els.debugAuto.addEventListener('pointerdown', onDebugAutoDown);
     if (els.debugMute) els.debugMute.addEventListener('change', onDebugMuteChange);
-    if (els.debugIntro) els.debugIntro.addEventListener('change', onDebugIntroChange);
-  }
-
-  /* Δ22c/T112 ②: 切换编舞模式 → 立刻重放一次进场（评委逐种验收用） */
-  function onDebugIntroChange() {
-    if (!renderer || !renderer.setDealModeLock) return;
-    var v = els.debugIntro ? els.debugIntro.value : 'random';
-    renderer.setDealModeLock(v === 'random' ? null : parseInt(v, 10));
-    startDealChoreography();
   }
 
   /* 关卡机制标记文本（齿轮/冰封/锁链/棱镜——按 tiles/prisms/cfg 实际出现计） */
@@ -2647,12 +2684,14 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
      *   · peakBannerState —— 横幅可见性 / 主色相 / 去重标记（banner 专项断言） */
     isChallengeLevel: isChallengeLevel,
     challengePercent: challengePercent,
-    /* Δ30a: 演出时序常量（前摇已废除——`preshakeMs` 保留键位并指向「坍缩段首帧」，
-     * 使既有断言「冲击时刻 ∈ [60,80]ms」的继任者可直接改读 collapseMs/ringAtMs） */
+    /* Δ31a / FR-049 §19：纯卡牌力学演出时序常量（光圈/星芒/粒子已整体下线）。
+     * `shudderAtMs` = 130ms（`#dock` 受击微震 + 坍缩段起跑）。
+     * 旧的前摇 / 光环起跑两个键**已移除**——留着会让旧门禁读到「光环起跑」
+     * 这个已不存在的语义而假绿（Δ29/Δ30 各踩过一次）。 */
     peakTiming: {
-      preshakeMs: COLLAPSE_RING_AT_MS,
+      shudderAtMs: COLLAPSE_SHUDDER_AT_MS,
       collapseMs: COLLAPSE_TOTAL_MS,
-      ringAtMs: COLLAPSE_RING_AT_MS,
+      hitMs: DOCK_HIT_MS,
       flipMs: DOCK_FLIP_MS,
       freezeMs: DOCK_FREEZE_MS,
       showMs: PEAK_SHOW_MS,

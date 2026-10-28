@@ -319,7 +319,7 @@ async function main() {
   async function captureVfx(name, targetMs) {
     var res = await ev(`(async function(){
       var r = window.STM.main.renderer();
-      r.clearVfx(false);
+      r.clearVfx();
       var ns = document.querySelectorAll('#dock .slot');
       var rects = [];
       for (var i = 0; i < 3 && i < ns.length; i++) rects.push(ns[i].getBoundingClientRect());
@@ -369,7 +369,7 @@ async function main() {
   /* 全页对照帧（含牌面背景，看碎块与棋盘/待槽的空间关系） */
   await ev(`(function(){
     var r = window.STM.main.renderer();
-    r.clearVfx(false);
+    r.clearVfx();
     var ns = document.querySelectorAll('#dock .slot');
     var rects = [];
     for (var i = 0; i < 3 && i < ns.length; i++) rects.push(ns[i].getBoundingClientRect());
@@ -383,7 +383,7 @@ async function main() {
     var sleep = function(ms){ return new Promise(function(z){ setTimeout(z, ms); }); };
     var M = window.STM.main;
     var s = M.session(), r = M.renderer(), RE = window.STM.RulesEngine;
-    r.clearVfx(false);
+    r.clearVfx();
     s.reset();
     await sleep(200);
     function firstOf(suit){

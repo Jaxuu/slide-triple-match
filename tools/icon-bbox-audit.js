@@ -45,6 +45,25 @@ function decode(file) {
     '-pix_fmt', 'rgb24', '-'], { maxBuffer: 512 * 1024 * 1024 });
 }
 
+/* 解码器可用性探测（Δ31/T188 环境适配）
+ *
+ * `assets/icons/sheet*.png` 实际是 **baseline JPEG**（SOI `ffd8ffe0` + SOF0，
+ * 2048×2048×3），文件名与容器不符。像素级统计（[3][4]）必须有解码器；
+ * Node 内置无图像解码能力，故只能依赖外部 `ffmpeg`。
+ *
+ * 本机/CI 无 `ffmpeg` 时 MUST NOT 让整份门禁 crash（那会让 [1][2] 这两组
+ * **纯数据**断言也读不到结果）。降级口径：
+ *   · `ffmpeg` 可用 → [1][2][3][4] 全跑，任一不过即 exit 1（原行为不变）；
+ *   · `ffmpeg` 缺失 → 只跑 [1][2]（96 条完整性 / 几何 / 相邻指纹），
+ *     并在 stdout 与 exit 前**显式打印跳过原因**，exit 0。
+ * 跳过 MUST 醒目可读——静默跳过等于把「没验」伪装成「验过了」。 */
+let FFMPEG_OK = true;
+try {
+  execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' });
+} catch (e) {
+  FFMPEG_OK = false;
+}
+
 const bboxes = loadBBoxes();
 console.log('\n[1] 条数与几何');
 ok(bboxes.length === SHEETS * CELLS, '条数 = 96（6 张 × 16 格满格）', '实测 ' + bboxes.length);
@@ -75,6 +94,10 @@ for (let k = 1; k < bboxes.length; k++) {
 ok(dupAdj === 0, '相邻 suit 的 bbox 互不相同（无重复注册）', '重复 ' + dupAdj);
 
 console.log('\n[3] 强墨迹覆盖率（阈值 < ' + STRONG + '）');
+if (!FFMPEG_OK) {
+  console.log('    ⚠ 跳过 [3][4]：未找到 ffmpeg（assets/icons/*.png 实为 baseline JPEG，');
+  console.log('      Node 内置无图像解码能力）。[1][2] 为纯数据断言，照常执行。');
+}
 let worst = 1, worstSuit = -1;
 /* Δ24: 同时统计「可见主体占框比」——THR 235 可见范围长边 / bbox 长边。
  * 这是「卡牌图标有的大有的小」的离线代理指标：包围盒若被柔和投影撑大，
@@ -84,6 +107,7 @@ let worst = 1, worstSuit = -1;
 const VIS = 235;
 const fillRatios = [];
 for (let sheet = 1; sheet <= SHEETS; sheet++) {
+  if (!FFMPEG_OK) break;
   const file = path.join(ROOT, 'assets', 'icons', 'sheet' + sheet + '.png');
   if (!fs.existsSync(file)) { ok(false, '缺少素材 ' + file); continue; }
   const buf = decode(file);
@@ -117,23 +141,29 @@ for (let sheet = 1; sheet <= SHEETS; sheet++) {
     }
   }
 }
-console.log('    最差覆盖率: ' + (worstSuit < 0 ? '全部 100%' :
-  ('suit' + worstSuit + ' = ' + (worst * 100).toFixed(2) + '%')));
-ok(worst >= MIN_COVER, '96 个花色强墨迹覆盖率 ≥ ' + (MIN_COVER * 100) + '%',
-  '最差 suit' + worstSuit + ' = ' + (worst * 100).toFixed(2) + '%');
+if (FFMPEG_OK) {
+  console.log('    最差覆盖率: ' + (worstSuit < 0 ? '全部 100%' :
+    ('suit' + worstSuit + ' = ' + (worst * 100).toFixed(2) + '%')));
+  ok(worst >= MIN_COVER, '96 个花色强墨迹覆盖率 ≥ ' + (MIN_COVER * 100) + '%',
+    '最差 suit' + worstSuit + ' = ' + (worst * 100).toFixed(2) + '%');
 
-console.log('\n[4] 可见主体占框比（Δ24：图标大小一致性的离线代理）');
-fillRatios.sort((a, b) => a.r - b.r);
-const MIN_FILL = 0.90;
-const bad4 = fillRatios.filter(o => o.r < MIN_FILL);
-console.log('    最低 5 个: ' + fillRatios.slice(0, 5).map(o =>
-  'suit' + o.suit + '=' + (o.r * 100).toFixed(1) + '%').join(' '));
-console.log('    中位: ' + (fillRatios[(fillRatios.length / 2) | 0].r * 100).toFixed(1) + '%');
-ok(bad4.length === 0,
-  '96 个花色可见主体占框比 ≥ ' + (MIN_FILL * 100) + '%（包围盒未被柔和投影撑大）',
-  '不达标 ' + bad4.length + ' 个: ' + bad4.slice(0, 6).map(o =>
+  console.log('\n[4] 可见主体占框比（Δ24：图标大小一致性的离线代理）');
+  fillRatios.sort((a, b) => a.r - b.r);
+  const MIN_FILL = 0.90;
+  const bad4 = fillRatios.filter(o => o.r < MIN_FILL);
+  console.log('    最低 5 个: ' + fillRatios.slice(0, 5).map(o =>
     'suit' + o.suit + '=' + (o.r * 100).toFixed(1) + '%').join(' '));
+  console.log('    中位: ' + (fillRatios[(fillRatios.length / 2) | 0].r * 100).toFixed(1) + '%');
+  ok(bad4.length === 0,
+    '96 个花色可见主体占框比 ≥ ' + (MIN_FILL * 100) + '%（包围盒未被柔和投影撑大）',
+    '不达标 ' + bad4.length + ' 个: ' + bad4.slice(0, 6).map(o =>
+      'suit' + o.suit + '=' + (o.r * 100).toFixed(1) + '%').join(' '));
+} else {
+  console.log('    — [3][4] 已跳过（无 ffmpeg）：像素级覆盖率 / 占框比本次未校验。');
+  console.log('      补验方式：安装 ffmpeg 后重跑本脚本，或在有 ffmpeg 的机器上执行。');
+}
 
 console.log('\n──────────── 结果 ────────────');
-console.log('通过 ' + passes + ' / 失败 ' + fails);
+console.log('通过 ' + passes + ' / 失败 ' + fails +
+  (FFMPEG_OK ? '' : '（[3][4] 像素级分组已跳过）'));
 process.exit(fails > 0 ? 1 : 0);

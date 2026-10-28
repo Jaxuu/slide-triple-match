@@ -135,7 +135,33 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 | 兜底 | `<= 400ms` 兜底定时器防异常滞留；`prefers-reduced-motion: reduce` → 零位移直接落定（`90ms`，保留落槽音与槽位揭示） |
 | 纯表现层 | MUST NOT 影响归拢顺序、命中判定与可解性；MUST NOT 触发 Solver / 持久化；MUST NOT 持久化飞行态 |
 
-### 4.2 三消坍缩演出契约（Δ30a / FR-049 §18 ①~⑨，**取代 Δ27~Δ29 的碎块契约**）
+### ~~4.2 三消坍缩演出契约（Δ30a / FR-049 §18 ①~⑨）~~ **→ 现行 4.2 见下方「Δ31 重写」**
+
+> **⚠️ Δ31a 整体取代本节（原文留档，SC-025 作废）**：Δ30a 的「双环 + 四角星芒」被判定为**廉价几何特效**，`spawnCollapseImpact` / `collapseRingsOf` / 环与星芒的全部参数域**整体下线**；三消反馈改为纯卡牌力学。**下列表格中的 `spawnCollapseImpact` / `collapseRingsOf` / 双环星芒 / `220ms` 三段 / `DOCK_FREEZE_MS = 220` / `DOCK_FLIP_MS = 140` 全部作废**，以「4.2′ 纯卡牌力学坍缩契约（Δ31a）」为准。
+
+### 4.2′ 纯卡牌力学坍缩契约（Δ31a / FR-049 §19 ①~⑫，**取代 4.2 的 Δ30a 口径**）
+
+> **零绘制红线**：三消窗口内 `#vfx-canvas` 上 `alpha > 2` 的像素数 MUST `= 0`；棋盘 canvas 与静态帧逐像素差异 `= 0`；`#dock` 内 MUST NOT 新增非 `.slot` / `.dock-chip` 节点。
+> **移除清单**：`spawnCollapseImpact` / `collapseRingsOf` / `ringPool` / `RING_*` / `RAY_*` / `drawCollapse` / `drawStarRay` / `ringAlphaOf` / `spawnParticles` / `PARTICLE_LIFE` / `kind:'match'` —— MUST 全仓库零命中（MUST NOT 以注释 / 死代码 / `if (false)` 保留）。
+
+| 项 | 契约 |
+|---|---|
+| 四段时序（MUST） | 总长 **`210ms`**（域 `200~240`）：`0~70ms` 残影猛撞 → `70~130ms` 果冻挤压 + 纯白高光 → `130~210ms` 极速坍缩 + `#dock` 受击微震 → `210ms` 起弹簧阻尼补位。任一阶段 MUST NOT 缺席、MUST NOT 串序 |
+| `COLLAPSE_TOTAL_MS` | **`210`**（== CSS 关键帧总长 == `DOCK_FREEZE_MS`）。Δ30a 的 `220` 作废 |
+| `COLLAPSE_SHUDDER_AT_MS` | **`130`**（坍缩段起跑 == `#dock` 微震起点）。Δ30a 的 `COLLAPSE_RING_AT_MS = 140` 作废 |
+| `DOCK_FLIP_MS` | **`200`**（域 `180~240`），曲线 `cubic-bezier(.34,1.28,.64,1)`（欠阻尼，过冲 `~4%`，落在 `<= 6%` 槽宽窗口内）。Δ30a 的 `140` + 纯减速曲线作废 |
+| 位移载体（MUST） | 撞 / 压 / 闪 / 塌 MUST 只作用于 `.dock-chip` 的 `transform` / `filter` / `opacity`；`.slot` 槽框 MUST NOT 位移或改形（`border`/`padding`/`background`/`border-radius` 计算值逐项不变）；演出期三槽 `overflow: visible` |
+| 角色分派（MUST） | `data-collapse-role="center"`（中位槽）/ `"side"`（左右），由 `applyCollapseDom()` 按 `slotIndices` 排序后中位判定；**MUST NOT** 靠槽位序号在 JS 里逐帧改内联样式 |
+| 中心牌层级（MUST） | 参与演出的 `.slot` 设 `z-index`（中心 `3`、左右 `1`），收尾清回 `auto`。**MUST 设在 `.slot` 上而非 `.dock-chip`** —— `dock-seat` 动画期间 `.slot` 带 `transform` 会形成层叠上下文，`.dock-chip` 的 `z-index` 跨不了槽 |
+| 关键帧（MUST） | `chip-rush`（左右，`0~33.3%` 强初速收束 `cubic-bezier(.12,.72,.22,1)`，前 `30%` 时长完成 `>= 70%` 位移，末尾 `<= 2px` 压缩回弹）+ `chip-impact`（中心，`33.3~45.2%` 挤压 `scale(0.92,1.08)` → `45.2~54.8%` 回弹至 `1.32` → `61.9~100%` 加速坍缩 `cubic-bezier(.55,0,.85,.35)`）。**`slot-shatter` MUST 已不存在** |
+| 纯白高光（MUST） | `brightness 1.8~2.4×` + `.dock-chip::after` 白色覆盖层（`opacity` 峰值 `0.55~0.80`）；两者同帧达峰（误差 `<= 1` 帧）；峰值图案与底色对比 `>= 20%`；`130ms` 前回落 `<= 1.15×` / `<= 0.15`。**MUST NOT 只用 `filter: brightness()` 顶替** |
+| `#dock` 微震（MUST） | `dock-hit` 关键帧，**仅纵向** `2.0px`、`1.5~2` 来回、`<= 90ms`；`animationend` 摘类（MUST NOT 用 `setTimeout` 摘）。幅度 MUST NOT `> 2.5px`（否则须重定 `flight-smoke` 落定容差）；MUST NOT 复用 `shakeBoard` |
+| 延迟销毁（MUST） | `match` 瞬间 MUST NOT 出现空槽帧——`0~210ms` 内由 `dockGhost` 提供三张完整卡面。**这是视觉契约而非数据契约**：引擎 `applyTap` 原子结算，三张牌在 `match` 前已移出 `state.dock` |
+| `dockGhost` 并发（MUST） | 形态保持 `{ map: { slotIndex: { suit, gid, dx } } }` + `groupEndAt{gid → ts}`；`210ms` 窗口内第二次三消 MUST NOT 覆盖第一组；只影响 `renderDock()` 的 HTML，不写回 session、不参与判定、换关 / 重置 / Undo 清空 |
+| 补位（MUST） | 解除冻结时一次性重建 + FLIP；`abs(Δx)` 单调收敛至 `<= 0.5px`、无残余振荡帧；MUST NOT 瞬跳、MUST NOT 出现「空槽闪一下再填上」；补位与 ghost 清理 MUST 同帧完成 |
+| 降级（MUST） | `prefers-reduced-motion: reduce` → 零滑行 / 零挤压 / 零回弹 / 零震动，只留「原位闪白 + 直接缩至 `0`」；**四段时序与 `210ms` 总时长 MUST 不变** |
+| VFX 层清屏（MUST，守卫改键） | `vfxLive` MUST 改为 `flights.length > 0`（两池删除后若仍读 `collapseRings` / `particles`，守卫恒 `false` → Δ28d「末帧冻结」在离场飞行段复活）；由「有」转「空」的那一帧 MUST 强制 `dirty = true` 补一次 `drawVfx()` 清屏 |
+
 
 > **Δ30a 整体下线**：`STM.spawnDockShatter` / `vfxShardsOf()` / `vfxFlashInfo()` / `ShardAtlas` /
 > `rendererTest.DOCK_SHARDS` / `SHARD_*` 常量 / `vfxShards` 池 / 抛物线物理 / 爆心辉光 / 挤压闪白前摇
@@ -176,6 +202,27 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 | 清理 | `loadLevel` / `onDebugResetDown` / `reviveWithPrisms` 三处 MUST 调 `resetPeakBanner()`（清计时器 + 清 `innerHTML` + 移除 `show/hide/instant`）；同一次开局会话内 `bannerShownForLevel === currentId` 去重 |
 | 降级 | `prefers-reduced-motion: reduce` → 静态半透明条 + 一次性淡出（零流光扫掠 / 零头像浮动），时长与可打断语义不变 |
 | 调试探针 | `STM.main.peakBannerState()` 返回 `{ shown, levelId, hue, text }`；`peakTiming` 暴露 `SHOW_MS / DISMISS_MS / FADE_MS` 供 `render-selftest` 断言 |
+
+
+### 4.4 开局进场契约（Δ31b / FR-052 §14~§16，**取代 Δ22~Δ30b 的 15 种编舞**）
+
+> **单一模式**：`INTRO_MODES`（15 种）/ `introSpecOf()` / `introBudgetOf()` / `pickIntroMode()` / `dealModeLock*` / `INTRO_WAVE_*` / `INTRO_LEAD_MS` / `INTRO_STAGGER_MS` / `INTRO_ALPHA0` / `wipe` **全部移除**（MUST NOT 以注释 / 死代码 / `if (false)` 保留）；调试面板 `#debug-intro` 一并下线，MUST NOT 保留「只剩模式 0」的下拉。
+
+| 项 | 契约 |
+|---|---|
+| `startDeal()` | 只置 `introAnim = { armed: true, startTime: null, active: true }` + `markDirty()`；**MUST NOT 在此记 `startTime`**；无 `modeIdx` 参数语义（传多余参数 MUST 静默忽略） |
+| 帧闸门（MUST） | `frame(now)` 内、`draw()` **成功之后**累加 `introGateFrames`；达到 `INTRO_GATE_FRAMES = 2` 时把**该帧 rAF 时间戳**写入 `startTime` 并清 `armed`。`draw()` 抛异常的那帧 MUST NOT 计入。时间源 MUST 只用 rAF 时间戳（MUST NOT 混 `performance.now()` / `Date.now()`） |
+| `introTransformOf()` 起点语义（MUST） | `el <= 0` MUST 返回**起始姿态** `{ dx: 0, dy: +10~14px, sx = sy ∈ [0.55,0.70], alpha: 1.0 }`（已完整布局、尚未弹起）；**MUST NOT 返回 `alpha: 0`**（那是首帧留白的成因） |
+| 四个权威常量 | `TILE = 120ms`（域 `110~140`）、`Z_STEP ∈ [6,12]ms`（恒正）、`TARGET = 415ms`、`DIAG_STEP = clamp(14, 48, (TARGET − TILE − Z_STEP × zMax) / (rMax + cMax))` |
+| 排程（MUST） | `delay = (r + c) × DIAG_STEP + z × Z_STEP`；`r`/`c` MUST 取**逻辑网格坐标**（半格错位的 `+0.5` 先 `Math.floor` 归一再相加）。同 `(r,c)` 的层序锁由 `z × Z_STEP` **自然满足**，MUST NOT 再写一遍排序 |
+| 总时长（MUST） | `total = maxDelay + TILE`，落 `380~450ms`；四档（`n=8/zMax=4`、`7/3`、`6/2`、`4/0`）实测 `415/415/415/408ms`，极差 `<= 40ms`；MUST NOT 随牌数线性增长、MUST NOT 硬编码为固定常量 |
+| 位移（MUST） | `abs(dx) = 0`（硬断言，任何横向分量即回归）；唯一位移是 `10~14px` 垂直微落，单调收敛到 `0` |
+| 缩放（MUST） | `0.55~0.70× → 1.04~1.06× → 1.00×`；超调 `<= 6%`；末段 MUST NOT 二次回弹；落定后 `abs(Δx)`/`|Δy| <= 0.5px` 并走静态精确路径（返回 `null`） |
+| 锚点与插值（MUST） | 中心锚点由 `drawTileBody()` 的 `x = px - w/2; y = py - h/2` 保证（等价 `transform-origin: 50% 50%`）；MUST NOT 引入 `ctx.scale`；`px`/`py` 全程浮点（MUST NOT `Math.round` / `Math.trunc` 一类的整数截断） |
+| 透明度（MUST） | `alpha` 恒 `1.0`；MUST NOT 淡入 |
+| 点击快进（MUST） | 任意时点（含 `armed` 期间）点击 MUST 立即归位至 `100%` 且该次点击 MUST 被正常响应；`skipDeal()` MUST 同时清 `armed`，MUST NOT 留悬挂状态 |
+| 导出（MUST 同源） | `STM.rendererTest` 导出 `{ TILE_MS, Z_STEP_MS, DIAG_STEP_MS, TARGET_MS, TICK_AT }`，与实现逐项相等（不同步 = 门禁断言假绿） |
+| 降级 | `prefers-reduced-motion: reduce` → 一次性淡入（零位移 / 零缩放），**总时长仍 `380~450ms`** |
 
 
 ## 5. SoundManager（`STM.createSoundManager(opts)`）

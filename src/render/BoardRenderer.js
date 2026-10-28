@@ -34,14 +34,10 @@
 
   var STM = global.STM = global.STM || {};
   var lastRendererApi = null;
-  /* Δ22c/T112: 编舞「上一次抽取结果」与「调试锁定」都是**会话级**状态——
-   * 每次 loadLevel 都会重建 renderer 实例，若放在实例作用域内，
-   * 换关后「相邻两次不重复」与「评委锁定」都会失效。故提升到模块作用域。 */
-  var introLastModeGlobal = -1;
-  var dealModeLockGlobal = null;
-  /* Δ30b: 开局编舞是否正在进行（模块作用域——供 main.js 的闸门读）
-   * 拿不到实例状态）。碎块图集键控是 150~250ms 的同步重活，若正好落在编舞窗口里，
-   * 落子动画会整段卡住（用户实测「落子很慢而且很卡」）。键控发现编舞在跑就推迟。 */
+  /* Δ31b / FR-052 §14.1: 15 种编舞模式与「相邻不重复抽取 / 调试锁定」两个会话级
+   * 状态**整段下线**——开局只剩唯一模式「原位对角波浪层叠弹入」，
+   * 「上一次抽取结果」与「调试锁定」两个会话级变量随之退役——开局只剩唯一模式，
+   * 保留旧名会误导后续维护者（Δ30 的同类教训：常量退役但留旧名 → 语义误导）。 */
   var RE = STM.RulesEngine;
   var Bestiary = STM.Bestiary; /* Δ14: 装载序保证先于 BoardRenderer */
 
@@ -625,7 +621,6 @@
   var BLOCK_MS = 180;      /* 受阻原地微震 */
   var REVEAL_MS = 380;     /* Δ7 次顶层暴露上浮 */
   var REVEAL_DELAY = 180;  /* Δ7 上浮延迟（等飞出滑块让位） */
-  var PARTICLE_LIFE = 600; /* 三消粒子 */
   var GAP = 1;               /* T081: 同层零缝隙紧凑排布——相邻滑块间距 1px */
 /* Δ27a / FR-053: 卡牌点击方向性飞行轨迹（纯表现层）
  *   U（朝上）    —— 单段直飞入槽，<= 240ms
@@ -980,255 +975,66 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
 
 
   /* =========================================================
-   * Δ22c / FR-052：15 种开局卡牌进场编舞（纯运动学表现层）
+   * Δ31b / FR-052 §14：开局「原位对角波浪层叠弹入」（纯运动学表现层）
    *
-   * 时序（ms，自 startDeal 起算）——Δ27b §10 起改为**按牌数自适应**：
-   *   0 ~ 180              纯背景留白——全盘 alpha=0，仅透出关卡风景底图
-   *   180 ~ 180+spread     逐牌错峰起点（spread = max(260, (N-1)×12)）
-   *   + z × 55             层高补偿（**恒正**——永远先落底层、后落顶层）
-   *   + 260                单卡持续时长
+   * 唯一模式，唯一公式：
+   *   delay = (floor(rr) + floor(cc)) × DIAG_STEP + z × Z_STEP
+   *   total = (rMax + cMax) × DIAG_STEP + zMax × Z_STEP + TILE
    *
-   *   total = 180 + max(260, (N-1)×12) + 260 + 55×zMax
-   *   实测：L1(N=18,z=0)=700ms / L46(N=84,z=2)=1546ms / L33(N=141,z=4)=2340ms
-   *
-   * Δ27b §9 为什么必须逐牌错峰（而不是固定 340ms 展开期）：
-   *   旧式 delay = LEAD + ord×340 + z×55 在满载盘（N=141）下单帧在途
-   *   ≈ 141×260/340 ≈ 108 张 —— 这就是用户报告的「一大坨同时砸下来」。
-   *   改为「按编舞序 rank 均匀错峰、步长 >= 12ms」后单帧在途恒 <= 22 张
-   *   （260/12 ≈ 21.7），逐张可辨。
-   *
-   * 安全不变量（MUST）：
-   *   ① 绘制顺序 100% 复用静态层同一比较器
-   *      (a.z-b.z)||(a.r-b.r)||(a.c-b.c)——本模块**只产生每张牌的
-   *      位移/缩放/透明度**，绝不重排、绝不改 tile 属性；
-   *   ② 动画结束后 introTransformOf 返回 null → 走静态路径，
-   *      卡牌 100% 精确落在 getTileCssRect 给出的标准网格坐标；
-   *   ③ 编舞期间不触发任何 Solver / 关卡生成 / 持久化写入。
-   * ========================================================= */
-  /* Δ30b / FR-052 §10: 开局编舞预算（零延迟 + 与牌数无关的 360~420ms）
-   *
-   * 旧口径 `120 + max(180,(N-1)×9) + 180 + 55×zMax` 与牌数强相关：
-   * L1 480ms / L46 1157ms / L33 1780ms，且 `55ms × z` 在 4 层时独占 220ms。
-   * 新口径把「逐张错峰」换成「波次齐滑」——W 个波次（6~12）同起同落，
-   * 波间步长由预算反算，于是总时长恒落 390ms（360~420 窗口内）：
-   *
-   *   total = (W − 1) × WAVE_STEP + TILE + zStep × zMax
+   * 为什么只剩这一条：Δ30b 的 15 种波次编舞（模式名单 / 逐模式位移表 /
+   * 波次预算 / 随机抽取 / 波次切块排程）被用户实机判定「跨屏乱飞 +
+   * 开局掉帧」→ **整段下线**，MUST NOT 留注释块 / if (false) / 未调用函数。
    *
    * 三处硬边界：
-   *   · WAVE_STEP >= 14ms（波与波之间可辨；低于此值等于同时落）
-   *   · zStep ∈ [8, 24]（同坐标「先底后上」的节拍。零穿模仍由 draw() 的
-   *     (z,r,c) 比较器保证，zStep 只负责观感先后——MUST NOT 把防穿模责任
-   *     转移给时间轴）
-   *   · TILE ∈ [120, 160]（单卡行进时长；140 时末段强减速读作「硬停」）
+   *   · TILE ∈ [110, 140]（单卡弹起持续时长；再短即读作「闪一下」）
+   *   · Z_STEP ∈ [6, 12]（同坐标「先底后上」的节拍，恒正 → 层序锁自然成立）
+   *   · DIAG_STEP ∈ [14, 48]（相邻对角线起跑间隔；低于 14 即读作「同时落」）
    *
-   * ⚠ `INTRO_STAGGER_MS` / `INTRO_SPREAD_MIN_MS` 随「逐牌步长」语义**退役**
-   *   （保留旧名会误导后续维护者）；`INTRO_Z_STEP_MS` 由固定 55 改为预算派生。 */
-  var INTRO_LEAD_MS = 0;            /* Δ30b: 取消留白——切入关卡首帧立即起跑 */
-  var INTRO_TILE_MS = 140;          /* 单卡进场持续时长（120~160 窗口） */
-  var INTRO_WAVE_MIN = 6;           /* 波次下限 */
-  var INTRO_WAVE_MAX = 12;          /* 波次上限 */
-  var INTRO_WAVE_TILES = 12;        /* 每波目标张数（W = ceil(N / 本值) 后夹到上下限） */
-  var INTRO_WAVE_STEP_MIN = 14;     /* 波间步长硬下限 */
-  var INTRO_TARGET_MS = 390;        /* 预算目标（360~420 窗口中心） */
-  var INTRO_Z_STEP_MIN = 8;         /* 层节拍下限（原固定 55 已废） */
-  var INTRO_Z_STEP_MAX = 24;        /* 层节拍上限 */
-  var INTRO_REF_CELL = 44;          /* 纯函数默认格宽（离线断言用；运行时由 layout 给出） */
-  var INTRO_DISP_MAX_CELL = 1.4;    /* 单卡初始位移上限（格宽） */
-  var INTRO_DISP_MIN_CELL = 0.3;    /* 有位移模式的位移下限（格宽） */
-  var INTRO_TICK_AT = 0.85;         /* 落盘定格瞬间 → 落牌涟漪音 */
-  var INTRO_ALPHA0 = 0.62;        /* Δ27b §8 入场起点透明度（>= 0.55——不再从 0 起跳发灰） */
-  var INTRO_ALPHA_MIN_SAFE = 0.55;/* 起点透明度硬下限（FR-052 §8） */
-  var INTRO_ALPHA_FULL_AT = 0.35; /* 入场进度 35% 内 alpha 必须达到 1.0 */
-  var INTRO_SCALE_MAX = 1.15;     /* 等比放大上限（超出即令 256² 切片上采样发虚） */
-  var INTRO_SCALE_MIN = 0.2;      /* 等比缩小起点下限 */
-  var INTRO_NONUNI_MIN = 0.55;    /* 非等比压缩较小轴下限（低于此值图案即「糊」） */
-  /* =========================================================
-   * Δ30a / FR-049 §18 ⑤: 三消坍缩光环常量（#vfx-canvas 层，与卡牌形变错峰接力）
+   * 零穿模的唯一保证仍是 draw() 的 (z,r,c) 比较器——Z_STEP 只负责观感先后，
+   * MUST NOT 把防穿模责任转移给时间轴。
    *
-   * 时序锚点：光环起始帧 == 坍缩段首帧（140ms），全部在 220ms 前归零——
-   * SC-025 ④ 要求「220ms + 1 帧后画布 alpha > 2 的像素数 = 0」。
-   * 零掉落物：只画同心圆环与四角星芒，MUST NOT 出现任何 y 持续增大的绘制物。
+   * ⚠ 半格错位归一（最容易漏的一处）：奇数层卡牌的**视觉**坐标带 +0.5
+   *   （tileGridOf 的 rr/cc），直接相加会让奇偶层差出 DIAG_STEP / 2 的隐性
+   *   错位 → MUST 先 Math.floor 归一到逻辑整数格再相加。
    * ========================================================= */
-  var RING_TOTAL_MS = 220;          /* 与 CSS slot-shatter 总时长一致（对账用） */
-  var RING_START_MS = 140;          /* 光环起跑 == 坍缩段首帧 */
-  var RING_OUTER_LIFE = 80;         /* 外环 140 → 220ms */
-  var RING_INNER_STAGGER = 32;      /* 双环错峰（SC-025 ⑤ 要求 30~50ms） */
-  var RING_INNER_LIFE = 48;         /* 内环 172 → 220ms */
-  var RING_LW0 = 2.5;               /* 起始线宽（1.5~2.5px 窗口上界） */
-  var RING_LW1 = 1.5;               /* 结束线宽（收细 → 读作「散开变薄」） */
-  var RING_R0_RATIO = 0.45;         /* 起始半径 = 0.45 × 槽宽 */
-  var RING_OUTER_R1 = 2.0;          /* 外环终点 = 2.0 × 槽宽（1.6~2.2 窗口） */
-  var RING_INNER_R1 = 1.6;          /* 内环终点 = 1.6 × 槽宽 */
-  var RING_COLOR_OUTER = '#FFFFFF';
-  var RING_COLOR_INNER = 'hsl(205, 90%, 72%)';
-  var RAY_MIN = 4;                  /* 星芒枚数（4~8） */
-  var RAY_MAX = 8;
-  var RAY_SIZE_MIN = 3;             /* 半长 3~7px → 全幅 6~14px */
-  var RAY_SIZE_MAX = 7;
-  var RAY_INNER_RATIO = 0.19;       /* 四角星内凹半径比（越小越尖） */
-  var RAY_START_MS = 16;            /* 星芒相对坍缩首帧的起跑偏移 */
-  var RAY_LIFE_MS = 64;             /* 140 + 16 → 220ms */
-  var INTRO_MODES = [
-    'diagonal_cascade', 'center_ripple', 'outer_converge', 'spiral_vortex',
-    'wings_clasp', 'sky_rain', 'layer_stack', 'zipper_interleave',
-    'windmill_quadrants', 'v_formation', 'checkerboard_weave', 'blinds_flip',
-    'deck_deal', 'tailwind_glide', 'starlight_scatter'
-  ];
+  var INTRO_TILE_MS = 120;          /* 单卡弹起持续时长（110~140 窗口） */
+  var INTRO_DIAG_STEP_MIN = 14;     /* 相邻对角线起跑间隔下限 */
+  var INTRO_DIAG_STEP_MAX = 48;     /* 相邻对角线起跑间隔上限 */
+  var INTRO_Z_STEP_MS = 8;          /* 同坐标层节拍（6~12 窗口，恒正） */
+  var INTRO_TARGET_MS = 415;        /* 预算目标（380~450 窗口中心） */
+  var INTRO_TICK_AT = 0.85;         /* 落定瞬间 → 落牌涟漪音 */
+  var INTRO_GATE_FRAMES = 2;        /* 首帧帧闸门：先数 2 个已绘制帧再记 t0 */
+  var INTRO_S0 = 0.62;              /* 起始等比缩放（0.55~0.70 窗口） */
+  var INTRO_OVERSHOOT = 1.05;       /* 缩放峰值（1.04~1.06，超调 <= 6%） */
+  var INTRO_PEAK_AT = 0.72;         /* 峰值进度（此后单调回落 1.00，零二次回弹） */
+  var INTRO_DY0 = 12;               /* 唯一位移：起始下移 12px（10~14 窗口） */
 
   function introEaseOutCubic(p) { return 1 - Math.pow(1 - p, 3); }
-  function introEaseOutQuart(p) { return 1 - Math.pow(1 - p, 4); }
-  /* Δ30b / FR-052 §11: 只保留「强减速硬停」两支曲线。
-   * `back` / `elastic` 类过冲曲线**已整体废除**——回弹会让末段出现反向位移，
-   * 既破坏「定格感」，也与 SC-026 ④「末段 10% 位移 <= 2%」互斥。 */
-  function introEase(kind, p) {
-    if (p <= 0) return 0;
-    if (kind === 'quart') return introEaseOutQuart(p);
-    return introEaseOutCubic(p);
-  }
 
-  /* 距棋盘中心的归一化欧氏距离（0=正中，1=四角） */
-  function introDist01(r, c, n) {
-    var h = (n - 1) / 2;
-    var dx = c - h, dy = r - h;
-    var d = Math.sqrt(dx * dx + dy * dy);
-    var dmax = Math.sqrt(h * h + h * h) || 1;
-    return { d: Math.max(0, Math.min(1, d / dmax)), dx: dx, dy: dy, len: d };
-  }
-
-  /* =========================================================
-   * 波次预算（纯函数——离线可断言；`introDealTotalMs` 与排程共用同一份）
-   * ========================================================= */
-  function introWaveCount(n) {
-    var cnt = n > 0 ? n : 1;
-    var w = Math.ceil(cnt / INTRO_WAVE_TILES);
-    var cap = Math.floor(cnt / 3);   /* 每波至少 3 张——波内同起同落才有「一组」的观感 */
-    if (cap < 1) cap = 1;
-    if (w > cap) w = cap;
-    if (w < INTRO_WAVE_MIN) w = INTRO_WAVE_MIN;
-    if (w > INTRO_WAVE_MAX) w = INTRO_WAVE_MAX;
-    if (w < 1) w = 1;
-    return w;
-  }
-
-  function introBudgetOf(n, zMax) {
-    var cnt = n > 0 ? n : 1;
+  /* DIAG_STEP 按**本关实际**盘面反算（n = 棋盘边长 / zMax = 最大层高） */
+  function introDiagStepOf(n, zMax) {
+    var span = 2 * Math.max(0, (n > 0 ? n : 1) - 1);
     var zz = zMax > 0 ? zMax : 0;
-    var W = introWaveCount(cnt);
-    /* 层节拍预算 = 目标时长 − 单卡时长 − 波间最低消耗 */
-    var roomForZ = INTRO_TARGET_MS - INTRO_TILE_MS - INTRO_WAVE_STEP_MIN * (W - 1);
-    if (roomForZ < 0) roomForZ = 0;
-    var zStep = zz > 0 ? Math.floor(roomForZ / zz) : 0;
-    if (zStep > INTRO_Z_STEP_MAX) zStep = INTRO_Z_STEP_MAX;
-    if (zz > 0 && zStep < INTRO_Z_STEP_MIN) zStep = INTRO_Z_STEP_MIN;
-    var zTotal = zStep * zz;
-    var waveStep = W > 1 ? (INTRO_TARGET_MS - INTRO_TILE_MS - zTotal) / (W - 1) : 0;
-    if (waveStep < INTRO_WAVE_STEP_MIN) waveStep = INTRO_WAVE_STEP_MIN;
-    return {
-      waves: W, zStep: zStep, zTotal: zTotal, waveStep: waveStep,
-      totalMs: (W - 1) * waveStep + INTRO_TILE_MS + zTotal
-    };
+    if (span <= 0) return INTRO_DIAG_STEP_MAX;
+    var raw = (INTRO_TARGET_MS - INTRO_TILE_MS - INTRO_Z_STEP_MS * zz) / span;
+    if (raw < INTRO_DIAG_STEP_MIN) raw = INTRO_DIAG_STEP_MIN;
+    if (raw > INTRO_DIAG_STEP_MAX) raw = INTRO_DIAG_STEP_MAX;
+    return raw;
   }
 
-  /* =========================================================
-   * introSchedule —— 波次排程的**纯函数**（Δ30b / FR-052 §9）
-   *
-   *   entries : [{ z, key }]，数组顺序 = 编舞序（buildIntroPlan 的 ord 排序结果）
-   *   zMax    : 棋盘最大层高
-   *   → { list: [{ idx, z, delay, wave }], waves, waveStep, zStep, totalMs }
-   *
-   * 三条不变量：
-   *   ① 波次切分**层带优先**——同层内再按编舞序切成空间连续的块，于是同一
-   *      `(r,c)` 的层叠牌必然落在不同波次且低层在前（层序锁：同坐标高层
-   *      起跑恒晚 `zStep × Δz`，倒序输入也不穿模）；
-   *   ② 波内 `delay` **完全相同**（同起同落），波间恒差 `waveStep >= 14ms`；
-   *   ③ `delay = wave × waveStep + z × zStep` → 末波 + 最高层恰为
-   *      `(W−1)×waveStep + zMax×zStep`，与 `introDealTotalMs` 公式逐字对齐。
-   *
-   * ⚠ **Δ27b 的「逐张可辨」两条不变量（步长 >= 9ms / 在途 <= 22）作废**：
-   *   141 张保持 9ms 步长需 ≈1440ms，与 420ms 预算算术互斥。零穿模的唯一
-   *   保证是 `draw()` 的 (z,r,c) 比较器，zStep 只负责「先底后上」的节拍。
-   * ========================================================= */
-  function introSchedule(entries, zMax) {
-    var src = entries || [];
-    var cnt = src.length;
+  /* 权威时长公式（纯函数——可离线断言；buildIntroPlan 与 main.js 闸门同源） */
+  function introDealTotalMs(n, zMax) {
+    var span = 2 * Math.max(0, (n > 0 ? n : 1) - 1);
     var zz = zMax > 0 ? zMax : 0;
-    var b = introBudgetOf(cnt, zz);
-    var W = b.waves;
-    var i, k;
+    return span * introDiagStepOf(n, zz) + zz * INTRO_Z_STEP_MS + INTRO_TILE_MS;
+  }
 
-    if (!cnt) {
-      return { list: [], waves: 0, waveStep: b.waveStep, zStep: b.zStep,
-        zTotal: b.zTotal, totalMs: b.totalMs };
-    }
-
-    /* ① 按层带分组（保持编舞序；z 升序） */
-    var layerZ = [];
-    var layerIdx = {};
-    for (i = 0; i < cnt; i++) {
-      var lz = src[i].z || 0;
-      if (!layerIdx[lz]) { layerIdx[lz] = []; layerZ.push(lz); }
-      layerIdx[lz].push(i);
-    }
-    layerZ.sort(function (a, c2) { return a - c2; });
-
-    /* ② 波次配额：按层内张数比例分配，每层至少 1 波，且不超过该层张数 */
-    var quota = [];
-    var sum = 0;
-    for (k = 0; k < layerZ.length; k++) {
-      var cN = layerIdx[layerZ[k]].length;
-      var q = Math.round(W * cN / cnt);
-      if (q < 1) q = 1;
-      if (q > cN) q = cN;
-      quota.push(q);
-      sum += q;
-    }
-    var guard = 0;
-    while (sum > W && guard++ < 400) {
-      var big = -1, bigQ = 1;
-      for (k = 0; k < quota.length; k++) if (quota[k] > bigQ) { bigQ = quota[k]; big = k; }
-      if (big < 0) break;
-      quota[big]--; sum--;
-    }
-    guard = 0;
-    while (sum < W && guard++ < 400) {
-      var best = -1, bestR = -1;
-      for (k = 0; k < quota.length; k++) {
-        if (quota[k] >= layerIdx[layerZ[k]].length) continue;
-        var rr = layerIdx[layerZ[k]].length / quota[k];
-        if (rr > bestR) { bestR = rr; best = k; }
-      }
-      if (best < 0) break;
-      quota[best]++; sum++;
-    }
-
-    /* ③ 逐层切块 → 全局波次号（波内同起同落） */
-    var waveOf = new Array(cnt);
-    var wave = 0;
-    for (k = 0; k < layerZ.length; k++) {
-      var list = layerIdx[layerZ[k]];
-      var qn = quota[k];
-      var base = Math.floor(list.length / qn);
-      var rem = list.length - base * qn;
-      var cur = 0;
-      for (var j = 0; j < qn; j++) {
-        var size = base + (j < rem ? 1 : 0);
-        for (var m = 0; m < size; m++) waveOf[list[cur + m]] = wave;
-        cur += size;
-        wave++;
-      }
-    }
-
-    /* ④ 定延迟 */
-    var out = [];
-    for (i = 0; i < cnt; i++) {
-      var zi = src[i].z || 0;
-      out.push({ idx: i, z: zi, wave: waveOf[i], delay: waveOf[i] * b.waveStep + zi * b.zStep });
-    }
-    return {
-      list: out, waves: wave, waveStep: b.waveStep, zStep: b.zStep,
-      zTotal: b.zTotal,
-      totalMs: (wave > 0 ? (wave - 1) * b.waveStep : 0) + INTRO_TILE_MS + b.zTotal
-    };
+  /* 单卡起跑延迟（纯函数——对角波浪 + 层序锁的唯一来源） */
+  function introDelayOf(rr, cc, z, n, zMax) {
+    var dr = Math.floor(rr != null ? rr : 0);
+    var dc = Math.floor(cc != null ? cc : 0);
+    var dz = z > 0 ? z : 0;
+    return (dr + dc) * introDiagStepOf(n, zMax) + dz * INTRO_Z_STEP_MS;
   }
 
   /* =========================================================
@@ -1293,170 +1099,25 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     return 'board';
   }
 
-  /* =========================================================
-   * introSpecOf —— 15 种编舞的**纯函数**规格表（可离线断言）
-   *   mode   : 0..14
-   *   t      : 渲染探针 tile（需 r / c / z / d / id）
-   *   n      : 棋盘边长（格）
-   *   rank   : 该牌在 id 升序中的序号（deck_deal 发牌序）
-   *   total  : 卡牌总数
-   *   cellPx : 当前格宽（Δ30b 起位移一律按格宽给；缺省 INTRO_REF_CELL）
-   * 返回 { ord∈[0,1], ox, oy (px), oxc, oyc (格), sx, sy, a0, ease, wipe }
-   *
-   * Δ30b / FR-052 §11 两项改造：
-   *   ① **位移收窄到 0.3~1.4 格宽**——原 px 硬编码（wings_clasp ±120 /
-   *      sky_rain −90 / windmill ±90）在 n=8 盘面（cell ≈ 42px）已达
-   *      2.1~2.9 格，「短距快落」退化成「从屏幕外飞进来」。
-   *   ② **缓动统一 quart（强减速硬停）**——center_ripple / spiral_vortex /
-   *      sky_rain 原用 `back`（回弹过冲）已改 quart；全表零 back / elastic。
-   * ========================================================= */
-  function introSpecOf(mode, t, n, rank, total, cellPx) {
-    var r = t.r || 0, c = t.c || 0;
-    var nn = n > 1 ? n : 2;
-    var h = (nn - 1) / 2;
-    var z = t.z || 0;
-    var totalN = total > 1 ? total : 1;
-    var cd = introDist01(r, c, nn);
-    var cc = (cellPx > 0) ? cellPx : INTRO_REF_CELL;
-    var out = { ord: 0, ox: 0, oy: 0, oxc: 0, oyc: 0, sx: 1, sy: 1, a0: INTRO_ALPHA0, ease: 'cubic', wipe: false };
-
-    switch (mode) {
-      case 0: /* diagonal_cascade —— 对角瀑布流：左上 → 右下斜向波浪落下 */
-        out.ord = (r + c) / (2 * (nn - 1));
-        out.oy = -0.9 * cc;
-        break;
-      case 1: /* center_ripple —— 中心涟漪绽放：由近及远弹出（quart 硬停） */
-        out.ord = cd.d;
-        out.sx = out.sy = INTRO_SCALE_MIN; /* 0.2 起（等比，不受非等比下限约束） */
-        out.ease = 'quart';
-        break;
-      case 2: /* outer_converge —— 外环聚拢：由远及近，自外 1.1 格向内滑入 */
-        out.ord = 1 - cd.d;
-        if (cd.len > 0.0001) {
-          out.ox = (cd.dx / cd.len) * 1.1 * cc;
-          out.oy = (cd.dy / cd.len) * 1.1 * cc;
-        }
-        break;
-      case 3: { /* spiral_vortex —— 螺旋星璇：极角 + 半径构成螺旋序依次弹入 */
-        var ang = Math.atan2(cd.dy, cd.dx);
-        var an = ((ang + Math.PI / 2) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) / (Math.PI * 2);
-        out.ord = 0.62 * an + 0.38 * cd.d;
-        var amp = 0.9 * cc * (0.45 + 0.55 * cd.d);
-        out.ox = Math.cos(ang - 0.9) * amp;
-        out.oy = Math.sin(ang - 0.9) * amp;
-        out.sx = out.sy = 0.55;
-        out.ease = 'quart';
-        break;
-      }
-      case 4: /* wings_clasp —— 双翼合拢：左半自左、右半自右，中央最后咬合 */
-        out.ord = 0.85 * (1 - Math.abs(c - h) / (h || 1)) + 0.15 * (r / (nn - 1));
-        out.ox = (c < nn / 2 ? -1.2 : 1.2) * cc;
-        break;
-      case 5: /* sky_rain —— 天降甘霖：列/行错落，自 −1.2 格硬停落下 */
-        out.ord = 0.45 * (c / (nn - 1)) + 0.55 * (r / (nn - 1));
-        out.oy = -1.2 * cc;
-        out.ease = 'quart';
-        break;
-      case 6: /* layer_stack —— 层峦叠嶂：按 z 整层分批自上方放大压下 */
-        out.ord = (z + (r + c) / (2 * (nn - 1))) / 5;
-        out.oy = -1.0 * cc;
-        out.sx = out.sy = 1.14;
-        out.ease = 'quart';
-        break;
-      case 7: /* zipper_interleave —— 交错拉链：偶数行自左、奇数行自右 */
-        out.ord = (r + 0.4 * (c / (nn - 1))) / (nn - 1 + 0.4);
-        out.ox = (r % 2 === 0 ? -1.2 : 1.2) * cc;
-        break;
-      case 8: { /* windmill_quadrants —— 风车四象限：TL/TR/BR/BL 四向切入 */
-        var q = (r < nn / 2) ? (c < nn / 2 ? 0 : 1) : (c < nn / 2 ? 3 : 2);
-        out.ord = q * 0.25 + cd.d * 0.25;
-        if (q === 0) out.ox = -1.2 * cc;
-        else if (q === 1) out.oy = -1.2 * cc;
-        else if (q === 2) out.ox = 1.2 * cc;
-        else out.oy = 1.2 * cc;
-        break;
-      }
-      case 9: /* v_formation —— V 字雁阵：r + |c - centerC| 呈 V 字波浪自上方 */
-        out.ord = (r + Math.abs(c - h)) / (nn - 1 + h);
-        out.oy = -1.2 * cc;
-        break;
-      case 10: /* checkerboard_weave —— 棋盘格交织：偶格前半拍、奇格后半拍 */
-        out.ord = ((r + c) % 2 === 0)
-          ? (r / (nn - 1)) * 0.45
-          : 0.5 + (r / (nn - 1)) * 0.45;
-        out.oy = -0.8 * cc;
-        out.sx = out.sy = 0.7;
-        break;
-      case 11: /* blinds_flip —— 百叶窗揭示：按列从左到右**遮罩逐帧变宽**
-       * Δ27b §8: 旧式 scaleX 0.05 属非等比几何压缩，图案被压到原宽 5% 时
-       * 已严重变形（观感即「糊」），且 min(sx,sy)=0.05 < 0.55 违反下限。
-       * 现改为等尺寸 + 水平裁切揭示：牌体始终 1:1 绘制，只裁可见宽度。 */
-        out.ord = c / (nn - 1);
-        out.wipe = true;
-        break;
-      case 12: /* deck_deal —— 中心发牌式：起点=棋盘正中附近，按 id 序飞散铺开
-       * Δ30b: 格数制位移按 0.28 缩放——n=8 时最远角距离 4.95 格 → 1.39 格，
-       * 落进 1.4 格上限内（原口径等于「整盘横穿」）。 */
-        out.ord = rank / (totalN - 1);
-        out.oxc = (h - c) * 0.28;
-        out.oyc = (h - r) * 0.28;
-        out.sx = out.sy = 0.55;
-        out.ease = 'quart';
-        break;
-      case 13: /* tailwind_glide —— 顺风滑入：沿自身箭头 d 的后方滑入 */
-        out.ord = (r + c) / (2 * (nn - 1));
-        if (t.d === 1) out.ox = -1.1 * cc;        /* 朝右 R → 自左侧滑入 */
-        else if (t.d === 3) out.ox = 1.1 * cc;    /* 朝左 L → 自右侧滑入 */
-        else if (t.d === 0) out.oy = 1.1 * cc;    /* 朝上 U → 自下方滑入 */
-        else out.oy = -1.1 * cc;                  /* 朝下 D → 自上方滑入 */
-        break;
-      case 14: /* starlight_scatter —— 星雨点亮：伪随机均匀散点缩放点亮 */
-        out.ord = (((t.id || 0) * 7 + 3) % totalN) / (totalN - 1);
-        out.sx = out.sy = 0.35;
-        break;
-      default:
-        out.ord = (r + c) / (2 * (nn - 1));
-        out.oy = -0.9 * cc;
-        break;
+  /* 单卡在进度 p 处的姿态（纯函数——门禁可离线断言曲线形状，与运行时同源）
+   *   缩放：S0(0.62) --easeOutCubic--> 峰值 1.05（p = 0.72）--easeOutCubic--> 1.00
+   *   位移：dy = DY0 × (1 − easeOutCubic(p))，单调收敛到 0；dx 恒 0（原位）
+   *   透明度：恒 1.0（MUST NOT 淡入——淡入会把「弹起」读成「浮现」） */
+  function introPoseOf(p) {
+    var q = clamp01(p);
+    var s;
+    if (q <= INTRO_PEAK_AT) {
+      s = INTRO_S0 + (INTRO_OVERSHOOT - INTRO_S0) * introEaseOutCubic(q / INTRO_PEAK_AT);
+    } else {
+      s = INTRO_OVERSHOOT - (INTRO_OVERSHOOT - 1) *
+        introEaseOutCubic((q - INTRO_PEAK_AT) / (1 - INTRO_PEAK_AT));
     }
-    if (!isFinite(out.ord)) out.ord = 0;
-    if (out.ord < 0) out.ord = 0;
-    if (out.ord > 1) out.ord = 1;
-    /* Δ27b §8 清晰度硬边界（纯函数层收口，杜绝任何模式越界）：
-     *   ① 等比放大 <= 1.15（超出即令 256² 图标切片上采样发虚）
-     *   ② 等比缩小起点 >= 0.2
-     *   ③ 非等比压缩较小轴 >= 0.55（低于此值图案严重变形）
-     *   ④ 起点透明度 >= 0.55（不从 0 起跳） */
-    if (!(out.sx > 0)) out.sx = 1;
-    if (!(out.sy > 0)) out.sy = 1;
-    if (out.sx > INTRO_SCALE_MAX) out.sx = INTRO_SCALE_MAX;
-    if (out.sy > INTRO_SCALE_MAX) out.sy = INTRO_SCALE_MAX;
-    if (out.sx < INTRO_SCALE_MIN) out.sx = INTRO_SCALE_MIN;
-    if (out.sy < INTRO_SCALE_MIN) out.sy = INTRO_SCALE_MIN;
-    var nonUni = Math.abs(out.sx - out.sy) > 0.1;
-    if (nonUni) {
-      if (out.sx < INTRO_NONUNI_MIN) out.sx = INTRO_NONUNI_MIN;
-      if (out.sy < INTRO_NONUNI_MIN) out.sy = INTRO_NONUNI_MIN;
-    }
-    if (!(out.a0 >= INTRO_ALPHA_MIN_SAFE)) out.a0 = INTRO_ALPHA_MIN_SAFE;
-    /* Δ30b / SC-026 ④: 位移归一（两种表达合并判定）
-     *   · 上限 1.4 格宽（硬）——超出即等比压回
-     *   · 有位移的模式下限 0.3 格宽——低于即等比拉开（位移为 0 的纯缩放/遮罩
-     *     模式不参与下限，如 center_ripple / blinds_flip / starlight_scatter） */
-    var dxPx = out.ox + out.oxc * cc;
-    var dyPx = out.oy + out.oyc * cc;
-    var disp = Math.sqrt(dxPx * dxPx + dyPx * dyPx);
-    var maxD = INTRO_DISP_MAX_CELL * cc;
-    if (disp > maxD && disp > 0) {
-      var kMax = maxD / disp;
-      out.ox *= kMax; out.oy *= kMax; out.oxc *= kMax; out.oyc *= kMax;
-      disp = maxD;
-    }
-    if (disp > 0 && disp < INTRO_DISP_MIN_CELL * cc) {
-      var kMin = (INTRO_DISP_MIN_CELL * cc) / disp;
-      out.ox *= kMin; out.oy *= kMin; out.oxc *= kMin; out.oyc *= kMin;
-    }
-    return out;
+    return {
+      sx: s, sy: s,
+      dy: INTRO_DY0 * (1 - introEaseOutCubic(q)),
+      dx: 0,
+      alpha: 1
+    };
   }
 
   /* =========================================================
@@ -1490,15 +1151,16 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     var dirty = true;
     var running = false;
     var rafId = 0;
-    var anims = [];        /* {kind:'fly'|'block'|'match'|'reveal', tileId, ...} */
-    var particles = [];
-    /* Δ30a: 三消坍缩光环池——双环 + 四角星芒（**零掉落物**）。
-     * `ringPool` 持有空闲记录、`collapseRings` 数组本体**不重建**
-     * （MUST NOT 每次三消新建对象数组）。 */
-    var collapseRings = [];
-    var ringPool = [];
+    var anims = [];        /* {kind:'block'|'reveal'|'gear'|'unlock'|'ice'|'prism', tileId, ...} */
+    /* Δ31b / SC-027 ⑫: 三消反馈 100% 交给 `#dock` 内 3 张真实卡牌的位移/形变/亮度。
+     * 坍缩光环池、四角星芒、重力粒子池**整段下线**——`#vfx-canvas`
+     * 在三消窗口内 MUST 一个亮像素都没有。
+     * 本层现在只承载「方向性飞行牌越出棋盘矩形的那一段」（FR-053）。 */
     /* Δ28d: 记录上一帧 VFX 层是否还有内容——由「有」转「空」时必须补一次清屏，
-     * 否则最后一帧碎片会被永久冻结在画布上（详见 tick 尾部注释）。 */
+     * 否则最后一帧内容会被永久冻结在画布上（详见 tick 尾部注释）。
+     * ⚠ Δ31b §16 ②：改键 `flights.length`——两个特效池删空后若仍写成
+     * 两个已删除的池子，该守卫恒 false、`vfxWasLive` 永不置位 →
+     * 末帧冻结缺陷会在离场飞行段原样复活。 */
     var vfxWasLive = false;
     var lastTickTime = null;     /* Δ20/T093: 全屏 #vfx-canvas 白瓷碎片瀑布池 */
     var vfxCanvas = null, vfxCtx = null;
@@ -1569,11 +1231,11 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     var dockSlotGeo = null;
     var dockSlotGeoLen = 0;
 
-    /* ---------- Δ22c/T111: 开局进场编舞运行态 ---------- */
-    var introAnim = null;        /* { startTime, mode, active, totalMs } */
-    var introPlan = null;        /* tileId → { delay, ord, ox, oy, oxc, oyc, sx, sy, a0, ease } */
+    /* ---------- Δ22c/T111 → Δ31b: 开局进场编舞运行态 ---------- */
+    var introAnim = null;        /* { armed, startTime, active, totalMs, maxDelay, zMax } */
+    var introPlan = null;        /* tileId → { delay, z }（唯一信息量：起跑时刻 + 层高） */
     var introTicked = {};        /* tileId → true（落牌涟漪音只响一次） */
-    /* introLastMode / dealModeLock 见模块作用域（跨 renderer 实例存活） */
+    var introGateFrames = 0;     /* Δ31b §15：已绘制帧计数（帧闸门的唯一状态） */
     var reducedMotion = false;
     try {
       if (typeof global.matchMedia === 'function') {
@@ -1680,90 +1342,82 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       if (needMore || dirty) {
         /* Δ12: 单帧绘制异常不杀 rAF 主循环（重排程置 finally——
          * 崩溃帧仅丢一帧画面，下一帧照常调度） */
+        var drawnOk = false;
         try {
           draw();
+          drawnOk = true;
           try { drawVfx(); } catch (eVfx2) { /* vfx 异常不杀帧 */ }
         } catch (err) {
           if (global.console && console.error) console.error('[STM render]', err);
         } finally {
           dirty = false;
         }
+        /* Δ31b / FR-052 §15：首帧帧闸门——只在**真正画完**的帧上计数
+         * （draw() 抛异常那帧 MUST NOT 计入，否则「数了 2 帧但用户只看到 1 帧」）。
+         * 数满 INTRO_GATE_FRAMES 后把**当前帧的 rAF 时间戳**写入 startTime：
+         * 数据构建 / DOM 切换 / 离屏贴图预热吃掉的头 1~2 帧不再从动画 0~5% 里扣。 */
+        if (drawnOk && introAnim && introAnim.armed) {
+          introGateFrames += 1;
+          if (introGateFrames >= INTRO_GATE_FRAMES) {
+            introAnim.startTime = now;
+            introAnim.armed = false;
+          }
+          dirty = true; /* 闸门期间每帧都必须重绘（否则第 2 帧可能是空帧） */
+        }
       }
       if (needMore) start();
     }
 
     /* =========================================================
-     * Δ22c/T111: 开局进场编舞——启动 / 计划 / 逐帧变换 / 落子音
+     * Δ22c/T111 → Δ31b: 开局进场编舞——启动 / 计划 / 逐帧变换 / 落子音
      * ========================================================= */
 
-    /* 抽取一种编舞（相邻两次开局 MUST NOT 重复；锁定优先） */
-    function pickIntroMode() {
-      if (dealModeLockGlobal != null && isFinite(dealModeLockGlobal)) {
-        var lm = dealModeLockGlobal | 0;
-        return (lm >= 0 && lm < INTRO_MODES.length) ? lm : 0;
-      }
-      if (introLastModeGlobal < 0 || introLastModeGlobal >= INTRO_MODES.length) {
-        return Math.floor(Math.random() * INTRO_MODES.length);
-      }
-      /* 从「除上一次之外的 14 种」里等概率抽——数学上保证相邻不重复 */
-      var k = Math.floor(Math.random() * (INTRO_MODES.length - 1));
-      if (k >= introLastModeGlobal) k += 1;
-      return k;
-    }
-
-    /* 启动进场动画；modeIdx 省略 → 按不重复规则抽取。返回实际使用的模式号 */
-    function startDeal(modeIdx) {
-      var m;
-      if (modeIdx != null && isFinite(modeIdx)) {
-        m = modeIdx | 0;
-        if (m < 0 || m >= INTRO_MODES.length) m = 0;
-      } else {
-        m = pickIntroMode();
-      }
-      introLastModeGlobal = m;
-      introAnim = { startTime: nowMs(), mode: m, active: true, totalMs: 0 };
+    /* 启动进场动画（唯一模式「原位对角波浪层叠弹入」）
+     * 只置 armed + 请求重绘，**不记时间戳**——t0 由 frame() 的帧闸门在
+     * 「已绘制满 INTRO_GATE_FRAMES 帧」后写入。返回 true 供调用方判断。 */
+    function startDeal() {
+      introAnim = { armed: true, startTime: null, active: true, totalMs: 0 };
       introPlan = null;
       introTicked = {};
+      introGateFrames = 0;
       markDirty();
-      return m;
+      return true;
     }
 
-    /* 点击快进：立刻归位（introTransformOf 随即返回 null → 静态精确坐标） */
+    /* 点击快进：立刻归位（introTransformOf 随即返回 null → 静态精确坐标）
+     * Δ31b §15 ⑥：`armed` 期间调用也 MUST 有效——直接把 active/armed 一起清掉，
+     * MUST NOT 让「闸门未开就快进」留下悬挂状态（否则 rAF 会空转到天荒地老）。 */
     function skipDeal() {
       var wasActive = !!(introAnim && introAnim.active);
-      if (introAnim) introAnim.active = false;
+      if (introAnim) {
+        introAnim.active = false;
+        introAnim.armed = false;
+        introAnim.startTime = null;
+      }
       introPlan = null;
+      introGateFrames = 0;
       dirty = true;
       markDirty();
       return wasActive;
     }
 
     function isDealing() { return !!(introAnim && introAnim.active); }
-    function dealMode() { return introAnim ? introAnim.mode : -1; }
-    function dealModeName() {
-      var m = dealMode();
-      return (m >= 0 && m < INTRO_MODES.length) ? INTRO_MODES[m] : '';
-    }
     function dealTotalMs() { return introAnim ? (introAnim.totalMs || 0) : 0; }
 
     /* 剩余时长（main.js 据此把挑战横幅/教学卡推迟到编舞完成之后）
-     * Δ27b §10: 兜底常量改为**按公式**（180 + max(260,(N-1)×12) + 260 + 55×zMax）。
-     * 闸门 MUST 读本函数而非常量——点击快进会让实际剩余提前归零。 */
+     * 闸门 MUST 读本函数而非常量——点击快进会让实际剩余提前归零。
+     * 闸门未开（startTime === null）时以「当前时刻」为基准 → 剩余恒为整段时长。 */
     function dealRemainingMs() {
       if (!introAnim || !introAnim.active) return 0;
       var total = introAnim.totalMs || introDealTotalMs(
-        (lastProbe && lastProbe.tiles) ? lastProbe.tiles.length : 18,
+        (lastProbe && lastProbe.n) ? lastProbe.n : 8,
         introMaxZOf()
       );
-      var left = introAnim.startTime + total - nowMs();
+      var base = (introAnim.startTime == null) ? nowMs() : introAnim.startTime;
+      var left = base + total - nowMs();
       return left > 0 ? left : 0;
     }
 
-    /* Δ30b / FR-052 §10 权威时长公式（纯函数——可离线断言）
-     * total = (W−1) × WAVE_STEP + TILE + zStep × zMax，恒落 360~420ms。 */
-    function introDealTotalMs(n, zMax) {
-      return introBudgetOf(n, zMax).totalMs;
-    }
     function introMaxZOf() {
       var tiles = (lastProbe && lastProbe.tiles) ? lastProbe.tiles : [];
       var zMax = 0;
@@ -1774,12 +1428,12 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       return zMax;
     }
 
-    /* 构建逐牌计划（延迟 / 起点偏移 / 起点缩放 / 起点透明度）
+    /* 构建逐牌计划（每张牌只有一个 delay——对角波浪 + 层序锁的全部信息量）
      *
-     * Δ27b §9 逐牌错峰：先按编舞序 ord 排序，同 ord 再按 (z, r, c, id) 打破并列
-     * → 每张牌拿到**唯一** rank → 步长 = spread / (N-1) >= 12ms（N 大时恰为 12）。
-     * 这样单帧在途恒 ≈ 260/12 ≈ 22 张，逐张可辨；旧式「ord×固定展开期」在
-     * 对角/涟漪等模式上会产生大量并列 ord（满载时单帧在途 ≈ 108 张）。 */
+     * Δ31b §14.5：旧的「逐模式位移表」「波次预算」「随机抽取」三函数已整段删除；
+     * 本函数只保留 `{ id → { delay, z } }` 的构造职责，MUST NOT 再携带任何
+     * 位移 / 缓动 / 遮罩字段——位移与缩放一律由 introTransformOf 的常量曲线
+     * 统一决定（原位、零横向分量）。 */
     function buildIntroPlan() {
       if (!introAnim || !lastProbe) return null;
       var n = layout.n || lastProbe.n || 0;
@@ -1788,115 +1442,66 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       var list = [];
       var i;
       for (i = 0; i < tiles.length; i++) if (!tiles[i].removed) list.push(tiles[i]);
-      var total = list.length || 1;
-      /* deck_deal 的发牌序 = id 升序 */
-      var sorted = list.slice().sort(function (a, b) { return a.id - b.id; });
-      var rankOf = {};
-      for (i = 0; i < sorted.length; i++) rankOf[sorted[i].id] = i;
-
-      /* ① 逐牌规格 + 编舞序（ord） */
-      var items = [];
       var zMax = 0;
-      for (i = 0; i < list.length; i++) {
-        var t = list[i];
-        var sp = introSpecOf(introAnim.mode, t, n, rankOf[t.id] || 0, total, cell);
-        if ((t.z || 0) > zMax) zMax = t.z || 0;
-        items.push({ t: t, sp: sp });
-      }
-      /* ② 排序：ord → z → r → c → id（并列时低层先落，空间连续推进不跳跃） */
-      items.sort(function (a, b) {
-        if (a.sp.ord !== b.sp.ord) return a.sp.ord - b.sp.ord;
-        var az = a.t.z || 0, bz = b.t.z || 0;
-        if (az !== bz) return az - bz;
-        if (a.t.r !== b.t.r) return a.t.r - b.t.r;
-        if (a.t.c !== b.t.c) return a.t.c - b.t.c;
-        return a.t.id - b.t.id;
-      });
-      /* ③ 展开期 = max(260, (N-1)×12) + 层补偿总量；步长 = 展开期 / (N-1)
-       *
-       *   ⚠ Δ27b 修正：层高补偿 z×55 **只作排序键、不直接叠加到 delay**。
-       *   若写成 delay = LEAD + i×12 + z×55，由于 gcd(12,55)=1，相邻 delay
-       *   会被挤到最小 2ms（实测 L33 N=141 单帧在途峰值 35 张 > 硬上限 22 张，
-       *   即用户报告的「一大坨」）。改为「先按 (编舞序 + 层高补偿) 排序，
-       *   再按最终名次均分」，步长恒 >= 12ms、单帧在途恒 <= ceil(260/12)=22 张，
-       *   且层高补偿仍严格为正 → 同坐标永远先落底层后落顶层（零穿模不变）。 */
-      var sched = introSchedule(items.map(function (o) {
-        return { z: o.t.z || 0, key: o.t.r + ',' + o.t.c };
-      }), zMax);
-      var step = sched.waveStep;
+      for (i = 0; i < list.length; i++) if ((list[i].z || 0) > zMax) zMax = list[i].z || 0;
 
       var plan = {};
-      for (i = 0; i < sched.list.length; i++) {
-        var slot = sched.list[i];
-        var it = items[slot.idx];
-        var tt = it.t;
-        var spp = it.sp;
-        plan[tt.id] = {
-          delay: slot.delay,
-          ord: spp.ord,
-          ease: spp.ease,
-          ox: spp.ox, oy: spp.oy, oxc: spp.oxc, oyc: spp.oyc,
-          sx: spp.sx, sy: spp.sy, a0: spp.a0, wipe: spp.wipe === true
-        };
-      }
-      /* Δ30b: 末波起跑时刻 = 最大 delay（LEAD 已归零，公式自然退化为波次时间轴） */
       var maxDelay = 0;
-      for (i = 0; i < sched.list.length; i++) {
-        if (sched.list[i].delay > maxDelay) maxDelay = sched.list[i].delay;
+      for (i = 0; i < list.length; i++) {
+        var t = list[i];
+        var g = tileGridOf(t);
+        var delay = introDelayOf(g.rr, g.cc, t.z || 0, n, zMax);
+        if (delay > maxDelay) maxDelay = delay;
+        plan[t.id] = { delay: delay, z: t.z || 0 };
       }
-      introAnim.totalMs = Math.max(maxDelay + INTRO_TILE_MS, introDealTotalMs(total, zMax));
+      /* 时长与纯函数同源（maxDelay + TILE 恰等于公式值——不一致即公式被改坏） */
+      introAnim.totalMs = Math.max(maxDelay + INTRO_TILE_MS, introDealTotalMs(n, zMax));
       introAnim.maxDelay = maxDelay;
-      introAnim.waveStepMs = step;
-      introAnim.waves = sched.waves;
-      introAnim.stepMs = step;
       introAnim.zMax = zMax;
       return plan;
     }
 
     /* 每帧变换：返回 null 表示「已归位」→ 调用方走静态路径（坐标 100% 精确）
-     * Δ27b §8 清晰度口径：
-     *   · alpha 从 a0(>=0.55) 起跳，并在入场进度 35% 内达到 1.0 后保持
-     *     （旧式 ae*1.6 在 back 缓动下会拖到 40%+，前段持续发灰）
-     *   · wipe=true（blinds_flip）→ 返回水平揭示进度，牌体本身零几何压缩
-     *   · 落定（p>=1）立刻返回 null → 静态路径，无残留亚像素偏移 */
+     *
+     * Δ31b §14.2~§14.3 / §15.4 四条硬口径：
+     *   ① **原位**——`dx` 恒 `0`（硬断言），`dy` 从 +12px 收敛到 0 是唯一位移；
+     *   ② **中心锚点**——`drawTileBody` 由构造保证（`px - w/2`），此处只给牌心
+     *      偏移与等比缩放，MUST NOT 引入 ctx.scale（会连图标一起缩放并引入
+     *      左上角原点 = 斜向漂移）；
+     *   ③ **缩放曲线**——`S0(0.62) → 峰值 1.05 → 1.00`，两段各自单调，
+     *      超调 <= 6%、末段零二次回弹；
+     *   ④ **alpha 恒 1.0**——`el <= 0` 呈现「已完整布局、尚未弹起的小牌面」，
+     *      MUST NOT 返回 alpha: 0（Δ22 时代「底图留白」的遗产 = 首帧空白成因）。 */
     function introTransformOf(t, now) {
       if (!introAnim || !introAnim.active) return null;
+      /* 降级（prefers-reduced-motion）：零位移 / 零缩放 / 零弹起，直接落位 */
+      if (reducedMotion) return null;
       if (!introPlan) introPlan = buildIntroPlan();
       if (!introPlan) return null;
       var rec = introPlan[t.id];
       if (!rec) return null;
-      var el = now - introAnim.startTime - rec.delay;
-      var oxPx = rec.ox + rec.oxc * cell;
-      var oyPx = rec.oy + rec.oyc * cell;
-      if (el <= 0) {
-        /* 尚未开始：完全隐形（0~180ms 纯底图留白期的唯一表现） */
-        return { p: 0, dx: oxPx, dy: oyPx, sx: rec.sx, sy: rec.sy, alpha: 0, wipe: 0 };
-      }
-      var p = el / INTRO_TILE_MS;
-      if (p >= 1) return null; /* 定格 → 静态路径 */
-      if (reducedMotion) {
-        /* prefers-reduced-motion: reduce → 无位移/无旋转/无缩放，仅一次性淡入 */
-        var ar = clamp01(p / INTRO_ALPHA_FULL_AT);
-        return { p: p, dx: 0, dy: 0, sx: 1, sy: 1, alpha: rec.a0 + (1 - rec.a0) * ar, wipe: 1 };
-      }
-      var e = introEase(rec.ease, p);
-      var k = 1 - e;
-      var ae = e < 0 ? 0 : (e > 1 ? 1 : e);
-      var af = clamp01(ae / INTRO_ALPHA_FULL_AT);
+      /* 帧闸门未开 → 一律按 el = 0 的起始姿态（绝不返回隐形） */
+      var el = (introAnim.armed || introAnim.startTime == null)
+        ? 0
+        : (now - introAnim.startTime - rec.delay);
+      var p = el <= 0 ? 0 : (el / INTRO_TILE_MS);
+      if (p >= 1) return null; /* 定格 → 静态路径（零残留亚像素偏移） */
+      var pose = introPoseOf(p);
       return {
         p: p,
-        dx: oxPx * k,
-        dy: oyPx * k,
-        sx: 1 + (rec.sx - 1) * k,
-        sy: 1 + (rec.sy - 1) * k,
-        alpha: rec.a0 + (1 - rec.a0) * af,
-        wipe: rec.wipe ? ae : 1
+        dx: pose.dx,
+        dy: pose.dy,
+        sx: pose.sx, sy: pose.sy,
+        alpha: pose.alpha
       };
     }
 
     /* 逐帧推进：跨越 p>=0.85 首次落定 → 一声落牌涟漪（>=22ms 节流在 SoundManager 内） */
     function tickIntro(now) {
       if (!introAnim || !introAnim.active) return false;
+      /* 闸门未开：保持 active（继续请求帧），但**不推进时间轴**——
+       * startTime 为 null 时 `now - null` 会把整盘判成「早已落定」。 */
+      if (introAnim.armed || introAnim.startTime == null) return true;
       if (!introPlan) introPlan = buildIntroPlan();
       if (!introPlan) return true;
       var allDone = true;
@@ -1910,10 +1515,8 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
           introTicked[key] = true;
           if (typeof opts.onDealTick === 'function') {
             /* overallProgress = 该牌在**落牌时间轴**上的归一化位置——
-             * 恒随落定时刻单调不减（若用 ord 会因层高补偿而乱序，
-             * 音高就会忽高忽低）。节流由 SoundManager 保证 >= 22ms。 */
-            /* Δ30b: LEAD 归零后 `(delay − LEAD) / (maxDelay − LEAD)` 自然退化为
-             * 波次时间轴 `delay / maxDelay`——同帧多牌按时间轴升序发声。 */
+             * 恒随落定时刻单调不减（用 ord 会因层高补偿而乱序，音高忽高忽低）。
+             * 节流由 SoundManager 保证 >= 22ms。 */
             var span = Math.max(1, introAnim.maxDelay || 0);
             var prog = rec.delay / span;
             if (!isFinite(prog)) prog = 0;
@@ -2095,46 +1698,14 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     function tick(now) {
       var active = false;
       var i;
-      /* Δ28f: 碎块物理 MUST 用**墙钟 dt**，不能写死每帧 16ms。
-       * 写死 16ms 等于把物理绑在「帧数」而不是「时间」上：60fps 机器看着正常，
-       * 一旦掉到 30fps 就变成半速、20fps 变成三分速——观感正是用户说的
-       * 「飘下去」（起手速度被摊薄、重力追不上）。碎裂瞬间要同时画 120~150 枚
-       * 碎块 + 爆心辉光，正是最容易掉帧的时刻，所以这条必须先修。
-       * 上限 100ms：切后台回来时 rAF 会给出巨大的间隔，不夹会让碎块瞬移出屏。 */
-      var dtVfx = 0.016;
-      if (lastTickTime != null) {
-        var dtRaw = (now - lastTickTime) / 1000;
-        if (dtRaw > 0) dtVfx = (dtRaw > 0.1) ? 0.1 : dtRaw;
-      }
-      lastTickTime = now;
       for (i = anims.length - 1; i >= 0; i--) {
         var a = anims[i];
         if ((now - a.t0) / a.dur >= 1) {
-          if (a.kind === 'match') spawnParticles(a, now);
-          /* Bug 2: 旧 #board 半透明碎片已禁用，仅 #vfx-canvas 瀑布 */
           if (a.kind === 'reveal') delete revealAt[a.tileId];
           anims.splice(i, 1);
           dirty = true; /* 动画结束时强制重绘（防“末帧静默”——M1.6 渲染缺陷修复） */
         } else active = true;
       }
-      for (i = particles.length - 1; i >= 0; i--) {
-        var p = particles[i];
-        p.x += p.vx; p.y += p.vy;
-        p.vy += 0.12;
-        p.life -= 16;
-        if (p.life <= 0) particles.splice(i, 1);
-      }
-      /* Δ30a: 坍缩光环推进——按绝对时间扣减（与墙钟同源，帧率无关）。
-       * 池「有 → 空」时置 dirty，由尾部 vfxWasLive 守卫补一次清屏。 */
-      for (i = collapseRings.length - 1; i >= 0; i--) {
-        var rgc = collapseRings[i];
-        if (now - rgc.t0 >= rgc.dur) {
-          collapseRings.splice(i, 1);
-          ringPool.push(rgc);
-          dirty = true;
-        } else active = true;
-      }
-      if (particles.length > 0) active = true;
       /* Δ27a/FR-053: 飞行推进——每张独立计时，落定即回调揭示槽位并出表。
        * 兜底：超过 dur + 400ms 仍在表内（极端掉帧 / 回调异常）→ 强制落定，
        * MUST NOT 让卡牌永久滞留不可见。
@@ -2157,177 +1728,25 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       /* Δ22c/T111: 开局编舞推进（含逐牌落子涟漪音）——动画期持续请求下一帧 */
       if (introAnim && introAnim.active && tickIntro(now)) active = true;
       /* Δ28d（真 Bug 修复）：`frame()` 只在 `needMore || dirty` 时才调 drawVfx，
-       * 而「最后一枚碎块被回收」的那一帧 active 恰好翻假 → 不重绘 →
-       * 上一帧的碎片被**永久冻结**在全屏 #vfx-canvas 上（实测残留 15 万像素、
-       * 占比 ~10%，即 SC-023 ⑩ 说的「残留亮斑」）。故池由「有」转「空」时必须
-       * 强制再清一次画布。粒子/碎片同属该画布层，一并纳入守卫。 */
-      var vfxLive = (collapseRings.length > 0 || particles.length > 0);
+       * 而「最后一枚内容被回收」的那一帧 active 恰好翻假 → 不重绘 →
+       * 上一帧内容被**永久冻结**在全屏 #vfx-canvas 上（实测残留 15 万像素、
+       * 占比 ~10%，即 SC-023 ⑩ 说的「残留亮斑」）。故由「有」转「空」时必须
+       * 强制再清一次画布。
+       * Δ31b §16 ②：键改为 `flights.length`——环池与粒子池删空后若仍引用它们，
+       * 该守卫恒 false，末帧冻结会在离场飞行段原样复活。 */
+      var vfxLive = (flights.length > 0);
       if (vfxLive) vfxWasLive = true;
       else if (vfxWasLive) { vfxWasLive = false; dirty = true; }
       return active;
     }
 
-    /* =========================================================
-     * Δ30a / FR-049 §18 ⑤: 三消坍缩光环（双环 + 四角星芒，零掉落物）
+    /* Δ20/T093 → Δ31b: 全屏 #vfx-canvas 绘制（**只剩飞行牌缝合段**）
      *
-     * 时序锚点：光环起始帧 == 坍缩段首帧（140ms），全部在 220ms 前归零——
-     * SC-025 ④ 要求「220ms + 1 帧后画布 alpha > 2 的像素数 = 0」。
-     * 零掉落物：本模块只画同心圆环与四角星芒，MUST NOT 出现任何 y 持续增大的
-     * 绘制物（原 shards 图集 / 抛物线物理 / 爆心辉光已整体下线）。
-     * 性能：每帧一次遍历完成，禁 ctx.filter / 逐枚 shadowBlur / 逐帧新建 canvas。
-     * ========================================================= */
-    function ringAlphaOf(p) {
-      /* 单调衰减到 0（1.7 次幂——起手亮、尾段迅速收干净） */
-      var q = 1 - p;
-      if (q < 0) q = 0;
-      return Math.pow(q, 1.7);
-    }
-
-    /* 四角星芒（✦）：8 顶点星形，外半径 size、内凹 0.19×——一次 fill 完成 */
-    function drawStarRay(v, x, y, rot, size, alpha) {
-      if (!(size > 0.4) || alpha <= 0.004) return;
-      v.save();
-      v.translate(x, y);
-      v.rotate(rot);
-      v.globalAlpha = alpha > 1 ? 1 : alpha;
-      v.fillStyle = '#FFFFFF';
-      v.beginPath();
-      for (var k = 0; k < 8; k++) {
-        var ang = k * Math.PI / 4 - Math.PI / 2;
-        var rr = (k % 2 === 0) ? size : size * RAY_INNER_RATIO;
-        var px = Math.cos(ang) * rr;
-        var py = Math.sin(ang) * rr;
-        if (k === 0) v.moveTo(px, py); else v.lineTo(px, py);
-      }
-      v.closePath();
-      v.fill();
-      v.restore();
-    }
-
-    /* 起跑一次坍缩光环（main.js 在坍缩段首帧调用一次）
-     *   cx, cy  : 中心槽中心（视口 CSS px——与 #vfx-canvas 同量纲）
-     *   slotW   : 单槽边长（半径基准）
-     *   reduced : prefers-reduced-motion → 只出单环、不出星芒（SC-025 ⑩）
-     * 返回本次投放的记录数（0 = 几何不可用，已静默跳过，不影响主流程）。 */
-    function spawnCollapseImpact(cx, cy, slotW, reduced) {
-      if (!(cx >= 0) || !(cy >= 0) || !(slotW > 0)) return 0;
-      var t0 = nowMs();
-      var made = 0;
-      var rings = reduced ? 1 : 2;
-      for (var k = 0; k < rings; k++) {
-        var rec = ringPool.pop() || {};
-        rec.kind = (k === 0) ? 'outer' : 'inner';
-        rec.x = cx; rec.y = cy; rec.w = slotW;
-        rec.t0 = t0 + (k === 0 ? 0 : RING_INNER_STAGGER);
-        rec.dur = (k === 0) ? RING_OUTER_LIFE : RING_INNER_LIFE;
-        rec.r0 = RING_R0_RATIO;
-        rec.r1 = (k === 0) ? RING_OUTER_R1 : RING_INNER_R1;
-        rec.color = (k === 0) ? RING_COLOR_OUTER : RING_COLOR_INNER;
-        rec.lw0 = RING_LW0; rec.lw1 = RING_LW1;
-        collapseRings.push(rec);
-        made++;
-      }
-      if (!reduced) {
-        var rays = RAY_MIN + Math.floor(Math.random() * (RAY_MAX - RAY_MIN + 1));
-        for (var q = 0; q < rays; q++) {
-          var rr = ringPool.pop() || {};
-          rr.kind = 'ray';
-          rr.x = cx; rr.y = cy; rr.w = slotW;
-          rr.t0 = t0 + RAY_START_MS;
-          rr.dur = RAY_LIFE_MS;
-          rr.ang = (q / rays) * Math.PI * 2 + Math.random() * 0.28;
-          rr.spin = (Math.random() - 0.5) * 1.4;
-          rr.size = RAY_SIZE_MIN + Math.random() * (RAY_SIZE_MAX - RAY_SIZE_MIN);
-          collapseRings.push(rr);
-          made++;
-        }
-      }
-      markDirty();
-      return made;
-    }
-
-    /* 绘制：一次遍历完成双环 + 星芒（`lighter` 混合读作「光」而非「贴纸」） */
-    function drawCollapse(v, now) {
-      if (!collapseRings.length) return;
-      v.save();
-      v.globalCompositeOperation = 'lighter';
-      for (var i = 0; i < collapseRings.length; i++) {
-        var r = collapseRings[i];
-        var p = (now - r.t0) / r.dur;
-        if (!(p > 0) || p >= 1) continue;
-        if (r.kind === 'ray') {
-          var a = ringAlphaOf(p) * 0.92;
-          if (a <= 0.01) continue;
-          var rad = r.w * (0.55 + 0.75 * introEaseOutQuart(p));
-          drawStarRay(v,
-            r.x + Math.cos(r.ang) * rad,
-            r.y + Math.sin(r.ang) * rad,
-            r.ang + (r.spin || 0) * p,
-            (r.size || 4) * (1 - 0.35 * p),
-            a);
-        } else {
-          var alpha = ringAlphaOf(p);
-          if (alpha <= 0.01) continue;
-          var radius = r.w * (r.r0 + (r.r1 - r.r0) * introEaseOutQuart(p));
-          v.globalAlpha = alpha;
-          v.strokeStyle = r.color;
-          v.lineWidth = r.lw0 + (r.lw1 - r.lw0) * p;
-          v.beginPath();
-          v.arc(r.x, r.y, radius, 0, Math.PI * 2);
-          v.stroke();
-        }
-      }
-      v.restore();
-      v.globalAlpha = 1;
-    }
-
-      /* 三消粒子：Δ14 图鉴主题色 12~20 个（单帧 ≤200） */
-      function spawnParticles(a, now) {
-        var sv = suitVisual(a.suit);
-        var count = 12 + Math.floor(Math.random() * 9);
-        if (particles.length + count > 200) count = Math.max(0, 200 - particles.length);
-        for (var i = 0; i < count; i++) {
-          particles.push({
-            x: a.x, y: a.y,
-            vx: (Math.random() - 0.5) * 5,
-            vy: (Math.random() - 0.9) * 5,
-            life: PARTICLE_LIFE * (0.6 + Math.random() * 0.6),
-            color: sv.fill,
-            size: 2 + Math.random() * 3
-          });
-        }
-      }
-
-    /* Δ14: 飞出白色推进云朵粒子（3 团柔白圆——沿路径尾部拖尾） */
-    function drawFlyPuff(a, prog) {
-      var seg = pathPos(a.path, Math.max(0, prog - 0.12));
-      if (!seg) return;
-      var px = (seg.c + 0.5) * cell;
-      var py = (seg.r + 0.5) * cell;
-      var fade = 1 - prog;
-      var puffR = cell * (0.16 + 0.1 * (1 - fade));
-      for (var i = 0; i < 3; i++) {
-        var ang = i * 2.1 + prog * 4;
-        var ox = Math.cos(ang) * cell * 0.1 * i;
-        var oy = Math.sin(ang) * cell * 0.1 * i;
-        ctx.globalAlpha = 0.32 * fade * (1 - i * 0.22);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.beginPath();
-        ctx.arc(px + ox, py + oy, puffR * (1 - i * 0.18), 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    /* Δ20/T093 → Δ30a: 全屏 #vfx-canvas 绘制（坍缩光环 + 飞行牌缝合段）
-     * 每帧一次遍历完成光环绘制，禁用 ctx.filter / 逐枚 shadowBlur /
-     * 逐帧新建 canvas；MUST NOT 出现任何 y 持续增大的绘制物。
-     *
-     * `atMs`：**仅门禁取证用**的时刻覆盖（不传 = 真实墙钟）。坍缩光环总寿命
-     * 只有 80ms（外环 80 / 内环 48 / 星芒 64），低帧率环境（headless 单帧
-     * 可达 150ms）墙钟采样永远落在窗口外 → 允许门禁把时间轴拨到指定相位取
-     * 像素证据。飞行段恒用真实墙钟，不受此参数影响。 */
-    function drawVfx(atMs) {
+     * 三消反馈已 100% 交给 `#dock` 内 3 张真实卡牌的位移/形变/亮度——
+     * 本层在三消窗口内 MUST 一个亮像素都没有（SC-027 ⑫ 的像素级断言）。
+     * 本函数唯一职责：把飞行牌「棋盘矩形之外」的部分接续画出来（FR-053）。
+     * 禁用 ctx.filter / 逐枚 shadowBlur / 逐帧新建 canvas。 */
+    function drawVfx() {
       if (!vfxCtx || !vfxCanvas) return;
       var dpr = Math.max(1, (typeof global !== 'undefined' && global.devicePixelRatio) || 1);
       var w = (typeof global !== 'undefined' && global.innerWidth) ? global.innerWidth : (vfxCanvas.clientWidth || 360);
@@ -2339,10 +1758,6 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       if (vfxCanvas.height !== pxH) vfxCanvas.height = pxH;
       if (typeof vfxCtx.setTransform === 'function') vfxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       vfxCtx.clearRect(0, 0, w, h);
-      /* Δ30a: 三消坍缩光环（坍缩首帧起跑，220ms 前全部归零）。
-       * 与卡牌形变错峰接力：卡牌在 140~220ms 收到 0，光环同时扩散并收干净。 */
-      var colNow = (typeof atMs === 'number' && isFinite(atMs)) ? atMs : nowMs();
-      try { drawCollapse(vfxCtx, colNow); } catch (eCol) { /* 光环异常不杀帧 */ }
       vfxCtx.globalAlpha = 1;
       vfxCtx.shadowBlur = 0;
       /* Δ27a/FR-053 §5：飞行牌的「棋盘矩形之外」部分由本层接续绘制。
@@ -2475,15 +1890,8 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         drawAnim(a2, Math.min(1, (now - a2.t0) / a2.dur), now);
       }
 
-      /* 粒子 */
-      for (i = 0; i < particles.length; i++) {
-        var p = particles[i];
-        ctx.globalAlpha = Math.max(0, Math.min(1, p.life / PARTICLE_LIFE));
-        ctx.fillStyle = p.color;
-        ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
-      }
-      ctx.globalAlpha = 1;
-      /* Bug 2: 旧 #board 半透明碎片绘制已移除，仅 #vfx-canvas 瀑布 */
+      /* Δ31b §17 ④: 粒子系统已整体下线——本层不再有任何非卡牌绘制物，
+       * 三消窗口内棋盘 canvas 与静态帧逐像素一致（差异像素数 = 0）。 */
 
       /* Hint 高亮 + Δ19e 教学引导高亮（脉冲描边，支持多目标） */
       var hs = highlightIds.length ? highlightIds : (highlight >= 0 ? [highlight] : []);
@@ -2546,31 +1954,18 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
           lift = (1 - ease) * cell * 0.45;
         }
       }
-      /* Δ22c/T111: 进场编舞——只对**本张牌**施加位移/缩放/透明度，
+      /* Δ22c/T111 → Δ31b: 进场编舞——只对**本张牌**施加纵向位移 + 等比缩放，
        * 绘制顺序仍由 draw() 的 z→r→c 升序循环决定（绝不重排、绝不穿模）。
        * 已归位时 introTransformOf 返回 null → 走下方静态路径，
-       * 保证动画结束后坐标与 getTileCssRect 完全一致（零残留偏移）。 */
+       * 保证动画结束后坐标与 getTileCssRect 完全一致（零残留偏移）。
+       * Δ31b §14.2: 原位（dx 恒 0）+ 中心锚点（drawTileBody 的 px-w/2 构造）
+       * → MUST NOT 在此引入 ctx.clip / ctx.scale（斜向漂移与图标连带缩放的成因）。 */
       var itr = introTransformOf(t, now);
       if (itr) {
-        if (itr.alpha <= 0.004) return; /* 留白/未开始：不绘制（无半透明残影） */
         /* 位移交给牌心坐标、缩放交给 drawTileBody 的 scaleX/scaleY——
          * 全程零 ctx.transform 累加（Δ15b3f 铁律） */
         var icx = px + itr.dx;
         var icy = py + itr.dy + lift;
-        /* Δ27b §8: blinds_flip 走**遮罩揭示**（水平裁切逐帧变宽），
-         * 牌体始终 1:1 绘制 —— 替代旧式 scaleX 0.05 几何压缩（图案变形即「糊」）。
-         * 同一张牌同帧仍只绘制一次（clip 只限定可见宽度，不叠第二层副本）。 */
-        if (itr.wipe != null && itr.wipe < 0.999) {
-          var halfW = cell * 0.5 * itr.sx;
-          var wipeW = Math.max(0.5, cell * itr.wipe);
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(icx - halfW, icy - cell, wipeW, cell * 2);
-          ctx.clip();
-          drawTileBody(ctx, cell, icx, icy, t, 1, itr.alpha, now, itr.sx, itr.sy);
-          ctx.restore();
-          return;
-        }
         drawTileBody(ctx, cell, icx, icy, t, 1, itr.alpha, now, itr.sx, itr.sy);
         return;
       }
@@ -2594,11 +1989,11 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       if (!t) return;
       /* Δ27a/FR-053 §5: 'fly' 分支已整体下线——飞行牌改由静态层 drawBoardTile
        * 在 (z,r,c) 升序位次上绘制（flightOf / flightPos），本层只承载
-       * 不改变卡体层序的特效（gear 脉冲 / unlock 闪光 / ice 碎裂 / match 爆闪 /
-       * prism 折线）。MUST NOT 在此恢复任何 drawTileBody 卡体重绘。 */
-      if (a.kind === 'match') {
-        drawTileBody(ctx, cell, a.x, a.y, t, 1 + 0.6 * prog, 1 - prog, now);
-      } else if (a.kind === 'gear') {
+       * 不改变卡体层序的特效（gear 脉冲 / unlock 闪光 / ice 碎裂 / prism 折线）。
+       * Δ31b §17: 旧的「三消残影放大淡出 + 重力粒子」分支**整段删除**——
+       * 它走棋盘 canvas 而非 #vfx-canvas，是 Δ30「零杂物」断言从未覆盖的漏网通路。
+       * MUST NOT 在此恢复任何 drawTileBody 卡体重绘。 */
+      if (a.kind === 'gear') {
         /* T034 齿轮旋转脉冲：**只画角标区高亮环，绝不重绘卡体**。
          * flight-neighbor-morph-dock-inset（Bug 1）直接元凶：原实现调用
          * drawTileBody 重绘整块卡体，而本层整体叠在静态层之后、不做 z 交错，
@@ -2709,11 +2104,6 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       } else if (e.e === 'blocked') {
         anims.push({ kind: 'block', tileId: e.tileId, t0: now, dur: BLOCK_MS });
         if (opts.onShake) opts.onShake();
-      } else if (e.e === 'match') {
-        /* Δ30a: 三消演出改由 main.js 的磁吸坍缩承担（本层只留主题色粒子） */
-        var cx = cssSize / 2;
-        var cy = -cell * 0.5; /* 顶部 Dock 槽位上方 */
-        anims.push({ kind: 'match', tileId: e.ids[0], suit: e.suit, t0: now, dur: 300, x: cx, y: cy });
       } else if (e.e === 'reveal') {
         /* Δ7: 次顶层暴露——延迟后上浮（revealAt 驱动 drawBoardTile 内插值） */
         revealAt[e.id] = now + REVEAL_DELAY;
@@ -2871,30 +2261,33 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     lastRendererApi = {
       refresh: refresh,
       handleEvent: handleEvent,
-      /* Δ30a: 坍缩光环唯一入口（main.js 在坍缩段首帧调用一次） */
-      spawnCollapseImpact: spawnCollapseImpact,
-      collapseRings: collapseRings,
       hitTest: hitTest,
       setHighlight: setHighlight,
       setHighlights: setHighlights,
       tileRect: tileRect,
       setLevel: setLevel,
-      /* Δ22c/T111: 开局进场编舞（main.js 抽取 / 快进 / 降级唯一入口） */
+      /* Δ31b: 开局进场编舞（main.js 启动 / 快进 / 降级唯一入口）。
+       * 模式号 / 模式名 / 模式锁定四个接口随 15 种模式一并下线——
+       * 保留只会让维护者以为还有可选模式。 */
       startDeal: startDeal,
       skipDeal: skipDeal,
       isDealing: isDealing,
-      dealMode: dealMode,
-      dealModeName: dealModeName,
       dealTotalMs: dealTotalMs,
       dealRemainingMs: dealRemainingMs,
-      setDealModeLock: function (m) {
-        dealModeLockGlobal = (m == null || m === '' || m === 'random') ? null : (m | 0);
-        return dealModeLockGlobal;
-      },
-      getDealModeLock: function () { return dealModeLockGlobal; },
       setReducedMotion: function (v) { reducedMotion = !!v; },
       isReducedMotion: function () { return reducedMotion; },
       dealPlanOf: function () { return introPlan; }, /* 自测只读 */
+      /* Δ31b §15：编舞运行态只读快照——门禁断言帧闸门（armed → startTime）用 */
+      dealStateOf: function () {
+        if (!introAnim) return null;
+        return {
+          armed: !!introAnim.armed,
+          startTime: introAnim.startTime,
+          active: !!introAnim.active,
+          totalMs: introAnim.totalMs || 0,
+          maxDelay: introAnim.maxDelay || 0
+        };
+      },
       /* ---------- Δ27a/FR-053：方向性飞行公开 API ----------
        * 契约口径（contracts/game-session.md）：
        *   startFlight(tileId, slotIndex, dir) → 飞行记录 | null
@@ -2912,24 +2305,9 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       /* Δ27a/FR-053 §5：本帧静态层绘制序（tileId 序列）——门禁断言「飞行牌与
        * 静止牌共用同一 (z,r,c) 升序」，不得统一置顶。 */
       drawOrderOf: function () { return lastDrawOrder.slice(); },
-      /* Δ30a：坍缩光环只读快照（门禁断言双环错峰 / 星芒枚数 / 半径曲线 / 生命周期） */
-      collapseRingsOf: function () {
-        var out = [];
-        for (var ri = 0; ri < collapseRings.length; ri++) {
-          var r = collapseRings[ri];
-          out.push({
-            kind: r.kind, x: r.x, y: r.y, w: r.w, t0: r.t0, dur: r.dur,
-            r0: r.r0, r1: r.r1, color: r.color, lw0: r.lw0, lw1: r.lw1,
-            size: r.size, ang: r.ang
-          });
-        }
-        return out;
-      },
-      /* Δ30a：清空 VFX 层（光环 / 粒子）。换关 / 重置 / Undo 时不得残留上一局演出。 */
+      /* Δ31b §17：清空 VFX 层（只剩在途飞行）。换关 / 重置 / Undo 时不得残留上一局。 */
       clearVfx: function () {
-        for (var ci = 0; ci < collapseRings.length; ci++) ringPool.push(collapseRings[ci]);
-        collapseRings.length = 0;
-        particles.length = 0;
+        flights.length = 0;
         vfxWasLive = false;
         markDirty();
       },
@@ -3490,71 +2868,36 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
   STM.IconAssets = IconAssets;
   STM.BackdropStage = BackdropStage;
   STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets, dockIconDataURL: dockIconDataURL, paintDockIcons: paintDockIcons, DIR_COLORS: DIR_COLORS };
-  /* Δ30a: 三消坍缩光环常量外露（离线自测断言用——不参与运行时逻辑）
-   * ⚠ 本表 MUST 与实现**同源同步**——不同步会让门禁常量断言读到旧值、
-   * 实现已改 → 「假绿」（Δ29 的隐藏地雷）。 */
-  STM.rendererTest.COLLAPSE = {
-    TOTAL_MS: RING_TOTAL_MS,
-    START_MS: RING_START_MS,
-    OUTER_LIFE: RING_OUTER_LIFE,
-    INNER_STAGGER: RING_INNER_STAGGER,
-    INNER_LIFE: RING_INNER_LIFE,
-    LW0: RING_LW0,
-    LW1: RING_LW1,
-    R0_RATIO: RING_R0_RATIO,
-    OUTER_R1: RING_OUTER_R1,
-    INNER_R1: RING_INNER_R1,
-    COLOR_OUTER: RING_COLOR_OUTER,
-    COLOR_INNER: RING_COLOR_INNER,
-    RAY_MIN: RAY_MIN,
-    RAY_MAX: RAY_MAX,
-    RAY_SIZE_MIN: RAY_SIZE_MIN,
-    RAY_SIZE_MAX: RAY_SIZE_MAX,
-    RAY_START_MS: RAY_START_MS,
-    RAY_LIFE_MS: RAY_LIFE_MS
-  };
-  STM.COLLAPSE = STM.rendererTest.COLLAPSE;
   STM.rendererTest.GAP = GAP;
-  /* Δ30a: 碎块链路已整体下线 → STM.DOCK_SHARDS / STM.VFX_SHARDS 两个别名一并删除。
-   * 留着 = `undefined` 静默通过旧门禁的 `!!` 判据 = 假绿。 */
   /* ingame-hud-render-defects: 几何唯一出口外露（纯函数——Node/N 层/rect 任意组合可测） */
   STM.rendererTest.getTileCssRect = getTileCssRect;
   STM.rendererTest.tileGridOf = tileGridOf;
-  /* Δ22c/T111 + Δ27b: 编舞常量表与纯函数规格（离线自测断言——不参与运行时逻辑） */
+  /* Δ31b / FR-052 §14：编舞常量表（**只剩四个 + 曲线参数**）
+   * ⚠ 本表 MUST 与实现**同源同步**——不同步会让门禁常量断言读到旧值、
+   * 实现已改 → 「假绿」（Δ29/Δ30 各踩过一次）。 */
   STM.rendererTest.INTRO = {
-    LEAD_MS: INTRO_LEAD_MS,
     TILE_MS: INTRO_TILE_MS,
-    WAVE_MIN: INTRO_WAVE_MIN,
-    WAVE_MAX: INTRO_WAVE_MAX,
-    WAVE_TILES: INTRO_WAVE_TILES,
-    WAVE_STEP_MIN: INTRO_WAVE_STEP_MIN,
+    Z_STEP_MS: INTRO_Z_STEP_MS,
+    DIAG_STEP_MIN: INTRO_DIAG_STEP_MIN,
+    DIAG_STEP_MAX: INTRO_DIAG_STEP_MAX,
     TARGET_MS: INTRO_TARGET_MS,
-    Z_STEP_MIN: INTRO_Z_STEP_MIN,
-    Z_STEP_MAX: INTRO_Z_STEP_MAX,
-    REF_CELL: INTRO_REF_CELL,
-    DISP_MAX_CELL: INTRO_DISP_MAX_CELL,
-    DISP_MIN_CELL: INTRO_DISP_MIN_CELL,
     TICK_AT: INTRO_TICK_AT,
-    ALPHA0: INTRO_ALPHA0,
-    ALPHA_MIN_SAFE: INTRO_ALPHA_MIN_SAFE,
-    ALPHA_FULL_AT: INTRO_ALPHA_FULL_AT,
-    SCALE_MAX: INTRO_SCALE_MAX,
-    SCALE_MIN: INTRO_SCALE_MIN,
-    NONUNI_MIN: INTRO_NONUNI_MIN,
-    MODES: INTRO_MODES
+    GATE_FRAMES: INTRO_GATE_FRAMES,
+    S0: INTRO_S0,
+    OVERSHOOT: INTRO_OVERSHOOT,
+    PEAK_AT: INTRO_PEAK_AT,
+    DY0: INTRO_DY0
   };
-  STM.rendererTest.INTRO_MODES = INTRO_MODES;
-  STM.rendererTest.introSpecOf = introSpecOf;
-  /* FR-052 §10 权威时长公式（纯函数——离线可断言 700 / 1546 / 2340ms） */
-  STM.rendererTest.introSchedule = introSchedule;
-  /* Δ30b: 缓动纯函数外露（门禁断言「末段 10% 位移 <= 2%」与「零 back」） */
-  STM.rendererTest.introEaseOf = introEase;
-  STM.rendererTest.introDealTotalMs = function (n, zMax) {
-    return introBudgetOf(n, zMax).totalMs;
-  };
-  /* Δ30b: 预算解算外露（门禁断言 W / WAVE_STEP / zStep / totalMs 逐项同源） */
-  STM.rendererTest.introBudgetOf = introBudgetOf;
-  STM.rendererTest.introWaveCount = introWaveCount;
+  /* 权威时长公式（纯函数——离线可断言 415 / 415 / 415 / 408ms） */
+  STM.rendererTest.introDealTotalMs = introDealTotalMs;
+  /* DIAG_STEP 反算（门禁断言 14 <= DIAG_STEP <= 48） */
+  STM.rendererTest.introDiagStepOf = introDiagStepOf;
+  /* 单卡起跑延迟（门禁断言对角时序 / 层序锁的唯一入口） */
+  STM.rendererTest.introDelayOf = introDelayOf;
+  /* 缓动纯函数外露（门禁断言位移单调收敛） */
+  STM.rendererTest.introEaseOf = introEaseOutCubic;
+  /* 单卡姿态曲线（门禁断言 S0 / 峰值 / 落定 / |dx| = 0 / alpha 恒 1） */
+  STM.rendererTest.introPoseOf = introPoseOf;
   /* Δ27a/FR-053: 飞行常量与纯运动学外露（flight-smoke 离线断言） */  STM.rendererTest.FLIGHT = {
     U_MS: FLIGHT_U_MS,
     EXIT_MS_MIN: FLIGHT_EXIT_MS_MIN,
