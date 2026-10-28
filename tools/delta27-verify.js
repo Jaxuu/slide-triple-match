@@ -1038,6 +1038,59 @@ async function main() {
     check('⑤ 相位 D（回收后再渲染）全画布零残留（无冻结末帧）',
       aD.nonZero === 0, diag);
     await shot('collapse-ring.png');
+    /* 视觉取证：CDP 截图在软件渲染下有 ~500ms 延迟，而外环寿命仅 80ms，
+     * 上面的整屏帧必然拍不到细环（Δ29 踩过同一个坑）。改为把时间轴拨到
+     * 光环峰值，再从 #vfx-canvas 直接裁切一块、垫深色底导出 —— 确定性、
+     * 零延迟，肉眼可核。 */
+    try {
+      /* 两张：起手段（Δ=14ms，alpha 尚高 → 观感最"亮"）与扩散段（Δ=56ms，
+       * 半径近终值）。同一隔离起演，只拨时间轴，故几何完全可比。 */
+      var PHASES = [{ d: 14, n: 'collapse-rings-onset.png' }, { d: 56, n: 'collapse-rings-peak.png' }];
+      for (var pi = 0; pi < PHASES.length; pi++) {
+        var crop = await ev(`(function(){
+          var D = window.__D27, r = D.rnd();
+          /* 相位 D 之后池已回收，旧记录画不出东西 —— 重新隔离起演一次，
+           * 取新外环的 t0 再拨到目标相位。 */
+          r.clearVfx();
+          r.drawVfxNow();
+          r.spawnCollapseImpact(${pix.cx}, ${pix.cy}, ${pix.w}, false);
+          var t0 = -1, rs = D.ringsOf();
+          for (var i = 0; i < rs.length; i++) {
+            if (rs[i].kind === 'outer') { t0 = rs[i].t0; break; }
+          }
+          if (!(t0 > 0)) return { err: 'no outer ring' };
+          r.drawVfxNow(t0 + ${PHASES[pi].d});
+          var cv = document.getElementById('vfx-canvas');
+          if (!cv) return { err: 'no canvas' };
+          var cw = cv.clientWidth || cv.width;
+          var sc = cv.width / (cw || cv.width);
+          var half = ${pix.w} * 3.2;
+          var sx = Math.max(0, (${pix.cx} - half) * sc);
+          var sy = Math.max(0, (${pix.cy} - half) * sc);
+          var sw = Math.min(cv.width - sx, 2 * half * sc);
+          var sh = Math.min(cv.height - sy, 2 * half * sc);
+          if (!(sw > 4 && sh > 4)) return { err: 'bad crop ' + sw + 'x' + sh };
+          var out = document.createElement('canvas');
+          out.width = Math.round(sw); out.height = Math.round(sh);
+          var g = out.getContext('2d');
+          g.fillStyle = '#0d1418';
+          g.fillRect(0, 0, out.width, out.height);
+          g.drawImage(cv, sx, sy, sw, sh, 0, 0, out.width, out.height);
+          return { url: out.toDataURL('image/png'), w: out.width, h: out.height };
+        })()`);
+        if (crop && crop.url) {
+          var b64 = String(crop.url).split(',')[1] || '';
+          var fp = path.join(OUT, PHASES[pi].n);
+          fs.writeFileSync(fp, Buffer.from(b64, 'base64'));
+          console.log('  · 取证帧 ' + PHASES[pi].n + '（Δ=' + PHASES[pi].d + 'ms，' +
+            crop.w + 'x' + crop.h + '，' + Math.round(fs.statSync(fp).size / 1024) + ' KB，拨时间轴直裁）');
+        } else {
+          console.log('  · 光环裁切跳过（' + PHASES[pi].n + '）：' + JSON.stringify(crop && crop.err));
+        }
+      }
+    } catch (eCrop) {
+      console.log('  · 光环峰值裁切异常（不影响门禁）：' + eCrop.message);
+    }
   } else {
     check('⑤ 光环像素采样成功', false, pix ? JSON.stringify(pix.err || pix) : 'null');
   }
