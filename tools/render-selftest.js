@@ -1151,8 +1151,14 @@ function scenarioDelta19() {
     var j = brSrc.indexOf('function drawBestiaryIcon', i);
     return i >= 0 && j > i && brSrc.slice(i, j).indexOf('strokeRect') === -1;
   })());
-  var sh = STM.rendererTest.SHARDS;
-  check('T084: 白瓷碎片数落入 48~60', sh && sh.min >= 48 && sh.max <= 60 && sh.max > sh.min);
+  /* Δ30a: 三消碎块链路整体下线。旧的 T082/T084 白瓷碎片池（spawnShards）本身
+   * 是「只积分不绘制」的死池（每次三消 48~60 个对象、零视觉输出），本轮一并删除。
+   * 断言改为**移除彻底性**：相关导出与符号全仓库零命中。 */
+  check('Δ30a: 棋盘白瓷碎片池已删除（SHARDS 导出 / spawnShards / SHARD_COUNT_ 零命中）',
+    !STM.rendererTest.SHARDS && !STM.rendererTest.DOCK_SHARDS &&
+    !STM.rendererTest.VFX_SHARDS && !STM.rendererTest.FRAGMENTS &&
+    !STM.DOCK_SHARDS && !STM.VFX_SHARDS &&
+    brSrc.indexOf('spawnShards') === -1 && brSrc.indexOf('SHARD_COUNT_MIN') === -1);
 
   /* ---- T122~T124: Δ25 性能回归护栏（开局发牌卡顿） ----
    * 根因链：默认 2D 上下文是 GPU 后备的，getImageData 要同步把像素从显存拷回
@@ -1603,14 +1609,34 @@ function scenarioDelta22Intro() {
     }
     return true;
   })());
-  check('T111②: 留白 120ms / 单卡 180ms / 层补偿 55ms / 落定阈值 0.85（Δ28f 提速）',
-    I.LEAD_MS === 120 && I.TILE_MS === 180 && I.Z_STEP_MS === 55 && I.TICK_AT === 0.85);
-  check('T111②: 逐牌步长下限 9ms / 展开期下限 180ms（Δ28f 提速）',
-    I.STAGGER_MS === 9 && I.SPREAD_MIN_MS === 180);
-  check('T111②: 时长公式 L1/L46/L33 = 480/1157/1780ms（Δ28f 提速）',
-    RT.introDealTotalMs(18, 0) === 480 &&
-    RT.introDealTotalMs(84, 2) === 1157 &&
-    RT.introDealTotalMs(141, 4) === 1780);
+  /* Δ30b: 零延迟 + 波次预算（旧「逐牌步长」口径已作废） */
+  check('Δ30b: 零延迟 LEAD=0 / 单卡 140ms / 落定阈值 0.85',
+    I.LEAD_MS === 0 && I.TILE_MS === 140 && I.TICK_AT === 0.85);
+  check('Δ30b: 波次 6~12 / 波间步长下限 14ms / 预算目标 390ms',
+    I.WAVE_MIN === 6 && I.WAVE_MAX === 12 && I.WAVE_STEP_MIN === 14 && I.TARGET_MS === 390);
+  check('Δ30b: 逐牌步长语义已退役（STAGGER_MS / SPREAD_MIN_MS / Z_STEP_MS 不再导出）',
+    I.STAGGER_MS === undefined && I.SPREAD_MIN_MS === undefined && I.Z_STEP_MS === undefined);
+  check('Δ30b: 层节拍改预算派生（Z_STEP_MIN 8 / Z_STEP_MAX 24，原固定 55 已废）',
+    I.Z_STEP_MIN === 8 && I.Z_STEP_MAX === 24);
+  check('Δ30b: 时长公式 N=18/84/141 均落 360~420ms 且极差 <= 60ms', (function () {
+    var a = RT.introDealTotalMs(18, 0);
+    var b = RT.introDealTotalMs(84, 2);
+    var c = RT.introDealTotalMs(141, 4);
+    var lo = Math.min(a, b, c);
+    var hi = Math.max(a, b, c);
+    return lo >= 360 && hi <= 420 && (hi - lo) <= 60;
+  })());
+  check('Δ30b: rendererTest 导出与实现同源（introBudgetOf 逐项相等）', (function () {
+    var pairs = [[18, 0], [84, 2], [141, 4], [60, 4], [24, 1]];
+    for (var i = 0; i < pairs.length; i++) {
+      var b = RT.introBudgetOf(pairs[i][0], pairs[i][1]);
+      if (Math.abs(b.totalMs - RT.introDealTotalMs(pairs[i][0], pairs[i][1])) > 1e-9) return false;
+      if (b.waves < I.WAVE_MIN || b.waves > I.WAVE_MAX) return false;
+      if (b.waveStep < I.WAVE_STEP_MIN - 1e-9) return false;
+      if (b.totalMs < 360 || b.totalMs > 420) return false;
+    }
+    return true;
+  })());
 
   /* 逐模式 × 逐坐标：规格有限性 + ord 值域 + 规格互异 */
   var n = 6;
@@ -1639,9 +1665,9 @@ function scenarioDelta22Intro() {
   check('T111②: 排序权重 ord 恒落 [0,1]', ordOk);
   check('T111②: 15 种模式的落牌序/位移规格两两不同（非退化）', distinct === 15);
 
-  /* ③ 零穿模（Δ27b 层序锁）：同坐标高层 MUST 后落 —— 由纯函数 introSchedule 硬保证。
+  /* ③ 波次结构 + 零穿模层序锁（Δ30b / FR-052 §9）
    * 构造最恶劣输入：同坐标 (3,3) 的 5 层被编舞序**倒序**排在最前（z=4 最先）。
-   * 旧式 delay = LEAD + i×12 + z×55 在此输入下必然穿模；层序锁重排槽位后不穿。 */
+   * 层带优先切波后，低层恒在前 → 倒序输入也不穿模。 */
   var sched = RT.introSchedule;
   var zEntries = [];
   var fiveZ = [4, 3, 2, 1, 0];
@@ -1654,36 +1680,90 @@ function scenarioDelta22Intro() {
   }
   layerDelays.sort(function (a, b) { return a.z - b.z; });
   var zMonotone = layerDelays.length === 5;
-  var zGapOk = true;
+  var zStepOk = true;
   for (var lj = 1; lj < layerDelays.length; lj++) {
     if (!(layerDelays[lj].d > layerDelays[lj - 1].d)) zMonotone = false;
-    if (layerDelays[lj].d - layerDelays[lj - 1].d < sc.step - 1e-6) zGapOk = false;
+    if (layerDelays[lj].d - layerDelays[lj - 1].d < I.Z_STEP_MIN - 1e-6) zStepOk = false;
   }
-  check('T111③: 同坐标高层延迟严格大于低层（层序锁——倒序输入也不穿模）', zMonotone);
-  check('T111③: 层间延迟差 >= 逐牌步长（9ms 硬下限）', zGapOk && sc.step >= I.STAGGER_MS - 1e-6);
+  check('Δ30b: 同坐标高层延迟严格大于低层（层序锁——倒序输入也不穿模）', zMonotone);
+  check('Δ30b: 同坐标层间差 >= zStep 下限 8ms', zStepOk);
 
-  /* 逐张可辨：步长均匀 + 单帧在途 <= 22 */
-  var scDelays = [];
-  for (var si = 0; si < sc.list.length; si++) scDelays.push(sc.list[si].delay);
-  scDelays.sort(function (a, b) { return a - b; });
-  var scMinGap = Infinity;
-  for (var sj = 1; sj < scDelays.length; sj++) {
-    var sgap = scDelays[sj] - scDelays[sj - 1];
-    if (sgap < scMinGap) scMinGap = sgap;
+  var byWave = {};
+  for (var si2 = 0; si2 < sc.list.length; si2++) {
+    var wv = sc.list[si2].wave;
+    if (!byWave[wv]) byWave[wv] = [];
+    byWave[wv].push(sc.list[si2].delay);
   }
-  var scPeak = 0;
-  for (var sk = 0; sk < scDelays.length; sk++) {
-    var scn = 0;
-    for (var sl = 0; sl < scDelays.length; sl++) {
-      if (scDelays[sl] <= scDelays[sk] && scDelays[sk] < scDelays[sl] + I.TILE_MS) scn++;
-    }
-    if (scn > scPeak) scPeak = scn;
+  var waveKeys = Object.keys(byWave).map(Number).sort(function (a, b) { return a - b; });
+  var sameWaveOk = true;
+  var minWaveSize = Infinity;
+  for (var wk = 0; wk < waveKeys.length; wk++) {
+    var ds = byWave[waveKeys[wk]];
+    for (var di = 1; di < ds.length; di++) if (Math.abs(ds[di] - ds[0]) > 2) sameWaveOk = false;
+    if (ds.length < minWaveSize) minWaveSize = ds.length;
   }
-  check('T111③: 相邻落点恒差 >= 9ms（逐张可辨）', scMinGap >= I.STAGGER_MS - 1e-6,
-    'minGap=' + scMinGap.toFixed(3));
-  check('T111③: 单帧在途 <= 22 张（旧式 108 张 → 成团堆积）', scPeak <= 22, 'peak=' + scPeak);
-  check('T111③: 排程总时长 === 公式值', Math.abs(sc.totalMs - RT.introDealTotalMs(60, 4)) < 1e-6,
+  var waveGapOk = true;
+  for (var wg = 1; wg < waveKeys.length; wg++) {
+    if (byWave[waveKeys[wg]][0] - byWave[waveKeys[wg - 1]][0] < I.WAVE_STEP_MIN - 1e-6) waveGapOk = false;
+  }
+  check('Δ30b: 波内同起同落（同波 delay 差 <= 2ms）', sameWaveOk);
+  check('Δ30b: 波间起跑差 >= 14ms', waveGapOk);
+  check('Δ30b: 波次总数落 [6,12]', waveKeys.length >= I.WAVE_MIN && waveKeys.length <= I.WAVE_MAX,
+    'W=' + waveKeys.length);
+  /* 合成输入里 4 个单张层必然产出 1 张波（退化输入，非真实盘面）；
+   * 观感下限改在**真实层高分布**上断言：z0=48 / z1..z3=4。 */
+  var realEntries = [];
+  var rz;
+  for (rz = 0; rz < 48; rz++) realEntries.push({ z: 0, key: 'r' + rz });
+  for (rz = 1; rz <= 3; rz++) {
+    for (var rq = 0; rq < 4; rq++) realEntries.push({ z: rz, key: 'q' + rz + '_' + rq });
+  }
+  var sc2 = sched(realEntries, 3);
+  var wsize2 = {};
+  for (var s2i = 0; s2i < sc2.list.length; s2i++) {
+    wsize2[sc2.list[s2i].wave] = (wsize2[sc2.list[s2i].wave] || 0) + 1;
+  }
+  var minWave2 = Infinity;
+  for (var wk2 in wsize2) {
+    if (!Object.prototype.hasOwnProperty.call(wsize2, wk2)) continue;
+    if (wsize2[wk2] < minWave2) minWave2 = wsize2[wk2];
+  }
+  check('Δ30b: 真实层高分布下每波至少 3 张（成组齐滑的观感下限）', minWave2 >= 3, 'min=' + minWave2);
+  check('Δ30b: 排程总时长 === 公式值', Math.abs(sc.totalMs - RT.introDealTotalMs(60, 4)) < 1e-6,
     sc.totalMs + ' vs ' + RT.introDealTotalMs(60, 4));
+
+  /* ④ 位移收窄 0.3~1.4 格宽 + 全表零 back / elastic（Δ30b / SC-026 ④） */
+  var cellRef = I.REF_CELL;
+  var dispOk = true;
+  var dispMax = 0;
+  var dispMin = Infinity;
+  var backHit = 0;
+  for (var dm = 0; dm < 15; dm++) {
+    for (var dr = 0; dr < 6; dr++) {
+      for (var dc = 0; dc < 6; dc++) {
+        var dt2 = { id: dr * 6 + dc, r: dr, c: dc, z: 0, d: (dr + dc) % 4 };
+        var sp2 = spec(dm, dt2, 6, dr * 6 + dc, 36, cellRef);
+        if (sp2.ease === 'back' || sp2.ease === 'elastic') backHit++;
+        var dxp = sp2.ox + sp2.oxc * cellRef;
+        var dyp = sp2.oy + sp2.oyc * cellRef;
+        var dd = Math.sqrt(dxp * dxp + dyp * dyp);
+        if (dd > dispMax) dispMax = dd;
+        if (dd > 0.01 && dd < dispMin) dispMin = dd;
+        if (dd > I.DISP_MAX_CELL * cellRef + 0.5) dispOk = false;
+        if (dd > 0.01 && dd < I.DISP_MIN_CELL * cellRef - 0.5) dispOk = false;
+      }
+    }
+  }
+  check('Δ30b: 单卡初始位移恒落 0.3~1.4 格宽', dispOk,
+    'max=' + (dispMax / cellRef).toFixed(2) + ' cell / min=' + (dispMin / cellRef).toFixed(2) + ' cell');
+  check('Δ30b: 全表零 back / elastic 过冲缓动', backHit === 0, 'hits=' + backHit);
+  check('Δ30b: 末段 10% 时长内位移 <= 2%（强减速硬停的可断言形式）', (function () {
+    var kinds = ['cubic', 'quart'];
+    for (var kk = 0; kk < kinds.length; kk++) {
+      if (1 - RT.introEaseOf(kinds[kk], 0.9) > 0.02) return false;
+    }
+    return true;
+  })());
 
   /* 运行时：逐模式跑完整进场，零异常 + 落定后归位 */
   var lv = {
@@ -1732,7 +1812,19 @@ function scenarioDelta22Intro() {
     if (dealTicks.length === 0) tickOk = false;
   }
   check('T111: 15 种模式逐种进场渲染零异常', modeOk);
-  check('T111①: 0~180ms 留白期棋盘零卡体绘制（纯风景底图）', tickOk);
+  check('Δ30b: 零延迟——首波 delay === 0（切入关卡首帧即起跑，无全空帧）', (function () {
+    rnd.startDeal(0);
+    pumpFrames(1);           /* buildIntroPlan 惰性构建，跑一帧后才有计划 */
+    var pl = rnd.dealPlanOf();
+    if (!pl) { rnd.skipDeal(); return false; }
+    var mn = Infinity;
+    for (var pk in pl) {
+      if (!Object.prototype.hasOwnProperty.call(pl, pk)) continue;
+      if (pl[pk].delay < mn) mn = pl[pk].delay;
+    }
+    rnd.skipDeal();
+    return mn === 0;
+  })());
   check('T111④: 15 种模式进场结束后全部归位（introPlan 清空 / active=false）', settledOk);
 
   /* 落子音：逐牌一声且节流后仍能覆盖多数卡牌；progress 单调上扬 */
@@ -1763,7 +1855,7 @@ function scenarioDelta22Intro() {
   rnd.startDeal(4);
   var rm = RT.INTRO;
   pumpFrames(14); /* ≈224ms → 越过 120ms 留白，进入淡入期 */
-  check('T112⑥: reduced-motion 下仍保留 120ms 底图留白节奏', rm.LEAD_MS === 120);
+  check('Δ30b: reduced-motion 下同样零延迟起跑（LEAD=0，总时长不变）', rm.LEAD_MS === 0);
   try { pumpFrames(120); check('T112⑥: reduced-motion 降级路径零异常', true); }
   catch (e2) { check('T112⑥: reduced-motion 降级路径零异常 [' + e2.message + ']', false); }
   check('T112⑥: reduced-motion 降级后同样完全归位', rnd.isDealing() === false);
@@ -1927,49 +2019,95 @@ function scenarioDelta29Banner() {
   check('T154: 同一开局会话不重复弹出（bannerShownForLevel 去重）',
     /bannerShownForLevel === currentId/.test(mainSrc));
 
-  /* Δ29b 前摇时序（横幅与碎块同批交付，一并锁常量） */
-  var pre = mainSrc.match(/var PRESHAKE_MS = (\d+);/);
-  var freeze = mainSrc.match(/var DOCK_FREEZE_MS = (\d+);/);
-  check('T160: 挤压闪白前摇 PRESHAKE_MS 落 60~80ms',
-    !!pre && +pre[1] >= 60 && +pre[1] <= 80, pre ? pre[1] : 'null');
-  check('T160: 冻结窗口 DOCK_FREEZE_MS 覆盖「前摇 + 爆发」（>= 180ms）',
-    !!freeze && +freeze[1] >= 180 && +freeze[1] <= 260, freeze ? freeze[1] : 'null');
-  check('T160: 碎块在膨胀顶点生成且同帧清槽（preshakeTimer 内 spawn + renderDock）',
-    /preshakeTimer = setTimeout\(function[\s\S]{0,900}spawnDockShatter[\s\S]{0,400}renderDock\(\)/.test(mainSrc));
-  check('T160: 槽位 rect 在挂动画**之前**取（避免取到放大后的盒子）',
+  /* Δ30a: 磁吸坍缩演出的静态断言组（SC-025 ①③⑤⑦⑩⑪）
+   * 时序常量一律取 main.js 源码，避免「导出不同步 → 门禁假绿」（Δ29 的坑）。 */
+  var colTotal = mainSrc.match(/var COLLAPSE_TOTAL_MS = (\d+);/);
+  var colRing = mainSrc.match(/var COLLAPSE_RING_AT_MS = (\d+);/);
+  var colFreeze = mainSrc.match(/var DOCK_FREEZE_MS = (\w+);/);
+  check('Δ30a: 演出总时长 220ms / 光环起跑 140ms（坍缩段首帧）',
+    !!colTotal && +colTotal[1] === 220 && !!colRing && +colRing[1] === 140,
+    (colTotal ? colTotal[1] : 'null') + '/' + (colRing ? colRing[1] : 'null'));
+  check('Δ30a: 冻结窗口 === 演出总时长（DOCK_FREEZE_MS 由 COLLAPSE_TOTAL_MS 派生）',
+    !!colFreeze && colFreeze[1] === 'COLLAPSE_TOTAL_MS');
+  var brSrc = fs.readFileSync(root + '/src/render/BoardRenderer.js', 'utf8');
+  var C = STM.rendererTest.COLLAPSE;
+  check('Δ30a: 光环常量外露且与实现同源（220/140/80/32/48）',
+    !!C && C.TOTAL_MS === 220 && C.START_MS === 140 &&
+    C.OUTER_LIFE === 80 && C.INNER_STAGGER >= 30 && C.INNER_STAGGER <= 50 &&
+    C.START_MS + C.INNER_STAGGER + C.INNER_LIFE <= C.TOTAL_MS);
+  check('Δ30a: 双环色相（外环纯白 / 内环冰晶蓝 195~215°）',
+    !!C && C.COLOR_OUTER === '#FFFFFF' && /hsl\(205, 90%, 72%\)/.test(C.COLOR_INNER));
+  check('Δ30a: 双环线宽 1.5~2.5px / 半径 0.45 → 1.6~2.2 槽宽',
+    !!C && C.LW1 >= 1.5 && C.LW0 <= 2.5 && C.LW0 >= C.LW1 &&
+    C.R0_RATIO >= 0.4 && C.R0_RATIO <= 0.5 &&
+    C.OUTER_R1 >= 1.6 && C.OUTER_R1 <= 2.2 && C.INNER_R1 >= 1.6 && C.INNER_R1 <= 2.2);
+  check('Δ30a: 星芒 4~8 枚 / 全幅 6~14px / 220ms 前归零',
+    !!C && C.RAY_MIN >= 4 && C.RAY_MAX <= 8 &&
+    C.RAY_SIZE_MIN * 2 >= 6 && C.RAY_SIZE_MAX * 2 <= 14 &&
+    C.START_MS + C.RAY_START_MS + C.RAY_LIFE_MS <= C.TOTAL_MS);
+  check('Δ30a: 零掉落物——渲染器不再有任何 y 持续增大的绘制物',
+    brSrc.indexOf('spawnDockShatter') === -1 &&
+    brSrc.indexOf('vfxShards') === -1 &&
+    brSrc.indexOf('DOCK_SHARD_GRAVITY') === -1 &&
+    brSrc.indexOf('DOCK_SHARD_') === -1);
+  check('Δ30a: 碎块图集链路七符号全仓库零命中（ShardAtlas / SHARD_ 系列 / shards.jpg）',
+    brSrc.indexOf('ShardAtlas') === -1 && brSrc.indexOf('SHARD_ATLAS_TOTAL') === -1 &&
+    brSrc.indexOf('SHARD_BG_THRESHOLD') === -1 && brSrc.indexOf('SHARD_THEMES') === -1 &&
+    brSrc.indexOf('SHARD_RAMP_') === -1 && brSrc.indexOf('SHARD_GLOW_') === -1 &&
+    brSrc.indexOf('SHARD_RIM_MIX') === -1 && brSrc.indexOf('SHARD_SUBJECT_RATIO') === -1 &&
+    brSrc.indexOf('shards.jpg') === -1 && brSrc.indexOf('shards.png') === -1 &&
+    mainSrc.indexOf('spawnDockShatter') === -1);
+  check('Δ30a: 两份碎块门禁脚本已整份下线（不留空壳）',
+    !fs.existsSync(root + '/tools/shards-audit.js') &&
+    !fs.existsSync(root + '/tools/shard-vfx-smoke.js'));
+  check('Δ30a: css 关键帧为 220ms 三段且无 70ms 旧值',
+    /#dock \.slot\.slot-shattering \.dock-chip \{[\s\S]{0,200}animation: slot-shatter 220ms/.test(cssSrc) &&
+    cssSrc.indexOf('slot-shatter 70ms') === -1);
+  check('Δ30a: --suck-dx 变量通路存在（三槽横向滑行的唯一驱动）',
+    /--suck-dx/.test(cssSrc) &&
+    /translate3d\(var\(--suck-dx\)/.test(cssSrc) &&
+    /--suck-dx:/.test(mainSrc));
+  check('Δ30a: 关键帧三段边界可观测（36% 聚拢 / 64% 闪白峰值 / 100% 收 0）',
+    /@keyframes slot-shatter \{[\s\S]{0,900}36% \{[\s\S]{0,300}translate3d\(var\(--suck-dx\)/.test(cssSrc) &&
+    /@keyframes slot-shatter \{[\s\S]{0,2200}64% \{[\s\S]{0,200}scale\(1\.3\)/.test(cssSrc) &&
+    /@keyframes slot-shatter \{[\s\S]{0,2600}100% \{[\s\S]{0,200}scale\(0\)/.test(cssSrc));
+  check('Δ30a: 闪白峰值 brightness >= 1.6 且缩放峰值落 1.12~1.30',
+    /@keyframes slot-shatter \{[\s\S]{0,2200}brightness\(2\.4\)/.test(cssSrc) &&
+    /@keyframes slot-shatter \{[\s\S]{0,900}scale\(1\.12\)/.test(cssSrc));
+  check('Δ30a: 微震幅度 <= 1.5px（translate3d 抖动，与缩放同相）',
+    /@keyframes slot-shatter \{[\s\S]{0,1800}calc\(var\(--suck-dx\) \+ 1\.4px\), -1\.2px/.test(cssSrc));
+  check('Δ30a: 位移只作用于 .dock-chip——.slot 槽框零 transform / 零 animation',
     (function () {
-      var fn = mainSrc.indexOf('function fireDockShatter');
-      if (fn < 0) return false;
-      var seg = mainSrc.slice(fn, fn + 2600);
-      var iMeasure = seg.indexOf('getBoundingClientRect');
-      var iShatter = seg.indexOf('shatter: true');
-      return iMeasure > 0 && iShatter > iMeasure;
+      var i = cssSrc.indexOf('#dock .slot.slot-shattering,');
+      if (i < 0) return false;
+      var j = cssSrc.indexOf('}', i);
+      var block = cssSrc.slice(i, j);
+      return block.indexOf('transform') === -1 && block.indexOf('animation') === -1 &&
+        block.indexOf('scale') === -1 && /overflow: visible/.test(block);
     })());
-  check('T160: 辉光起点在爆发帧（spawnDockShatter 内建 vfxFlash，不早于前摇）',
-    (function () {
-      var src = fs.readFileSync(root + '/src/render/BoardRenderer.js', 'utf8');
-      var fn = src.indexOf('function spawnDockShatter');
-      if (fn < 0) return false;
-      /* 窗口放宽到 7000 字符：爆心辉光在出生盒计算之后，距函数头约 4.5k 字符 */
-      var body = src.slice(fn, fn + 7000);
-      var iFlash = body.search(/vfxFlash\s*=\s*\{/);
-      var iEnd = body.indexOf('\n      function ', 10);
-      if (iEnd < 0) iEnd = body.length;
-      return iFlash > 0 && iFlash < iEnd;
-    })());
-  /* .slot-shattering 关键帧：70ms + 非等比 + 闪白 */
-  check('T160: .slot-shattering 动画 70ms（原 180ms 震颤裂纹作废）',
-    /#dock \.slot\.slot-shattering[\s\S]{0,400}animation: slot-shatter 70ms/.test(cssSrc));
-  /* 特异性护栏：`.slot-shattering` 单类（0,1,0）会被 `.slot.has-tile`（0,2,0）
-   * 的落座动画 dock-seat 覆盖 → 真机上「前摇根本不播」。必须带 #dock .slot 前缀。 */
-  check('T160: 前摇选择器压过 .slot.has-tile 的 dock-seat（含 #dock .slot 前缀）',
+  check('Δ30a: reduced-motion 降级仍为 220ms（零滑行 / 零弹性 / 零微震）',
+    /@keyframes slot-shatter-static \{[\s\S]{0,300}100%/.test(cssSrc) &&
+    /#dock \.slot\.slot-shattering \.dock-chip \{[\s\S]{0,160}animation: slot-shatter-static 220ms/.test(cssSrc));
+  check('Δ30a: 前摇选择器仍压过 .slot.has-tile 的 dock-seat（含 #dock .slot 前缀）',
     /#dock \.slot\.slot-shattering\.has-tile/.test(cssSrc) &&
     /#dock \.slot\.slot-shattering\.is-filled/.test(cssSrc));
-  check('T160: 关键帧含非等比缩放（横纵相位相反）与 brightness 闪白',
-    /@keyframes slot-shatter \{[\s\S]{0,700}scale\(1\.16, 0\.84\)[\s\S]{0,400}scale\(0\.86, 1\.18\)/.test(cssSrc) &&
-    /@keyframes slot-shatter \{[\s\S]{0,900}brightness\(/.test(cssSrc));
-  check('T160: 前摇不改写 .slot 的 border/padding/background/border-radius',
-    !/#dock \.slot\.slot-shattering[\s\S]{0,420}(border|padding|background)/.test(cssSrc));
+  check('Δ30a: 槽框 border/padding/background/border-radius 一字未改',
+    !/#dock \.slot\.slot-shattering[\s\S]{0,300}(border|padding|background)/.test(cssSrc));
+  check('Δ30a: 清屏守卫保留（tick 尾部 vfxWasLive 驱动 dirty 补清）',
+    /vfxWasLive/.test(brSrc) &&
+    /var vfxLive = \(collapseRings\.length > 0 \|\| particles\.length > 0\);/.test(brSrc) &&
+    /else if \(vfxWasLive\) \{ vfxWasLive = false; dirty = true; \}/.test(brSrc));
+  check('Δ30a: 冻结窗口内并发两组互不覆盖（dockGhost 按槽位映射 + groupEndAt）',
+    /groupEndAt\[gid\] = now \+ COLLAPSE_TOTAL_MS/.test(mainSrc) &&
+    /map\[idx\] = \{ suit: suits\[k\], gid: gid, dx: dx \}/.test(mainSrc) &&
+    /function finishCollapseGroup/.test(mainSrc));
+  check('Δ30a: FLIP 补位 120~160ms 连续位移（无瞬跳）',
+    /var DOCK_FLIP_MS = (\d+);/.test(mainSrc) &&
+    (function () {
+      var m = mainSrc.match(/var DOCK_FLIP_MS = (\d+);/);
+      return !!m && +m[1] >= 120 && +m[1] <= 160 &&
+        /transition = 'transform ' \+ DOCK_FLIP_MS \+ 'ms/.test(mainSrc);
+    })());
   check('T160: 旧震颤裂纹伪元素已删除（::before/::after 白色裂纹线）',
     cssSrc.indexOf('.slot-shattering::before') === -1 &&
     cssSrc.indexOf('.slot-shattering::after') === -1);

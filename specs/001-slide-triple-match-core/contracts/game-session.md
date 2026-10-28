@@ -90,22 +90,27 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 
 **粒子**: 三消爆裂（花色色粒子 12~20 个，重力+衰减）、破冰碎屑（白蓝）、飞出拖尾。单帧粒子 ≤ 200。
 
-**开局进场编舞契约（Δ22 / FR-052）**：
+**开局进场编舞契约（Δ22 / FR-052；**Δ30b 重写时序与节奏**）**：
 
 | 项 | 契约 |
 |---|---|
 | `startDeal(modeId)` | 启动进场编舞；`modeId` 为 15 种之一（缺省由 `main.js` 抽取后传入）；重复调用 MUST 幂等（先快进上一次） |
 | `skipDeal()` | 立即快进至 `100%`（全部卡牌归位、`alpha = 1`、压制锁定按 FR-044 §4 生效），返回后棋盘立即可交互 |
 | `isDealing()` | 返回 `boolean`；`main.js` 的 `pointerdown` 前置检查据此决定是否先 `skipDeal()` 再走正常命中判定（**MUST NOT 吞掉该次点击**） |
-| 时序 | `0 ~ 180ms`：全部卡牌 `alpha = 0`，仅绘制风景底图；`180 ~ totalMs`：逐牌落定。**Δ27 修订**：`totalMs = 180 + max(260, (N-1) × 12) + 260 + 55 × zMax`（`N` = 卡牌数、`zMax` = 最高层号），原「动画总时长 `<= 1000ms`」固定上限**作废**（`260/(1000-180-260) × 141 ≈ 69` 张在途，与「逐张可辨」算术上不可兼得）；实测三档：`L1(N=18,z=0) = 700ms` / `L46(N=84,z=2) = 1546ms` / `L33(N=141,z=4) = 2340ms` |
-| **逐牌节奏（Δ27 / FR-052 §9，MUST）** | 逐牌错峰步长 `>= 12ms`；任一帧在途卡牌数 `<= 22`。实现要点：层高补偿 `+55ms*z` **只进排序键、不直接叠加到 `delay`**——`gcd(12, 55) = 1` 会把相邻落点挤到 `2ms`（旧实现实测满载在途 `35` 张）；`introSchedule()` 按最终名次**均分** `spread = max(260, (N-1)×12) + zMax×55` |
-| **同坐标层序锁（Δ27，MUST）** | 同一 `(r, c)` 渲染坐标下的多张卡牌，其落定槽位 MUST 按 `z` 升序重排（组内取用同一批槽位）——使「先底层后顶层」从启发式变为**硬保证**；实测最差层间间隔 `13.571ms > step` |
-| **入场清晰度（Δ27 / FR-052 §8，MUST）** | `a0 >= 0.62` 且 alpha 在进度 `35%` 内达 `1.0`；等比缩放 `<= 1.15`、下限 `0.2`；非等比压缩（`\|sx-sy\| > 0.1`）较小轴 `>= 0.55`；`blinds_flip` MUST 走水平 `ctx.clip` **遮罩揭示**（旧式 `scaleX → 0.05` 会把图案压扁 = 用户报告的"糊"）；MUST NOT 用 `ctx.filter` 模糊；同一卡牌同一帧 MUST 只绘制一次（禁残影叠层）；落定即回静态路径（零残余缩放 / 亚像素偏移） |
-| 逐牌回调 | 每张卡牌落定触发 `onDealTick(tile)` → `SoundManager.playDealTick(progress)`（节流 `>= 45ms`，单声 `15~22ms` 木质微触，音高随进度**由高到低**收敛 `320→180Hz`） |
-| **绘制排序（MUST）** | 动画期间 MUST 复用静态渲染**同一比较器** `(a.z - b.z) \|\| (a.r - b.r) \|\| (a.c - b.c)` 升序；MUST NOT 为动画另建排序 |
-| **层级延迟（MUST）** | 同一渲染坐标下高层 `z` 的落定时刻恒比低层晚 `+55ms * z`——**先落底层、后落顶层，零穿模** |
-| 坐标口径 | 起落坐标 MUST 复用 `getTileCssRect()`（含奇偶层半格偏移），MUST NOT 用逻辑坐标 `(c+0.5)*cell` 直算 |
-| 降级 | `prefers-reduced-motion: reduce` → 一次性淡入（无位移 / 旋转 / 缩放），**保留 `180ms` 底图停留** |
+| `dealTotalMs()` / `dealRemainingMs()` | 本次编舞的权威总时长 / 剩余时长（点击快进会让剩余提前归零）。教学卡片与预警横幅闸门 MUST 读 `dealRemainingMs()`，MUST NOT 用公式硬算 |
+| **时序（Δ30b，MUST）** | `LEAD = 0`——**取消开局留白**，切入关卡首帧立即起跑（MUST NOT 出现"棋盘全空"帧）。`totalMs = (W−1) × WAVE_STEP + TILE + zStep × zMax`，MUST 落 **`360~420ms`**（设计 `390ms`），且**与牌数无关**（三档极差 `<= 60ms`）。旧口径 `180 + max(260,(N-1)×12) + 260 + 55×zMax`（`700 / 1546 / 2340ms`）**作废** |
+| **波次预算（Δ30b，MUST）** | `W = clamp(6, 12, ceil(N / 12))`（同时 `<= floor(N/3)`，保证每波 `>= 3` 张）；`zStep = clamp(8, 24, (TARGET − TILE − WAVE_STEP_MIN × (W−1)) / zMax)`；`WAVE_STEP = (TARGET − TILE − zStep × zMax) / (W − 1)`，MUST `>= 14ms`；`TILE = 140ms`（域 `120~160`）、`TARGET = 390ms`。纯函数 `introBudgetOf(n, zMax)` 为唯一解算入口，`introDealTotalMs()` 与 `introSchedule()` MUST 共用它 |
+| **波内同起同落（Δ30b，MUST）** | 同一波次成员 `delay` **完全相同**；波次切分**层带优先**（同层内再按编舞序切空间连续块），故同一 `(r,c)` 的层叠牌必然落在不同波次 |
+| ~~逐牌节奏（Δ27 / FR-052 §9）~~ **（Δ30b 作废）** | 「逐牌步长 `>= 12ms` / 任一帧在途 `<= 22`」**算术上与 `420ms` 预算互斥**（141 张保持 `9ms` 步长需 `≈1440ms`）。零穿模的唯一保证是 `draw()` 的 `(z,r,c)` 比较器；`zStep` 只负责"先底后上"的节拍。`INTRO_STAGGER_MS` / `INTRO_SPREAD_MIN_MS` 两个常量名 MUST 一并从实现与 `STM.rendererTest` 导出中删除（只删实现不删导出 = 门禁读旧值 = 假绿） |
+| **同坐标层序锁（MUST，保留）** | 同一 `(r, c)` 渲染坐标下的多张卡牌，低 `z` 的 `delay` MUST **严格小于**高 `z`（`introSchedule` 按 `z` 升序分层带 + 波次号递增保证）；门禁断言「`lockBad = 0`」 |
+| **入场清晰度（Δ27 / FR-052 §8，MUST）** | `a0 >= 0.62` 且 alpha 在进度 `35%` 内达 `1.0`；等比缩放 `<= 1.15`、下限 `0.2`；非等比压缩（`\|sx-sy\| > 0.1`）较小轴 `>= 0.55`；`blinds_flip` MUST 走水平 `ctx.clip` **遮罩揭示**；MUST NOT 用 `ctx.filter` 模糊；同一卡牌同一帧 MUST 只绘制一次；落定即回静态路径（零残余缩放 / 亚像素偏移） |
+| **位移与缓动（Δ30b，MUST）** | 单卡初始位移 **`0.3~1.4 × cell`**（全部按格宽换算，MUST NOT 用 px 硬编码）；缓动统一 **`quart`**（强减速硬停），MUST NOT 出现 `back` / `elastic` 过冲；末段 `10%` 时长内位移 MUST `<= 2%` |
+| 逐牌回调 | 每张卡牌落定触发 `onDealTick(tile)` → `SoundManager.playDealTick(progress)`（节流 `>= 45ms`，单声 `15~22ms` 木质微触，音高随进度**由高到低**收敛 `320→180Hz`）；`progress` MUST 用**落牌时间轴** `delay / maxDelay`（`LEAD = 0` 后原 `(delay−LEAD)/(maxDelay−LEAD)` 自然退化为同式），MUST NOT 用 `ord`（会因层高补偿而乱序，音高忽高忽低）；同帧多牌 MUST 先排序再发声 |
+| **绘制排序（MUST）** | 动画期间 MUST 复用静态渲染**同一比较器** `(a.z - b.z) \|\| (a.r - b.r) \|\| (a.c - b.c)` 升序；MUST NOT 为动画另建排序。**Δ30b 后这是零穿模的唯一保证** |
+| **层级延迟（MUST）** | 同一渲染坐标下高层 `z` 的起跑恒比低层晚 `zStep × z`（`8~24ms`）——先落底层、后落顶层 |
+| 坐标口径 | 起落坐标 MUST 复用 `getTileCssRect()`（含奇偶层半角偏移），MUST NOT 用逻辑坐标 `(c+0.5)*cell` 直算 |
+| 降级 | `prefers-reduced-motion: reduce` → 一次性淡入（无位移 / 旋转 / 缩放），**总时长仍落 `360~420ms`**（MUST NOT 因降级缩短或延长） |
+| 常量导出（MUST 同源） | `STM.rendererTest.INTRO = { LEAD_MS: 0, TILE_MS, WAVE_MIN, WAVE_MAX, WAVE_TILES, WAVE_STEP_MIN, TARGET_MS, Z_STEP_MIN, Z_STEP_MAX, REF_CELL, DISP_MAX_CELL, DISP_MIN_CELL, TICK_AT, ALPHA0, ALPHA_MIN_SAFE, ALPHA_FULL_AT, SCALE_MAX, SCALE_MIN, NONUNI_MIN, MODES }` + 纯函数 `introBudgetOf` / `introWaveCount` / `introSchedule` / `introSpecOf` / `introEaseOf`。**`STAGGER_MS` / `SPREAD_MIN_MS` 两个键 MUST NOT 再出现** |
 | 纯表现层 | MUST NOT 改变卡牌花色/方向/坐标/层号；MUST NOT 触发 Solver、关卡生成或持久化 |
 
 **15 种 `modeId` 枚举**（逐字锁定）：`diagonal_cascade` / `center_ripple` / `outer_converge` / `spiral_vortex` / `wings_clasp` / `sky_rain` / `layer_stack` / `zipper_interleave` / `windmill_quadrants` / `v_formation` / `checkerboard_weave` / `blinds_flip` / `deck_deal` / `tailwind_glide` / `starlight_scatter`。
@@ -130,27 +135,32 @@ session.onRail();           // bool: 自加载以来动作序列 == solutionMove
 | 兜底 | `<= 400ms` 兜底定时器防异常滞留；`prefers-reduced-motion: reduce` → 零位移直接落定（`90ms`，保留落槽音与槽位揭示） |
 | 纯表现层 | MUST NOT 影响归拢顺序、命中判定与可解性；MUST NOT 触发 Solver / 持久化；MUST NOT 持久化飞行态 |
 
-### 4.2 碎块图集与三消碎裂契约（Δ27 / FR-049 §8~§13，Δ28 修订材质与时序）
+### 4.2 三消坍缩演出契约（Δ30a / FR-049 §18 ①~⑨，**取代 Δ27~Δ29 的碎块契约**）
+
+> **Δ30a 整体下线**：`STM.spawnDockShatter` / `vfxShardsOf()` / `vfxFlashInfo()` / `ShardAtlas` /
+> `rendererTest.DOCK_SHARDS` / `SHARD_*` 常量 / `vfxShards` 池 / 抛物线物理 / 爆心辉光 / 挤压闪白前摇
+> **全部移除**（MUST NOT 以注释、死代码或 `if (false)` 开关形式保留）。
+> `assets/icons/shards.*` 文件 MAY 留在仓库，但**运行期 MUST NOT 加载 / 切片 / 键控**。
 
 | 项 | 契约 |
 |---|---|
-| `STM.spawnDockShatter(slotRects)` | 全局入口；`slotRects` = 3 个消除槽的 `DOMRect` 数组。委托给最近一次 `createBoardRenderer` 的实例方法 |
-| `vfxShardsOf()` | 返回当前存活碎片数组（`{ x, y, vx, vy, rot, vr, life, life0, size, kind, atlas, alpha0 }`），供 `shard-vfx-smoke` / `delta27-verify` 断言数量、配比与物理 |
-| `vfxFlashInfo()`（Δ28d） | 爆心辉光描述符 `{ x, y, r, t0, dur }`，过期后返回 `null`（与绘制路径同步置空）。供 `delta27-verify` ⑤ 断言「`0~180ms` 有辉光 / 之后无残留」 |
-| `ShardAtlas` | `{ src, size: 2048, grid: 3, cellPx: 2048/3, slices[27], bbox[9], keyState: 'idle'\|'ready'\|'failed', keyMs }`；**`slices` 索引序 = 形状主序 / 色系次序（`themeOf(i) = i % 3`）**；`rendererTest.ShardAtlas` 外露只读视图（含 `THEMES` / `TOTAL` / `RAMP_MID` / `RAMP_GAMMA`） |
-| 素材与路径 | 权威路径 **`assets/icons/shards.jpg`**（用户确认的唯一素材：`2048×2048`、3×3 = 9 枚白瓷 3D 碎块、纯黑底、无 alpha）；按 `.png → .jpg` 探测链加载；`.png` 仅作可选增强 |
-| 键控（MUST；**Δ29b 重写**） | **边界连通域泛洪（Edge-connected Flood Fill）**：从九宫格单元四条边界向内 BFS，只有「**与边界连通**且 `max(R,G,B) <= 44`（可调域 `24~56`）」的像素判为背景（`alpha = 0`）；**被主体包围的近黑像素 MUST 保留为暗面**（`alpha = 255`）。外沿一圈（主体且 4 邻域含背景）做 `0.34 + 0.66t` alpha 软过渡 + `SHARD_EDGE_LIFT = 0.55` 半量提亮。MUST 用 `{ willReadFrequently: true }` 上下文做**单次**回读，MUST 早于 `startDeal()`（实测 `158~242ms`）。**MUST NOT 退回全局阈值**（那会把背光侧深灰蓝厚壁一并抠掉 = 用户指认的「扁平小白片」根因） |
-| 染色与方向光（Δ28b-2，MUST） | 每切片每色系一张 **256 项一级 LUT**：按切片 `p5/p97` 归一化 → `^1.62` 对比拉伸 → 三段 ramp（`t < 0.55` 走 `sh → mid`，否则 `mid → hi`）→ 键控渐变带以 `RIM_MIX = 0.52` 推向 `hi`（**MUST NOT 直接置为 `hi`**）→ 预烘焙柔光晕（`72²` 降采样 `blur`）→ **`source-atop`** 方向光（左上透明 → 右下 `rgba(14,22,48,0.34)`，不透明度落 `0.28~0.42`）。**MUST NOT 用 `multiply`**（透明区结果 alpha = `1`，会把 `256²` 画框填成方块）。逐帧路径 MUST 保持「单枚一次 `drawImage`」 |
-| 材质不变量（**Δ29b 提标**） | 每张切片暗部（`max(R,G,B) <= 190 && alpha >= 250`）占比 MUST **`>= 25%`**（实测 `42.4%~84.7%`）；同一切片「暗面均值亮度」与「亮面均值亮度」差 MUST `>= 55`；`RAMP_GAMMA >= 1.5`；**零掏空洞**（被主体包围的 `alpha == 0` 像素 MUST 为 `0`）；外沿 2px 环带不透明占比 `<= 0.5%`；跨 190 阈值的相邻像素对数 `>= 200`（明暗交界线真实存在）；同色系 9 张平均色相极差 `<= 40°`、三色系两两跨度 `>= 15°` |
-| 碎裂时序（Δ28a，MUST） | `match` 事件到达时 MUST 以 `renderer.dockPending(id)` 探测在途；有在途 → **挂起**（`pendingShatter`），`onFlightLand` 逐张以 **ghost 槽位**（`dockGhost = { map, shatter }`）把槽画成有牌态，全部落定后统一 `fireDockShatter`；`700ms` 兜底强制爆发。MUST NOT 在 `match` 里同步爆发（会「牌没到就碎」），MUST NOT 用固定 `setTimeout` 糊（飞行时长随方向不同） |
-| 爆心辉光（Δ28d，MUST） | 碎裂瞬间在 3 槽包围盒中心打一次 `180ms` 径向辉光（`lighter` + `createRadialGradient`，半径 `0.55× → 1.4×`，alpha 按 `(1-p)²` 衰减）；半径基准 `max(包围盒宽, 高) × 0.52` |
-| VFX 层清屏（Δ28d，MUST） | `tick` 尾部维护 `vfxWasLive`；碎块池 / 粒子 / 辉光由「有」转「空」的那一帧 MUST 强制 `dirty = true` 补一次 `drawVfx()` 清屏——否则最后一帧碎片被永久冻结（实测残留 `15~16 万` 像素 ≈ 画布 `10%`） |
-| 九宫格边界 | 格宽 `2048/3 ≈ 682.67`，取格 MUST 允许小数边界（`Math.floor/ceil`），**MUST NOT 向下取整丢边缘**；9 枚 MUST 全部可用 |
-| 发射（MUST；**Δ29b 重定标**） | 每次三消 **`36~54` 枚**（每卡 `12~18`）；三级可见长边 **`48~72 / 28~42 / 14~20`**，大块占比 `>= 25%` 且每卡 `>= 3` 枚、细粉 `<= 20%`；同帧 `>= 6` 种切片 + `>= 2` 色系；同帧任两枚中心距 **`>= 0.85 × min(两者长边)`**（两级拒绝采样：前 64 次试 `0.85×`、后 128 次试 `0.5×` 硬约束）；单帧 `<= 54`。**物理（Δ29b）**：竖直初速 **`vy0 ∈ [-480, -300]`**（必须有向上分量 = 微跳）、重力 **`6400`（域 `5600~7200`）**、`40~90ms` 翻转、跳高 `6~21px`、翻转后 `>= 500 px/s`；水平 `60~180 px/s` 且**全团同号**（`sweepDir`）、总位移 `<= 1.5` 槽宽；生命 **`300~520ms`**；**`alpha` 恒 `1.0`**（仅末段 `<= 120ms` 或出屏淡出）；`tick` 用常加速度精确解 `y += (vy + ½g·dt)·dt`（位置级帧率无关）。MUST NOT 加阻力或终速限制 |
-| 性能（MUST） | 单枚一次 `drawImage`；MUST NOT 用 `ctx.filter`、MUST NOT 逐枚 `clip`；三消峰值帧 `p95 <= 20ms / max <= 34ms` |
-| 降级 | 素材缺失或键控失败（`keyState === 'failed'`）→ 回退 FR-049 §3 程序化 Low-Poly 碎片（`makeVerts` 路径保留），游戏完整可玩、控制台零报错 |
-| 槽内前摇（Δ27 新增 → **Δ29b 重写**） | `match` 事件到达后，3 张匹配卡牌先以 **ghost 有牌态**上屏并在 **`60~80ms`（现行 `70ms`）** 内播放**非等比膨胀挤压 + 高光闪白**（`.slot-shattering`，`animation: slot-shatter 70ms`）；**膨胀顶点那一帧**生成碎块并**同帧**清槽（零空窗 / 零叠帧）。`main.js` 用 `dockFreezeUntil`（`180ms` = 前摇 + 爆发）冻结该窗口内的 `renderDock()` 重绘；`700ms` 兜底定时器 MUST 含前摇。**选择器特异性硬约束**：MUST 写成 `#dock .slot.slot-shattering`（`1,2,0`）——单类 `.slot-shattering`（`0,1,0`）会被 `.slot.has-tile` 的 `dock-seat` 落座动画（`0,2,0`）整段覆盖，真机上「前摇根本不播」（已由 `delta27-verify` ⑧ 的计算样式断言守住） |
-| 常量导出（Δ29b，MUST） | `STM.rendererTest.DOCK_SHARDS` MUST 与实现常量**同源同步**（`total/life/gravity/vx/vy/alpha/fadeTail/ratio/size/gapRatio/tumbleRate/tumbleFloor/hopMaxRatio`），新增 `SHARD_KEYING`（泛洪阈值 / 软过渡 / rimMix / gamma / shadeAlpha）与 `pumpShard(rec, dtList)` / `shardHopOf(vy0, g)` 解析工具；不同步会让门禁常量断言读到旧值 → **「假绿」** |
+| `spawnCollapseImpact(cx, cy, slotW, reduced)` | **实例方法**（`STM.main.renderer()` 取到）。`cx/cy` = 视口 CSS 像素圆心，`slotW` = 槽宽（半径基准），`reduced = true` 时只生成 1 道环、零星芒。返回创建的绘制记录数（`6~10`）。**MUST NOT** 有任何向下掉落的绘制物 |
+| `collapseRingsOf()` | 只读快照 `[{ kind:'outer'\|'inner'\|'ray', x, y, w, t0, dur, r0, r1, color, lw0, lw1, size, ang }]`；供门禁断言双环错峰 / 星芒枚数 / 半径曲线 / 生命周期 |
+| `clearVfx()` | 清空 `collapseRings` + `particles` 并置 `vfxWasLive = false`；换关 / 重置 / Undo MUST 调用 |
+| `drawVfxNow(atMs?)` | **取证钩子**（只读渲染，不改状态）：同步渲染一帧 VFX 层。`atMs` 可把光环时间轴拨到指定相位（不传 = 真实墙钟）。存在理由：光环寿命仅 `80ms`，低帧率环境（headless 单帧可达 `150ms`）墙钟采样永远落在窗口外 → 无此钩子则「画布零像素」与「确实没画」不可区分 |
+| 三段时序（MUST） | 总长 **`220ms`**：`0~80ms` 磁吸聚拢（`translate3d(var(--suck-dx))` + 加速 `cubic-bezier(.42,0,.9,.6)`）→ `80~140ms` 闪白膨胀（`scale 1.12→1.30` 弹性 + `brightness >= 1.6` + 微震 `<= 1.5px`）→ `140~220ms` 坍缩（`scale → 0` + `opacity → 0`，加速收尾）。CSS 关键帧名 `slot-shatter`，时长 `220ms`；**MUST NOT 残留 `70ms` 旧值** |
+| 位移载体（MUST） | 磁吸 / 闪白 / 坍缩**只作用于 `.dock-chip`** 的 `transform` / `filter` / `opacity`；`.slot` 槽框 MUST NOT 位移或改形（`border` / `padding` / `background` / `border-radius` 计算值逐项不变）。演出期三槽 `overflow: visible`（由 `#dock .slot.slot-shattering` 特异性 `1,2,0` 覆盖——单类选择器会被 `.slot.has-tile` 的 `dock-seat` 整段盖掉） |
+| `--suck-dx` 通路（MUST） | `dx = 中心槽 left − 本槽 left`，由 JS **一次性**写入内联 CSS 变量；MUST NOT 逐帧改样式、MUST NOT 起 rAF 驱动 CSS。左右两张 MUST 一正一负（向中间收敛），中间那张 `= 0`；量级 `0.8~1.6 ×` 槽距。**MUST NOT 用「槽宽 × 序号」换算** |
+| 几何采集（MUST，Δ30a 实机踩坑） | `.slot.has-tile` 挂着 `dock-seat` 入场动画（`scale(.72) → 1.08 → 1`，`260ms`）。坍缩恰好在「第 3 张刚落定」那一帧起演，此时 `getBoundingClientRect()` 返回**被 transform 缩放过的**盒子（实测槽宽 `44 → 31.68`，×0.72）→ 光环半径与磁吸位移整体缩水 `28%`。故基准几何 MUST 取布局尺寸 `offsetWidth/offsetHeight`（不含 transform），再用「rect 中心」反推未缩放左上角（`scale` 以中心为原点 → 中心不变）。`dx` 虽因两槽同比例缩放而在数学上不变，仍 MUST 走同一份归一化几何 |
+| 双环与星芒（MUST） | 外环 `#FFFFFF` / 内环 `hsl(205, 90%, 72%)`；线宽 `2.5 → 1.5px`（递减）；半径 `0.45× → 2.0×`（外）/ `1.6×`（内）槽宽；alpha 按 `(1-p)^1.7` 单调衰减；**两环错峰 `32ms`**（外环先起）、寿命 `80 / 48ms`；四角星芒 `4~8` 枚、`6~14px`、`+16ms` 起跑、寿命 `64ms`。全部在 `220ms` 前归零 |
+| 零掉落物（MUST） | `#vfx-canvas` 上除同心圆环与四角星芒外 MUST NOT 出现任何其他绘制物；`y` 方向持续增大的对象数 MUST `= 0`。每帧一次遍历完成（`lighter` 合成），禁 `ctx.filter` / 逐枚 `shadowBlur` / 逐帧新建 canvas；池复用（`ringPool`） |
+| 碎裂时序（MUST，沿用 Δ28a） | `match` 事件到达时以 `renderer.dockPending(id)` 探测在途；有在途 → 挂起（`pendingShatter`），`onFlightLand` 逐张以 **ghost 槽位**把槽画成有牌态，全部落定后统一 `fireDockShatter`；`700ms` 兜底强制起演。MUST NOT 在 `match` 里同步起演（会「牌没到就爆」） |
+| `dockGhost` 并发（MUST） | 形态 **`{ map: { slotIndex: { suit, gid, dx } } }`** + `groupEndAt: { gid: endAt }` 表——`220ms` 窗口内的第二次三消 MUST NOT 覆盖第一组；只影响 `renderDock()` 的 HTML，不写回 session、不参与判定、换关 / 重置 / Undo 清空 |
+| 冻结与补位（MUST） | `DOCK_FREEZE_MS = 220`（== 演出总长）；解除冻结时**一次性重建** + FLIP：重建前记录剩余 `.slot` 旧 `rect`，重建后对 `.dock-chip` 施加 `translateX(旧−新)` 并在 `DOCK_FLIP_MS = 140`（域 `120~160`）内过渡回 `0`（强减速）；MUST NOT 瞬跳、MUST NOT 出现「空槽闪一下再填上」 |
+| VFX 层清屏（MUST，守卫保留） | `tick` 尾部维护 `vfxWasLive`（`collapseRings.length > 0 \|\| particles.length > 0`）；由「有」转「空」的那一帧 MUST 强制 `dirty = true` 补一次 `drawVfx()` 清屏——**碎块池删除时最容易顺手删掉该守卫**，删了就会「末帧永久冻结」 |
+| 降级（MUST） | `prefers-reduced-motion: reduce` → 零横向滑行 / 零弹性 / 零微震，只留原位闪白 + 单环淡出，**总时长仍 `220ms`**（MUST NOT 因降级改变结算节奏）；`#dock` 可用槽不足 3 个 / 取不到 rect → 退化为原位闪白 + 双环，MUST NOT 抛错、MUST NOT 跳过演出 |
+| 常量导出（MUST 同源） | `STM.rendererTest.COLLAPSE = { TOTAL_MS, START_MS, OUTER_LIFE, INNER_STAGGER, INNER_LIFE, LW0, LW1, R0_RATIO, OUTER_R1, INNER_R1, COLOR_OUTER, COLOR_INNER, RAY_MIN, RAY_MAX, RAY_SIZE_MIN, RAY_SIZE_MAX, RAY_START_MS, RAY_LIFE_MS }`（`STM.COLLAPSE` 为同值别名）；`STM.main.peakTiming` 暴露 `{ collapseMs: 220, ringAtMs: 140, flipMs: 140, freezeMs: 220 }`。不同步会让门禁常量断言读到旧值 → **「假绿」**（Δ29 已踩过同类坑） |
+| 性能（MUST） | 峰值帧间隔 `p95 <= 20ms` / `max <= 34ms`；演出结束残留亮斑像素占比 `= 0` |
 
 ### 4.3 困难关预警横幅契约（Δ29a / FR-036 重写）
 

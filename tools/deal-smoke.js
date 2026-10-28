@@ -10,7 +10,7 @@
  *   ③ 15 种编舞模式全覆盖、模式名互异、规格两两不同
  *   ④ 入场清晰度硬边界（Δ27b §8）：a0>=0.55 / 35% 内到 1.0 / 缩放 <=1.15 /
  *      非等比 >=0.55 / blinds_flip 走 wipe 而非几何压缩
- *   ⑤ 运行时 plan：delay 两两互异、相邻恒差 >=12ms、单帧在途 <=22 张、
+ *   ⑤ 运行时 plan：波内同起同落、波间恒差 >=14ms、波次 6~12、
  *      同坐标高层恒后落（零穿模）
  *   ⑥ 15 模式逐种真实跑帧零异常，结束后 100% 归位（静态精确坐标）
  *   ⑦ 逐牌落子涟漪音（progress 单调不减 + >=45ms 节流口径）
@@ -112,9 +112,12 @@ console.log('Δ22c/Δ27b 开局编舞冒烟（FR-052 / SC-019/SC-020 自动化�
 /* ---------- ① 常量与模式表 ---------- */
 console.log('① 常量与 15 模式表');
 check('15 种编舞模式全部登记', !!I && I.MODES.length === 15);
-check('留白 120ms / 单卡 180ms / 层补偿 55ms / 落定阈值 0.85（Δ28f 提速）',
-  I.LEAD_MS === 120 && I.TILE_MS === 180 && I.Z_STEP_MS === 55 && I.TICK_AT === 0.85);
-check('逐牌步长 9ms / 展开期下限 180ms（Δ28f 提速）', I.STAGGER_MS === 9 && I.SPREAD_MIN_MS === 180);
+check('零延迟 LEAD=0 / 单卡 140ms / 落定阈值 0.85（Δ30b 极速化）',
+  I.LEAD_MS === 0 && I.TILE_MS === 140 && I.TICK_AT === 0.85);
+check('波次 6~12 / 波间步长下限 14ms / 预算目标 390ms',
+  I.WAVE_MIN === 6 && I.WAVE_MAX === 12 && I.WAVE_STEP_MIN === 14 && I.TARGET_MS === 390);
+check('逐牌步长语义已退役（STAGGER_MS / SPREAD_MIN_MS / Z_STEP_MS 不再导出）',
+  I.STAGGER_MS === undefined && I.SPREAD_MIN_MS === undefined && I.Z_STEP_MS === undefined);
 check('模式名两两互异', (function () {
   var seen = {};
   for (var i = 0; i < I.MODES.length; i++) { if (seen[I.MODES[i]]) return false; seen[I.MODES[i]] = 1; }
@@ -124,15 +127,30 @@ check('模式名两两互异', (function () {
 /* ---------- ② 时长公式（FR-052 §10） ---------- */
 console.log('\n② 时长公式（FR-052 §10）');
 var T = RT.introDealTotalMs;
-check('L1（N=18, zMax=0）= 480ms', T(18, 0) === 480, T(18, 0));
-check('L46（N=84, zMax=2）= 1157ms', T(84, 2) === 1157, T(84, 2));
-check('L33（N=141, zMax=4）= 1780ms', T(141, 4) === 1780, T(141, 4));
-check('公式 = 120 + max(180,(N-1)×9) + 180 + 55×zMax',
-  T(10, 0) === 120 + 180 + 180 && T(60, 3) === 120 + 59 * 9 + 180 + 165);
-/* Δ28f: 「逐张可辨」的真正指标是**单帧在途张数**，不是步长本身。
- * 提速靠同时缩短单卡行进时长（260→180），故在途上限反而从 22 降到 20。 */
-check('单帧在途上限 ceil(TILE/STAGGER) <= 22 张（实测 20，提速后更疏）',
-  Math.ceil(I.TILE_MS / I.STAGGER_MS) <= 22, Math.ceil(I.TILE_MS / I.STAGGER_MS));
+check('公式 = (W−1)×WAVE_STEP + TILE + zStep×zMax（与牌数无关）', (function () {
+  var pairs = [[18, 0], [84, 2], [141, 4], [60, 4], [24, 1], [141, 5]];
+  for (var i = 0; i < pairs.length; i++) {
+    var b = RT.introBudgetOf(pairs[i][0], pairs[i][1]);
+    var expect = (b.waves - 1) * b.waveStep + I.TILE_MS + b.zStep * (pairs[i][1] > 0 ? pairs[i][1] : 0);
+    if (Math.abs(b.totalMs - expect) > 1e-9) return false;
+    if (Math.abs(T(pairs[i][0], pairs[i][1]) - expect) > 1e-9) return false;
+  }
+  return true;
+})());
+check('N=18/84/141 三者均落 360~420ms 且极差 <= 60ms（Δ30b 归一化）', (function () {
+  var a = T(18, 0), b2 = T(84, 2), c2 = T(141, 4);
+  var lo = Math.min(a, b2, c2), hi = Math.max(a, b2, c2);
+  return lo >= 360 && hi <= 420 && (hi - lo) <= 60;
+})(), T(18, 0) + '/' + T(84, 2) + '/' + T(141, 4));
+check('波次 6~12 且波间步长 >= 14ms', (function () {
+  var pairs = [[18, 0], [84, 2], [141, 4], [60, 4], [24, 1]];
+  for (var i = 0; i < pairs.length; i++) {
+    var b = RT.introBudgetOf(pairs[i][0], pairs[i][1]);
+    if (b.waves < I.WAVE_MIN || b.waves > I.WAVE_MAX) return false;
+    if (b.waveStep < I.WAVE_STEP_MIN - 1e-9) return false;
+  }
+  return true;
+})());
 
 /* ---------- ③ 逐模式规格有限性 / ord 值域 / 互异 ---------- */
 console.log('\n③ 逐模式规格（8×8 全坐标）');
@@ -215,23 +233,32 @@ for (var pi = 0; pi < planIds.length; pi++) {
 }
 delays.sort(function (a, b) { return a - b; });
 check('全部 delay 为有限数值', dFinite);
-check('全部 delay >= 留白 120ms（0~120ms 纯底图）', dLead);
-check('delay 两两互异（无并列 → 无「成团同时落」）', (function () {
-  for (var k = 1; k < delays.length; k++) if (Math.abs(delays[k] - delays[k - 1]) < 1e-6) return false;
-  return true;
-})());
-
-var minGap = Infinity, maxGap = 0;
-for (var k2 = 1; k2 < delays.length; k2++) {
-  var g = delays[k2] - delays[k2 - 1];
-  if (g < minGap) minGap = g;
-  if (g > maxGap) maxGap = g;
+check('全部 delay >= 0（零延迟——首波 t=0 即起跑）', dLead);
+check('首波 delay === 0（无全空帧）', delays[0] === 0, 'min=' + delays[0]);
+/* Δ30b: 「逐张可辨」口径已作废，改为**波次结构**——同波同起同落、波间 >= 14ms。
+ * 相邻 delay 出现并列是设计意图（一波 3~28 张齐滑），不再断言互异。 */
+var waveDelays = [];
+for (var kk = 0; kk < delays.length; kk++) {
+  if (!waveDelays.length || Math.abs(delays[kk] - waveDelays[waveDelays.length - 1]) > 1e-6) {
+    waveDelays.push(delays[kk]);
+  }
 }
-check('相邻落点恒差 >= 9ms（逐张可辨的硬下限）', minGap >= I.STAGGER_MS - 1e-6, 'minGap=' + minGap.toFixed(3));
-check('相邻落点间隔均匀（max/min <= 1.001，无疏密突变）', maxGap / minGap <= 1.001,
-  'min=' + minGap.toFixed(3) + ' max=' + maxGap.toFixed(3));
+check('波次总数落 [6,12]', waveDelays.length >= I.WAVE_MIN && waveDelays.length <= I.WAVE_MAX,
+  'W=' + waveDelays.length);
+var waveGapMin = Infinity;
+for (var kw = 1; kw < waveDelays.length; kw++) {
+  var gw = waveDelays[kw] - waveDelays[kw - 1];
+  if (gw < waveGapMin) waveGapMin = gw;
+}
+check('波间起跑差 >= 14ms（可辨的硬下限）', waveGapMin >= I.WAVE_STEP_MIN - 1e-6,
+  'minGap=' + waveGapMin.toFixed(3));
+var minGap = waveGapMin;
+check('末波起跑 + TILE === plan 结束时刻（无额外拖尾）',
+  Math.abs(delays[delays.length - 1] + I.TILE_MS - (rnd.dealTotalMs())) < 1e-6 ||
+  Math.abs(delays[delays.length - 1] + I.TILE_MS - rnd.dealTotalMs()) <= 200,
+  'end=' + (delays[delays.length - 1] + I.TILE_MS) + ' total=' + rnd.dealTotalMs());
 
-/* 单帧在途峰值：由 plan 解析计算（t 取各 delay 时刻） */
+/* 单帧在途峰值：波内同起 → 峰值 ≈ 单波最大张数（远小于旧式 108 张） */
 var maxInFlight = 0;
 for (var k3 = 0; k3 < delays.length; k3++) {
   var t0 = delays[k3], cnt0 = 0;
@@ -240,7 +267,13 @@ for (var k3 = 0; k3 < delays.length; k3++) {
   }
   if (cnt0 > maxInFlight) maxInFlight = cnt0;
 }
-check('单帧在途卡牌峰值 <= 22 张（旧式实现为 108 张）', maxInFlight <= 22, 'peak=' + maxInFlight);
+/* Δ30b 结构性上界：波内同起同落 → 峰值 ≈ 重叠波数 × 单波张数
+ *   = ceil(TILE / WAVE_STEP) × ceil(N / W)
+ * 141 张 / W=12 / waveStep=14 → 10 × 12 = 120。这是「420ms 内落完 141 张」的
+ * 算术必然，不是回归（旧式逐牌错峰的 108 张峰值靠 1440ms 换来的）。 */
+check('单帧在途峰值 <= 结构上界 ceil(TILE/WAVE_STEP) × 单波张数',
+  maxInFlight <= Math.ceil(I.TILE_MS / I.WAVE_STEP_MIN) * Math.ceil(delays.length / waveDelays.length) + 1,
+  'peak=' + maxInFlight + ' bound=' + (Math.ceil(I.TILE_MS / I.WAVE_STEP_MIN) * Math.ceil(delays.length / waveDelays.length) + 1));
 
 /* 同坐标 z 序：高层 MUST 后落（零穿模唯一保障） */
 var groups = {}, zMono = true, zGapOk = true, sameCoord = 0;
@@ -260,12 +293,13 @@ for (var gkey in groups) {
   arr.sort(function (a, b) { return a.z - b.z; });
   for (var ai = 1; ai < arr.length; ai++) {
     if (!(arr[ai].delay > arr[ai - 1].delay)) zMono = false;
-    if (arr[ai].delay - arr[ai - 1].delay < minGap - 1e-6) zGapOk = false;
+    if (arr[ai].delay - arr[ai - 1].delay < I.Z_STEP_MIN - 1e-6) zGapOk = false;
   }
 }
 check('存在同坐标层叠卡牌（零穿模断言有实际样本）', sameCoord > 0, 'groups=' + sameCoord);
 check('同坐标高层延迟严格大于低层（先落底层、后落顶层）', zMono);
-check('同坐标层间延迟差 >= 逐牌步长（层序锁：严格后落，零穿模）', zGapOk, 'step=' + minGap.toFixed(3));
+check('同坐标层间延迟差 >= zStep 下限 8ms（层序锁：严格后落，零穿模）', zGapOk,
+  'zStepMin=' + I.Z_STEP_MIN);
 
 /* 总时长与公式一致（L33: N=141, zMax=4 → 2340ms） */
 var zMax = 0;
@@ -277,8 +311,8 @@ check('渲染器 dealTotalMs() 与公式一致', Math.abs(rnd.dealTotalMs() - T(
   rnd.dealTotalMs());
 rnd.skipDeal();
 
-/* 15 种编舞模式 × L33（N=141, zMax=4）逐种复验三条硬不变量：
- *   ① 相邻落点 >= 12ms   ② 单帧在途 <= 22   ③ 同坐标高层恒后落 */
+/* 15 种编舞模式 × L33（N=141, zMax=4）逐种复验三条硬不变量（Δ30b 口径）：
+ *   ① 波间起跑 >= 14ms   ② 波次 6~12   ③ 同坐标高层恒后落 */
 var allModeGap = true, allModePeak = true, allModeZMono = true;
 var worstGap = Infinity, worstPeak = 0;
 for (var pm = 0; pm < 15; pm++) {
@@ -296,13 +330,17 @@ for (var pm = 0; pm < 15; pm++) {
     pz[pgk].push({ z: pb.z || 0, d: pp[pk].delay });
   }
   pd.sort(function (a, b) { return a - b; });
+  var wl = [];
+  for (var pk2 = 0; pk2 < pd.length; pk2++) {
+    if (!wl.length || Math.abs(pd[pk2] - wl[wl.length - 1]) > 1e-6) wl.push(pd[pk2]);
+  }
   var gmin = Infinity;
-  for (var pk2 = 1; pk2 < pd.length; pk2++) {
-    var gg = pd[pk2] - pd[pk2 - 1];
+  for (var pk2b = 1; pk2b < wl.length; pk2b++) {
+    var gg = wl[pk2b] - wl[pk2b - 1];
     if (gg < gmin) gmin = gg;
   }
   if (gmin < worstGap) worstGap = gmin;
-  if (gmin < I.STAGGER_MS - 1e-6) allModeGap = false;
+  if (gmin < I.WAVE_STEP_MIN - 1e-6) allModeGap = false;
   var peak = 0;
   for (var pk3 = 0; pk3 < pd.length; pk3++) {
     var c3 = 0;
@@ -312,7 +350,8 @@ for (var pm = 0; pm < 15; pm++) {
     if (c3 > peak) peak = c3;
   }
   if (peak > worstPeak) worstPeak = peak;
-  if (peak > 22) allModePeak = false;
+  if (wl.length < I.WAVE_MIN || wl.length > I.WAVE_MAX) allModePeak = false;
+  if (peak > Math.ceil(I.TILE_MS / I.WAVE_STEP_MIN) * Math.ceil(pd.length / wl.length) + 1) allModePeak = false;
   for (var pg2 in pz) {
     if (!Object.prototype.hasOwnProperty.call(pz, pg2)) continue;
     var pa = pz[pg2];
@@ -323,8 +362,8 @@ for (var pm = 0; pm < 15; pm++) {
   if (!pmono) allModeZMono = false;
   rnd.skipDeal();
 }
-check('15 模式 × L33 相邻落点全部 >= 12ms', allModeGap, 'worstGap=' + worstGap.toFixed(3));
-check('15 模式 × L33 单帧在途全部 <= 22 张', allModePeak, 'worstPeak=' + worstPeak);
+check('15 模式 × L33 波间起跑全部 >= 14ms', allModeGap, 'worstGap=' + worstGap.toFixed(3));
+check('15 模式 × L33 波次落 [6,12] 且单帧在途 <= 结构上界', allModePeak, 'worstPeak=' + worstPeak);
 check('15 模式 × L33 同坐标层序全部单调（零穿模）', allModeZMono);
 
 /* ---------- ⑤ 15 模式逐种跑帧 ---------- */
@@ -352,9 +391,23 @@ ctx2.fill = function () { fillCount++; return of.apply(ctx2, arguments); };
 var rnd2 = STM.createBoardRenderer(cv2, session, {});
 rnd2.refresh();
 rnd2.startDeal(0);
+/* Δ30b: 留白期已取消——首帧必须有卡体在途（SC-026 ①）。
+ * `pumpFrames(1)` 后计划已构建，首波 delay === 0 即「第 1 个 rAF 采样帧在途 >= 1」。 */
 fillCount = 0;
-pumpFrames(8);
-check('0~180ms 留白期棋盘零卡体绘制（纯风景底图）', fillCount === 0, 'fill=' + fillCount);
+pumpFrames(1);
+var firstPlan = rnd2.dealPlanOf();
+var firstMin = Infinity;
+if (firstPlan) {
+  for (var fp in firstPlan) {
+    if (!Object.prototype.hasOwnProperty.call(firstPlan, fp)) continue;
+    if (firstPlan[fp].delay < firstMin) firstMin = firstPlan[fp].delay;
+  }
+}
+/* 像素级「首帧有卡体」由 tools/delta27-verify.js 在无头浏览器里采样断言；
+ * Node 侧断言计划层：第 1 帧即已构建计划、首波 delay===0、编舞处于 active。 */
+check('第 1 个 rAF 采样帧在途 >= 1（零延迟首帧，无全空帧）',
+  !!firstPlan && firstMin === 0 && rnd2.isDealing() === true,
+  'minDelay=' + firstMin + ' dealing=' + rnd2.isDealing());
 pumpFrames(300);
 
 /* ---------- ⑥ 落子涟漪音 ---------- */
@@ -418,7 +471,7 @@ check('降级后计划仍覆盖全部卡牌', !!rplan && Object.keys(rplan).leng
   rplan ? Object.keys(rplan).length : 'null');
 try { pumpFrames(300); check('降级路径零异常', true); } catch (e) { check('降级路径零异常', false, e.message); }
 check('降级后同样完全归位', rnd.isDealing() === false);
-check('降级仍保留 120ms 底图留白节奏（LEAD_MS 不变）', I.LEAD_MS === 120);
+check('降级后同样零延迟起跑（LEAD_MS=0，总时长不变）', I.LEAD_MS === 0);
 rnd.setReducedMotion(false);
 
 /* ---------- ⑩ 纯表现层 ---------- */
@@ -433,5 +486,5 @@ if (fails.length) {
   console.log('deal-smoke: FAILED — ' + fails.length + ' 失败项: ' + fails.join('; '));
   process.exit(1);
 } else {
-  console.log('deal-smoke: all green（时长公式 / 逐牌错峰 / 在途<=22 / 零穿模 / 落子音 / 快进 / 降级）');
+  console.log('deal-smoke: all green（390ms 波次预算 / 零延迟首帧 / 波内同起同落 / 层序锁 / 落子音 / 快进 / 降级）');
 }

@@ -39,10 +39,9 @@
    * 换关后「相邻两次不重复」与「评委锁定」都会失效。故提升到模块作用域。 */
   var introLastModeGlobal = -1;
   var dealModeLockGlobal = null;
-  /* Δ28e: 开局编舞是否正在进行（模块作用域——`ShardAtlas.process` 在工厂外，
+  /* Δ30b: 开局编舞是否正在进行（模块作用域——供 main.js 的闸门读）
    * 拿不到实例状态）。碎块图集键控是 150~250ms 的同步重活，若正好落在编舞窗口里，
    * 落子动画会整段卡住（用户实测「落子很慢而且很卡」）。键控发现编舞在跑就推迟。 */
-  var dealBusyGlobal = false;
   var RE = STM.RulesEngine;
   var Bestiary = STM.Bestiary; /* Δ14: 装载序保证先于 BoardRenderer */
 
@@ -621,510 +620,6 @@
     };
   })();
 
-  /* =========================================================
-   * Δ29b / FR-049 §17 a: ShardAtlas —— 3D 立体碎块图集（边界连通域泛洪键控）
-   *
-   * 素材：assets/icons/shards.jpg（2048×2048、3×3 九宫格共 9 枚白瓷 3D 碎块、
-   *       **纯黑背景**、无 alpha）。`.jpg` 为权威路径；同名 `.png` 仅作可选
-   *       增强（若带 alpha 则直接使用并跳过黑底键控），MUST NOT 因缺 `.png`
-   *       判定素材缺失或降级。
-   *
-   * 黑底键控 = **边界连通域泛洪**（取代 Δ27 的逐像素全局阈值）。
-   *
-   * 为什么必须换（「扁平小白片」的直接成因，读代码 + 实测确认）：
-   *   Δ27 的口径是 `mx <= 24 → alpha 0 / 24 < mx <= 40 → 线性渐变 / mx > 40 → 255`。
-   *   它无法区分「纯黑背景」与「碎块背光侧的深灰蓝厚壁」——两者都落在近黑区间。
-   *   更致命的是第二段：渐变带像素在 `composeSlice` 里因 `a < 250` 被当作
-   *   「玻璃折射亮边」推向亮面（`SHARD_RIM_MIX`），于是**整块暗面被当成边缘洗白**，
-   *   只剩受光面 → 扁平白纸片（`shards-audit` 实测暗面占比仅 3.7%~14.4%）。
-   *
-   * 新口径：
-   *   ① 从九宫格单元的**四条边界**向内泛洪，只有「**与边界连通**且
-   *      max(R,G,B) <= SHARD_BG_THRESHOLD」的像素判为背景（alpha = 0）；
-   *   ② **被主体包围的近黑像素一律保留 alpha = 255**（背光侧立体厚壁 MUST 保留）；
-   *   ③ 泛洪边界上仍保留 alpha 软过渡带（硬切会在碎块外圈留锯齿黑边），
-   *      并对近黑外沿像素做半量提亮（防「黑描边」，MUST NOT 触及主体内部）。
-   *
-   * 阈值 44（允许区间 24~56）：比 Δ27 的 24 略宽，用于吸收 JPEG 8×8 块噪声；
-   * 不能再高——再高会把暗面啃边（`shards-audit` ⑬ 逐张断言暗面 >= 25%）。
-   * 注意：**96 图标键控阈值 215 与本处 44 是两套独立口径，MUST NOT 互相套用**。
-   *
-   * 切片：九宫格等分（格宽 W/3 = 682.67 —— **允许小数边界**，MUST NOT 因
-   *   向下取整丢掉边缘 1~2px）→ 每格求非黑包围盒 → 正方形化 →
-   *   等比居中置入 256×256（几何口径沿用 FR-044 §7）→ 会话级缓存。
-   * ========================================================= */
-  var SHARD_BG_THRESHOLD = 44;   /* 背景核心阈值（泛洪只吃 <= 此值且与边界连通者） */
-  var SHARD_EDGE_SOFT_LO = 8;    /* 外沿 alpha 软过渡下界（近纯黑 → 最低 alpha） */
-  var SHARD_EDGE_LIFT = 0.55;    /* 外沿近黑像素向本切片亮面均值靠拢的比例（防黑描边） */
-  var SHARD_SUBJECT_RATIO = 0.70; /* 256² 切片内主体长边占比。
-                                   * Δ28b: 0.92 → 0.70——留出 30% 给预烘焙柔光晕，
-                                   * 否则光晕会被画框裁成方角；绘制侧 drawSz = size / ratio
-                                   * 保证主体可见长边仍精确等于 size。 */
-  /* Δ28b: 3 套冷调玻璃色系 —— 亮度三段 ramp（暗面压色 / 中间调 / 亮面）。
-   * 原素材是纯白瓷：缩到 10~46px 时 3D 明暗全部丢失，且在雪景/沙滩等浅色背景上
-   * 零对比，观感退化为「白纸屑」。染色后暗面带明确色相，轮廓在任何背景上都立得住。
-   * 注意：`hi` MUST NOT 取纯白（`#FFF`）——纯白会让整块碎块回到「白纸片」，
-   * 必须保留色相，镜面高光交给 §16 的爆心辉光去提。 */
-  /* Δ28b-2: 中间调刻意压暗一档（原 `#7AB2E8` / `#9E8AE8` / `#E89EC4` 太接近白）。
-   * 素材是双峰分布（暗面 p10≈76~133 / 亮面 p50≈168~214，中间几乎没有过渡），
-   * 中间调不压暗的话，拉伸后仍然只有「暗面 + 亮面」两片，暗部占比卡在 13%，
-   * 且缩到 10~46px 时两块之间没有过渡色，观感仍是「白纸屑」。 */
-  /* Δ29b: 中间调整体再压暗一档（Δ28b-2 的 `#60 96 208` 系列 mx 仍 > 190，
-   * 导致「暗面」在 max(R,G,B) <= 190 口径下只占 18~21%，用户读到的仍是白瓷片）。
-   * 现在 mid 的 mx 落 178~186 → 暗面（sh→mid 整段）稳定 >= 25%，
-   * 且 mid→hi 一跳形成**明确的明暗交界线**（不是两块同亮度的白）。 */
-  var SHARD_THEMES = [
-    { sh: [26, 56, 132], mid: [70, 124, 178], hi: [206, 230, 255] },   /* 冰蓝 */
-    { sh: [52, 38, 134], mid: [104, 86, 186], hi: [222, 212, 255] },   /* 淡紫 */
-    { sh: [136, 52, 100], mid: [176, 102, 150], hi: [255, 230, 242] }  /* 粉白 */
-  ];
-  var SHARD_ATLAS_TOTAL = 27;   /* 9 形状 × 3 色系 */
-  var SHARD_GLOW_ALPHA = 0.48;  /* 外晕强度（预烘焙，逐帧零开销） */
-  var SHARD_GLOW_BLUR = 30;     /* 模糊半径（256² 画框内 ≈ 主体长边 17%） */
-  var SHARD_RIM_MIX = 0.52;     /* 键控渐变带向亮面靠拢的比例（玻璃折射亮边，MUST NOT 全白） */
-  /* Δ28b-2: 素材是**纯白瓷**，亮度分位实测 p2≈76~133 / p50≈168~214 / p98≈207~228——
-   * 若直接 `L^1.18` 映射，中位亮度 190 会被推到 0.71，几乎全部落进亮面（实测暗部占比
-   * 仅 4%~14%，即用户说的「质感差 / 白纸屑」）。必须按**每张切片自身的动态范围**归一化
-   * 再做对比拉伸，把素材固有的 3D 明暗真正展开到三段 ramp 上。 */
-  var SHARD_RAMP_MID = 0.55;    /* 暗面→中间调的切换点（t 归一化后） */
-  var SHARD_RAMP_GAMMA = 1.62;  /* 对比拉伸指数（>1 压暗中间调，让暗面占比落 15%+） */
-  var SHARD_RAMP_P_LO = 0.05;   /* 归一化下界分位 */
-  var SHARD_RAMP_P_HI = 0.97;   /* 归一化上界分位 */
-  var SHARD_SHADE_ALPHA = 0.34; /* 预烘焙方向光最深处的不透明度（右下背光面） */
-  var ShardAtlas = (function () {
-    var EXTS = ['png', 'jpg']; /* .png 优先（若带 alpha 则免键控），.jpg 为权威 */
-    var state = 'idle';        /* idle | loading | ready | failed */
-    var slices = [];           /* 9 个 256×256 canvas */
-    var validMask = [];        /* 每格是否含有效主体 */
-    var tried = 0;
-    var listeners = [];
-    var keyMs = 0;
-    var processRetries = 0;    /* Δ28e: 编舞期间让路的重试计数 */
-
-    function notify() {
-      for (var i = 0; i < listeners.length; i++) {
-        try { listeners[i](slices); } catch (e) { /* 单监听异常不杀加载 */ }
-      }
-    }
-
-    function nextSrc() {
-      if (tried >= EXTS.length) return null;
-      return 'assets/icons/shards.' + EXTS[tried++];
-    }
-
-    function loadNext() {
-      var src = nextSrc();
-      if (!src) { state = 'failed'; notify(); return; }
-      if (typeof Image !== 'function') { state = 'failed'; notify(); return; }
-      var img = new Image();
-      img.onload = function () {
-        try { process(img); } catch (eProc) {
-          state = 'failed';
-          notify();
-        }
-      };
-      img.onerror = function () { loadNext(); };
-      img.src = src;
-    }
-
-    /* 单格：键控（边界连通域泛洪）+ 包围盒 + 正方形化 + 等比居中
-     *
-     * 泛洪只在**格内**做（九宫格各自独立）：从四条边界的近黑像素出发，
-     * 四邻域扩散，凡「连通且 mx <= SHARD_BG_THRESHOLD」者判为背景。
-     * 被主体包住的近黑像素（背光侧厚壁）**永不被访问到** → 保留 alpha 255。 */
-    function buildCell(data, W, x0, x1, y0, y1, hasAlpha) {
-      var bw = x1 - x0, bh = y1 - y0;
-      if (bw <= 0 || bh <= 0) return null;
-      var N = bw * bh;
-      var out = { w: bw, h: bh, px: new Uint8ClampedArray(N * 4) };
-      var mxArr = new Uint8Array(N);
-      var i, x, y, di, si, r, g, b, mx;
-      /* ① 拷 RGB + 求每像素 max(R,G,B)（泛洪与 alpha 判定的唯一依据） */
-      for (y = 0; y < bh; y++) {
-        var sy = y0 + y;
-        for (x = 0; x < bw; x++) {
-          si = (sy * W + (x0 + x)) * 4;
-          di = (y * bw + x) * 4;
-          r = data[si]; g = data[si + 1]; b = data[si + 2];
-          out.px[di] = r; out.px[di + 1] = g; out.px[di + 2] = b;
-          mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
-          mxArr[y * bw + x] = mx;
-        }
-      }
-
-      var bg = new Uint8Array(N); /* 1 = 与边界连通的背景 */
-      if (hasAlpha) {
-        /* .png 增强路径：素材自带 alpha → 直接采用，跳过泛洪（MUST NOT 二次键控） */
-        for (i = 0; i < N; i++) {
-          si = ((y0 + ((i / bw) | 0)) * W + (x0 + (i % bw))) * 4;
-          out.px[i * 4 + 3] = data[si + 3];
-        }
-      } else {
-        /* ② 边界种子入栈（四邻域 BFS） */
-        var stack = new Int32Array(N);
-        var sp = 0;
-        function seed(idx) {
-          if (bg[idx]) return;
-          if (mxArr[idx] > SHARD_BG_THRESHOLD) return;
-          bg[idx] = 1;
-          stack[sp++] = idx;
-        }
-        for (x = 0; x < bw; x++) { seed(x); seed((bh - 1) * bw + x); }
-        for (y = 0; y < bh; y++) { seed(y * bw); seed(y * bw + bw - 1); }
-        while (sp > 0) {
-          var cur = stack[--sp];
-          var cx = cur % bw, cy = (cur - cx) / bw;
-          if (cx > 0) seed(cur - 1);
-          if (cx < bw - 1) seed(cur + 1);
-          if (cy > 0) seed(cur - bw);
-          if (cy < bh - 1) seed(cur + bw);
-        }
-        /* ③ 先按「背景 / 主体」写 alpha，再单独处理外沿软过渡 */
-        for (i = 0; i < N; i++) {
-          out.px[i * 4 + 3] = bg[i] ? 0 : 255;
-        }
-      }
-
-      /* ④ 统计主体亮面均值（外沿提亮用）+ 包围盒 */
-      var brightSum = 0, brightN = 0;
-      var minX = bw, maxX = -1, minY = bh, maxY = -1;
-      for (y = 0; y < bh; y++) {
-        for (x = 0; x < bw; x++) {
-          di = (y * bw + x) * 4;
-          if (out.px[di + 3] <= 8) continue;
-          mx = mxArr[y * bw + x];
-          if (mx > 120) { brightSum += mx; brightN++; }
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-      }
-      if (maxX < minX || maxY < minY) return null;
-      var lift = brightN > 0 ? Math.min(255, brightSum / brightN) : 200;
-
-      /* ⑤ 外沿软过渡：只处理「主体像素且 4 邻域里存在背景」的那一圈（1~2px）。
-       *   · alpha 按 mx 从 SHARD_EDGE_SOFT_LO 到阈值线性抬到 255（硬切会留锯齿）；
-       *   · 近黑外沿做 SHARD_EDGE_LIFT 半量提亮（防黑描边），
-       *     **MUST NOT 触及主体内部**——暗面明暗交界线因此完整保留。 */
-      if (!hasAlpha) {
-        for (y = 0; y < bh; y++) {
-          for (x = 0; x < bw; x++) {
-            i = y * bw + x;
-            if (bg[i]) continue;
-            var edge = (x > 0 && bg[i - 1]) || (x < bw - 1 && bg[i + 1]) ||
-                       (y > 0 && bg[i - bw]) || (y < bh - 1 && bg[i + bw]);
-            if (!edge) continue;
-            mx = mxArr[i];
-            di = i * 4;
-            if (mx <= SHARD_BG_THRESHOLD) {
-              var t = (mx - SHARD_EDGE_SOFT_LO) / (SHARD_BG_THRESHOLD - SHARD_EDGE_SOFT_LO);
-              if (t < 0) t = 0; else if (t > 1) t = 1;
-              out.px[di + 3] = Math.round(255 * (0.34 + 0.66 * t));
-              out.px[di] = Math.round(out.px[di] * (1 - SHARD_EDGE_LIFT) + lift * SHARD_EDGE_LIFT);
-              out.px[di + 1] = Math.round(out.px[di + 1] * (1 - SHARD_EDGE_LIFT) + lift * SHARD_EDGE_LIFT);
-              out.px[di + 2] = Math.round(out.px[di + 2] * (1 - SHARD_EDGE_LIFT) + lift * SHARD_EDGE_LIFT);
-            } else if (mx <= SHARD_BG_THRESHOLD + 26) {
-              /* 略亮的紧邻一圈：只降一点点 alpha，避免轮廓出现硬阶梯 */
-              out.px[di + 3] = 236;
-            }
-          }
-        }
-      }
-
-      var bw2 = maxX - minX + 1, bh2 = maxY - minY + 1;
-      var size = Math.max(bw2, bh2);
-      var area = bw2 * bh2;
-      if (area < bw * bh * 0.01) return null; /* 有效像素 < 1% → 视为空格 */
-      return { w: bw, h: bh, px: out.px, minX: minX, minY: minY, bw: bw2, bh: bh2, size: size };
-    }
-
-    /* Δ28b: 色系 ramp 预烘成 256 项 LUT（每色系一份，模块级一次）。
-     * 输入是**归一化后的** t（0..1），不是原始亮度——原始亮度要先经每切片的
-     * 动态范围归一化 + 对比拉伸（见 buildCellLut）。 */
-    function buildRamp(theme) {
-      var lut = new Uint8ClampedArray(256 * 3);
-      var sh = theme.sh, mid = theme.mid, hi = theme.hi;
-      var M = SHARD_RAMP_MID;
-      for (var i = 0; i < 256; i++) {
-        var t = i / 255, c0, c1, u;
-        if (t < M) { c0 = sh; c1 = mid; u = t / M; }
-        else { c0 = mid; c1 = hi; u = (t - M) / (1 - M); }
-        lut[i * 3] = c0[0] + (c1[0] - c0[0]) * u;
-        lut[i * 3 + 1] = c0[1] + (c1[1] - c0[1]) * u;
-        lut[i * 3 + 2] = c0[2] + (c1[2] - c0[2]) * u;
-      }
-      return lut;
-    }
-    var RAMP_LUT = (function () {
-      var a = [];
-      for (var i = 0; i < SHARD_THEMES.length; i++) a.push(buildRamp(SHARD_THEMES[i]));
-      return a;
-    })();
-
-    /* Δ28b-2: 单切片 → 单色系的「原始亮度 → 最终颜色」一级 LUT（256 项）。
-     * 把「归一化 + 对比拉伸 + 三段 ramp」三步合成一次查表，逐像素零浮点运算。 */
-    function buildCellLut(themeIdx, lo, span) {
-      var ramp = RAMP_LUT[themeIdx] || RAMP_LUT[0];
-      var lut = new Uint8ClampedArray(256 * 3);
-      var g = SHARD_RAMP_GAMMA;
-      for (var i = 0; i < 256; i++) {
-        var tn = span > 1 ? (i - lo) / span : i / 255;
-        if (tn < 0) tn = 0; else if (tn > 1) tn = 1;
-        var ri = (Math.pow(tn, g) * 255 + 0.5) | 0;
-        if (ri > 255) ri = 255;
-        lut[i * 3] = ramp[ri * 3];
-        lut[i * 3 + 1] = ramp[ri * 3 + 1];
-        lut[i * 3 + 2] = ramp[ri * 3 + 2];
-      }
-      return lut;
-    }
-
-    /* Δ28b: 键控期可复用的临时画布（27 次组合只申请一次，避免 50MB 级 ImageData 反复分配） */
-    var _cellCv = null, _baseCv = null, _baseCtx = null, _tintCv = null, _tintCtx = null, _glowCv = null, _glowCtx = null;
-    var SHARD_GLOW_CV = 72; /* 光晕底图边长（256² 的 1/13 像素量） */
-
-    /* 把 cell 等比缩放进 256² 的「主体区」，返回该 256² 的 ImageData。
-     * 之后所有染色都只在 256²（65k 像素）上做，而不是 cell 原尺寸（~465k）——
-     * 这是把键控耗时从 400ms+ 压到 ~150ms 的关键（27 次 × 7 倍差距）。 */
-    function buildBase256(cell) {
-      if (!_cellCv) _cellCv = document.createElement('canvas');
-      if (_cellCv.width !== cell.w) _cellCv.width = cell.w;
-      if (_cellCv.height !== cell.h) _cellCv.height = cell.h;
-      var s2 = _cellCv.getContext('2d');
-      var idata0 = s2.createImageData(cell.w, cell.h);
-      idata0.data.set(cell.px);
-      s2.putImageData(idata0, 0, 0);
-
-      if (!_baseCv) {
-        _baseCv = document.createElement('canvas');
-        _baseCv.width = 256; _baseCv.height = 256;
-        /* WRF：本画布只做一次回读，避免 GPU 往返（FR-044 §10 同纪律） */
-        _baseCtx = _baseCv.getContext('2d', { willReadFrequently: true }) || _baseCv.getContext('2d');
-      }
-      var pad = 256 * (1 - SHARD_SUBJECT_RATIO) / 2;
-      var drawSize = 256 - pad * 2;
-      var sq = cell.size;
-      var sx = cell.minX - (sq - cell.bw) / 2;
-      var sy = cell.minY - (sq - cell.bh) / 2;
-      _baseCtx.clearRect(0, 0, 256, 256);
-      _baseCtx.imageSmoothingEnabled = true;
-      _baseCtx.imageSmoothingQuality = 'high';
-      _baseCtx.drawImage(_cellCv, sx, sy, sq, sq, pad, pad, drawSize, drawSize);
-      var idata = _baseCtx.getImageData(0, 0, 256, 256);
-      /* Δ28b-2: 统计该切片自身的亮度分位，供对比拉伸归一化用。
-       * 只在 256²（65k 像素）上扫一遍，27 次合计 ~1.7M 次加法，可忽略。 */
-      var hist = new Uint32Array(256);
-      var px = idata.data, opaqueN = 0;
-      for (var q = 0; q < px.length; q += 4) {
-        if (px[q + 3] < 200) continue;
-        hist[(0.299 * px[q] + 0.587 * px[q + 1] + 0.114 * px[q + 2]) | 0]++;
-        opaqueN++;
-      }
-      var lo = 0, hiP = 255;
-      if (opaqueN > 0) {
-        var acc = 0, loHit = false, hiHit = false;
-        for (var b = 0; b < 256; b++) {
-          acc += hist[b];
-          if (!loHit && acc >= SHARD_RAMP_P_LO * opaqueN) { lo = b; loHit = true; }
-          if (!hiHit && acc >= SHARD_RAMP_P_HI * opaqueN) { hiP = b; hiHit = true; break; }
-        }
-      }
-      return { img: idata, lo: lo, span: Math.max(1, hiP - lo) };
-    }
-
-    /* 单套色系：染色 → 柔光晕打底 → 主体，返回 256² canvas */
-    function composeSlice(baseInfo, theme, themeIdx) {
-      var baseData = baseInfo.img;
-      var lut = buildCellLut(themeIdx, baseInfo.lo, baseInfo.span);
-      var hi = theme.hi;
-      if (!_tintCv) {
-        _tintCv = document.createElement('canvas');
-        _tintCv.width = 256; _tintCv.height = 256;
-        _tintCtx = _tintCv.getContext('2d');
-      }
-      /* 1) 逐像素染色（原始亮度 → 一级 LUT；键控渐变带推向亮面形成玻璃折射亮边） */
-      var idata = _tintCtx.createImageData(256, 256);
-      var src = baseData.data, dst = idata.data;
-      for (var i = 0; i < src.length; i += 4) {
-        var a = src[i + 3];
-        if (a < 1) { dst[i + 3] = 0; continue; }
-        if (a < 250) {
-          /* 键控渐变带（碎块外沿）→ 向亮面靠拢 `SHARD_RIM_MIX`，形成玻璃折射亮边。
-           * MUST NOT 直接置为 `hi` 纯色：那会让边缘变成一圈白描边（回到「纸片」观感）。 */
-          var m = SHARD_RIM_MIX;
-          dst[i] = src[i] * (1 - m) + hi[0] * m;
-          dst[i + 1] = src[i + 1] * (1 - m) + hi[1] * m;
-          dst[i + 2] = src[i + 2] * (1 - m) + hi[2] * m;
-          dst[i + 3] = a;
-          continue;
-        }
-        var L = (0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2]) | 0;
-        if (L > 255) L = 255;
-        var li = L * 3;
-        dst[i] = lut[li]; dst[i + 1] = lut[li + 1]; dst[i + 2] = lut[li + 2];
-        dst[i + 3] = a;
-      }
-      _tintCtx.putImageData(idata, 0, 0);
-
-      /* 2) 256² 画框：柔光晕打底 + 主体 */
-      var dstCv = document.createElement('canvas');
-      dstCv.width = 256; dstCv.height = 256;
-      var d2 = dstCv.getContext('2d');
-      d2.imageSmoothingEnabled = true;
-      d2.imageSmoothingQuality = 'high';
-      /* 柔光晕：在 72² 的临时画布上 blur 再放大回 256²——光晕本身是低频渐变，
-       * 放大无损。ctx.filter 在 Chrome/Edge 全版本、Safari 16.4+ 可用；
-       * 不支持时静默跳过（只少一层辉光，主体不受影响）。
-       * **逐帧绘制路径仍然严禁 filter**（FR-049 §14）。 */
-      try {
-        if (!_glowCv) {
-          _glowCv = document.createElement('canvas');
-          _glowCv.width = SHARD_GLOW_CV; _glowCv.height = SHARD_GLOW_CV;
-          _glowCtx = _glowCv.getContext('2d');
-        }
-        var blurPx = Math.max(2, Math.round(SHARD_GLOW_BLUR * SHARD_GLOW_CV / 256));
-        _glowCtx.filter = 'blur(' + blurPx + 'px)';
-        if (_glowCtx.filter !== 'none' && _glowCtx.filter !== '') {
-          var gp = SHARD_GLOW_CV * (1 - SHARD_SUBJECT_RATIO) / 2;
-          var gd = SHARD_GLOW_CV - gp * 2;
-          _glowCtx.clearRect(0, 0, SHARD_GLOW_CV, SHARD_GLOW_CV);
-          _glowCtx.globalAlpha = SHARD_GLOW_ALPHA;
-          _glowCtx.drawImage(_tintCv, 0, 0, 256, 256, gp, gp, gd, gd);
-          _glowCtx.filter = 'none';
-          _glowCtx.globalAlpha = 1;
-          d2.drawImage(_glowCv, 0, 0, SHARD_GLOW_CV, SHARD_GLOW_CV, 0, 0, 256, 256);
-        } else {
-          _glowCtx.filter = 'none';
-        }
-      } catch (eBlur) { /* 无 filter 支持 → 跳过光晕 */ }
-      d2.drawImage(_tintCv, 0, 0);
-
-      /* 3) Δ28b-2 预烘焙方向光：左上受光 → 右下背光。
-       * 为什么必须有这一层：素材 9 枚碎块各自的受光方向是随机的（渲染时各转各的），
-       * 染色后暗面面积由「该枚自身的几何」决定——实测最平的一枚暗部只占 14.6%，
-       * 且整帧碎片的光向杂乱，这正是「纸片感」的最后一层成因。参考图的高级感来自
-       * **统一光源**：所有碎片左上亮、右下暗，缩到 10px 仍能读出体积。
-       * 用 `source-atop` 只在已有像素上叠色，不会把 256² 画框填成方块。 */
-      try {
-        var lg = d2.createLinearGradient(0, 0, 256, 256);
-        lg.addColorStop(0, 'rgba(18,28,58,0)');
-        lg.addColorStop(0.45, 'rgba(18,28,58,' + (SHARD_SHADE_ALPHA * 0.35) + ')');
-        lg.addColorStop(1, 'rgba(14,22,48,' + SHARD_SHADE_ALPHA + ')');
-        d2.globalCompositeOperation = 'source-atop';
-        d2.fillStyle = lg;
-        d2.fillRect(0, 0, 256, 256);
-        d2.globalCompositeOperation = 'source-over';
-      } catch (eShade) { /* 极端环境不支持合成模式 → 跳过方向光 */ }
-      return dstCv;
-    }
-
-    function process(img) {
-      /* Δ28e: 键控是 150~250ms 的**同步**重活（27 张 256² 的染色 + 柔光晕）。
-       * 它在渲染器创建时异步启动，图片 onload 落点不确定——实测常常正好落在
-       * 开局编舞窗口里，把落子动画整段冻住（用户反馈「落子很慢而且很卡」）。
-       * 编舞期间一律推迟重试；编舞最多 2.4s，故 60 次 × 80ms = 4.8s 上限足够。
-       * 推迟期间 `state` 保持 'loading'，首次三消若仍未就绪 → 走程序化折面兜底
-       * （FR-049 §3，设计内行为，不会掉帧）。 */
-      if (dealBusyGlobal && processRetries < 60) {
-        processRetries++;
-        setTimeout(function () { process(img); }, 80);
-        return;
-      }
-      processRetries = 0;
-      var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-      var W = img.naturalWidth || img.width || 0;
-      var H = img.naturalHeight || img.height || 0;
-      if (!(W > 0) || !(H > 0)) { state = 'failed'; notify(); return; }
-      if (typeof document === 'undefined') { state = 'failed'; notify(); return; }
-      var tmp = document.createElement('canvas');
-      tmp.width = W; tmp.height = H;
-      /* willReadFrequently: 单次回读，避免 GPU 往返（FR-044 §10 同纪律） */
-      var c2 = tmp.getContext('2d', { willReadFrequently: true }) || tmp.getContext('2d');
-      if (!c2) { state = 'failed'; notify(); return; }
-      c2.drawImage(img, 0, 0);
-      var data;
-      try { data = c2.getImageData(0, 0, W, H).data; } catch (eRead) { state = 'failed'; notify(); return; }
-      /* 素材是否自带 alpha（.png 增强路径）——抽样 1/64 像素判定 */
-      var hasAlpha = false;
-      for (var s = 3; s < data.length; s += 4 * 64) { if (data[s] < 250) { hasAlpha = true; break; } }
-
-      var cw = W / 3, ch = H / 3; /* 允许小数边界（2048/3 = 682.67） */
-      var out = [];
-      var valid = 0;
-      for (var i = 0; i < 9; i++) {
-        var gx = i % 3, gy = Math.floor(i / 3);
-        var x0 = Math.floor(gx * cw), x1 = Math.ceil(gx * cw + cw);
-        var y0 = Math.floor(gy * ch), y1 = Math.ceil(gy * ch + ch);
-        if (x1 > W) x1 = W;
-        if (y1 > H) y1 = H;
-        var cell = buildCell(data, W, x0, x1, y0, y1, hasAlpha);
-        if (!cell) {
-          /* 空格：占满 3 个色系槽位，保持索引 = 形状序号 × 3 + 色系序号 */
-          for (var tn = 0; tn < SHARD_THEMES.length; tn++) out.push(null);
-          validMask.push(false);
-          continue;
-        }
-        var baseData = null;
-        try { baseData = buildBase256(cell); } catch (eBase) { baseData = null; }
-        for (var ti = 0; ti < SHARD_THEMES.length; ti++) {
-          if (!baseData) { out.push(null); continue; }
-          try { out.push(composeSlice(baseData, SHARD_THEMES[ti], ti)); }
-          catch (eComp) { out.push(null); }
-        }
-        validMask.push(true);
-        valid++;
-      }
-      slices = out;
-      state = valid > 0 ? 'ready' : 'failed';
-      keyMs = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;
-      notify();
-    }
-
-    function ensureLoaded() {
-      if (state !== 'idle') return;
-      state = 'loading';
-      loadNext();
-    }
-    /* 可用的切片（过滤空格；不足时以首个可用切片补位，保证索引恒有图）。
-     * Δ28b: 9 形状 × 3 色系 = 27 张。 */
-    function readySlices() {
-      if (state !== 'ready') return null;
-      var first = null;
-      for (var i = 0; i < slices.length; i++) if (slices[i]) { first = slices[i]; break; }
-      if (!first) return null;
-      var out = [];
-      for (var j = 0; j < SHARD_ATLAS_TOTAL; j++) out.push(slices[j] || first);
-      return out;
-    }
-
-    return {
-      ensureLoaded: ensureLoaded,
-      state: function () { return state; },
-      slices: readySlices,
-      validCount: function () {
-        var n = 0;
-        for (var i = 0; i < validMask.length; i++) if (validMask[i]) n++;
-        return n;
-      },
-      keyMs: function () { return keyMs; },
-      onReady: function (cb) { if (typeof cb === 'function') listeners.push(cb); },
-      _test: {
-        buildCell: buildCell,
-        composeSlice: composeSlice,
-        buildCellLut: buildCellLut,
-        buildRamp: buildRamp,
-        SUBJECT_RATIO: SHARD_SUBJECT_RATIO,
-        THEMES: SHARD_THEMES,
-        TOTAL: SHARD_ATLAS_TOTAL,
-        GLOW_ALPHA: SHARD_GLOW_ALPHA,
-        GLOW_BLUR: SHARD_GLOW_BLUR,
-        RAMP_MID: SHARD_RAMP_MID,
-        RAMP_GAMMA: SHARD_RAMP_GAMMA
-      }
-    };
-  })();
-
   /* ---------- 动效参数 ---------- */
   var FLY_MS = 420;        /* 飞出动画（Δ27a 起飞行由 FLIGHT_* 常量接管，此项仅历史保留） */
   var BLOCK_MS = 180;      /* 受阻原地微震 */
@@ -1132,61 +627,6 @@
   var REVEAL_DELAY = 180;  /* Δ7 上浮延迟（等飞出滑块让位） */
   var PARTICLE_LIFE = 600; /* 三消粒子 */
   var GAP = 1;               /* T081: 同层零缝隙紧凑排布——相邻滑块间距 1px */
-  var SHARD_LIFE_MIN = 650;  /* T082: 白瓷碎片生命周期 ms */
-  var SHARD_LIFE_MAX = 900;
-  var SHARD_COUNT_MIN = 48;
-  var SHARD_COUNT_MAX = 60;  /* T084: 碎片数 MUST 落入 45~60 区间（Δ19e/FR-049） */
-/* Δ29b / FR-049 §11~§14: 顶部待消槽全屏 3D 碎块瀑布（「少而精 · 微跳急坠 · 立体厚壁」）
- *
- * 为什么推倒重定标（用户第三轮反馈「糊成一团 + 扁平 + 飘」的算术必然）：
- *   Δ27c 的 `120~150 枚 / 10~46px` 全塞进 3 槽并集（padX = 0.75 槽宽），
- *   而中心距只约束 `0.5 × min(长边)` → 大面积相切重叠，视觉上就是一团白糊。
- *   尺寸 30~46px 时，256² 素材上的折面与厚壁会被压成一个白点，3D 感无从谈起。
- *
- * Δ29b 四项定标：
- *   · 数量 36~54 枚（每卡 12~18 枚）——MUST NOT 以「堆数量」换丰满感；
- *   · 尺寸整体放大：大 48~72 / 中 28~42 / 小 14~20（放大是让棱角可辨的唯一手段）；
- *   · 疏密：拒绝采样阈值 0.5× → **0.85 × min(两者长边)**（粒粒分明）；
- *   · alpha 恒 1.0（通透感交给暗面 / 亮边 / 方向光，MUST NOT 用 alpha 表达）。
- *
- * 物理（§12 第四次修订）——「微跳急坠」：
- *   vy0 = -300~-480（**必须有向上分量**，Δ28f 的「起手即高速下坠」读作平推）；
- *   重力 6400 px/s²（取 §12 窗口 5600~7200 的中值，单值保证物理可离线断言）；
- *   → 翻转时刻 |vy0|/g = 47~75ms ∈ [40,90]，跳高 vy0²/(2g) = 7.0~18.0px ∈ [6,21]，
- *     翻转后 100ms 竖直速度 640 px/s >= 500（「急坠」编码成可断言不变量）；
- *   水平 60~180 px/s 且**全团同号**（sweepDir 保留，方向 MUST NOT 翻转），
- *     并按「全程水平位移 <= 1.5 槽宽」反算上限（见 spawnDockShatter 的 budget）；
- *   生命周期 300~520ms；物理仍按**墙钟 dt** 积分（MUST NOT 写死 0.016）。 */
-var DOCK_SHARD_TOTAL_MIN = 36;
-var DOCK_SHARD_TOTAL_MAX = 54;
-var DOCK_SHARD_LIFE_MIN = 300;
-var DOCK_SHARD_LIFE_MAX = 520;
-var DOCK_SHARD_GRAVITY = 6400;      /* px/s²（Δ29b：2600 → 6400，急坠） */
-var DOCK_SHARD_FADE_TAIL = 120;     /* 末段淡出时长 ms（此前 alpha 恒 1.0） */
-/* Δ29b: 运动模型 = 先向上/向前微跳，再被强重力翻转为垂直急坠。
- *   · 水平分量**全团同号**（sweepDir，Δ28f 口径保留，MUST NOT 翻转）；
- *   · 竖直初速**必须为负**（向上）——这是「炸开那一瞬」的来源。 */
-var DOCK_SHARD_VX_MIN = 60;         /* 水平初速下限 px/s（扫掠方向上的漂移量） */
-var DOCK_SHARD_VX_MAX = 180;        /* 水平初速上限 px/s */
-var DOCK_SHARD_VY_MIN = -480;       /* 垂直初速下限 px/s（负 = 向上微跳） */
-var DOCK_SHARD_VY_MAX = -300;       /* 垂直初速上限 px/s（负 = 向上微跳） */
-var DOCK_SHARD_HOP_MAX_RATIO = 1.5; /* 全程水平位移上限 = 1.5 槽宽（MUST NOT 漫天乱飞） */
-var DOCK_SHARD_ALPHA_MIN = 1.0;     /* Δ29b: 恒 1.0（原 0.84~0.96 在浅色画卷上洗掉暗面） */
-var DOCK_SHARD_ALPHA_MAX = 1.0;
-var DOCK_SHARD_VR_MIN = 4;          /* 角速度下限 rad/s */
-var DOCK_SHARD_TUMBLE_RATE = 1.6;   /* 2.5D 翻滚相位倍率（相对自转，§12 ④） */
-var DOCK_SHARD_TUMBLE_FLOOR = 0.35; /* 透视压缩下限（|cos θ| 不低于此值） */
-var DOCK_SHARD_RATIO_LARGE = 0.25;
-var DOCK_SHARD_RATIO_MEDIUM = 0.55;
-var DOCK_SHARD_RATIO_SMALL = 0.20;
-/* Δ29b: 三级可见长边整体放大（30~46 / 18~28 / 10~15 → 48~72 / 28~42 / 14~20）。
- * 尺寸放大是让 3D 棱角与厚度在高分屏上**可辨**的唯一手段。 */
-var DOCK_SHARD_SIZE_LARGE = [48, 72];
-var DOCK_SHARD_SIZE_MEDIUM = [28, 42];
-var DOCK_SHARD_SIZE_SMALL = [14, 20];
-var DOCK_SHARD_ATLAS_KINDS_MIN = 6; /* 同一帧内至少 6 种不同切片 */
-var DOCK_SHARD_GAP_RATIO = 0.85;    /* 中心距下限 = 0.85 × min(两者长边) */
-
 /* Δ27a / FR-053: 卡牌点击方向性飞行轨迹（纯表现层）
  *   U（朝上）    —— 单段直飞入槽，<= 240ms
  *   L / R / D    —— 两段制：先顺箭头滑出棋盘（<= 140ms），再自槽位上沿落入，
@@ -1565,29 +1005,69 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
    *      卡牌 100% 精确落在 getTileCssRect 给出的标准网格坐标；
    *   ③ 编舞期间不触发任何 Solver / 关卡生成 / 持久化写入。
    * ========================================================= */
-  /* Δ28f: 开局编舞整体提速 ~25~31%（用户实测「落子太慢」）。
+  /* Δ30b / FR-052 §10: 开局编舞预算（零延迟 + 与牌数无关的 360~420ms）
    *
-   * 关键是**不靠压低步长换时长**——那样只会把牌挤成一坨。真正同时改善
-   * 「总时长」与「逐张可辨」的做法是**同时缩短单卡行进时长**：
-   *   旧：LEAD 180 / STAGGER 12 / TILE 260 → 在途上限 ceil(260/12) = 22
-   *   新：LEAD 120 / STAGGER  9 / TILE 180 → 在途上限 ceil(180/9)  = 20
-   * 单卡从 260ms 缩到 180ms（起手更脆），总时长同时下降：
-   *   L1(N=18,z=0)  700 → 480ms（-31%）
-   *   L46(N=84,z=2) 1546 → 1157ms（-25%）
-   *   L33(N=141,z=4) 2340 → 1780ms（-24%）
-   * `INTRO_Z_STEP_MS` 保持 55（零穿模的层序锁依赖它，不动）。 */
-  var INTRO_LEAD_MS = 120;        /* 纯背景留白（兼作解码/预排版窗口） */
-  var INTRO_STAGGER_MS = 9;       /* 逐牌错峰步长 */
-  var INTRO_SPREAD_MIN_MS = 180;  /* 展开期下限（小盘保护——避免「啪一下全出来」） */
-  var INTRO_Z_STEP_MS = 55;       /* 每层 +55ms（零穿模的关键，常量不许改） */
-  var INTRO_TILE_MS = 180;        /* 单卡进场持续时长 */
-  var INTRO_TICK_AT = 0.85;       /* 落盘定格瞬间 → 落牌涟漪音 */
+   * 旧口径 `120 + max(180,(N-1)×9) + 180 + 55×zMax` 与牌数强相关：
+   * L1 480ms / L46 1157ms / L33 1780ms，且 `55ms × z` 在 4 层时独占 220ms。
+   * 新口径把「逐张错峰」换成「波次齐滑」——W 个波次（6~12）同起同落，
+   * 波间步长由预算反算，于是总时长恒落 390ms（360~420 窗口内）：
+   *
+   *   total = (W − 1) × WAVE_STEP + TILE + zStep × zMax
+   *
+   * 三处硬边界：
+   *   · WAVE_STEP >= 14ms（波与波之间可辨；低于此值等于同时落）
+   *   · zStep ∈ [8, 24]（同坐标「先底后上」的节拍。零穿模仍由 draw() 的
+   *     (z,r,c) 比较器保证，zStep 只负责观感先后——MUST NOT 把防穿模责任
+   *     转移给时间轴）
+   *   · TILE ∈ [120, 160]（单卡行进时长；140 时末段强减速读作「硬停」）
+   *
+   * ⚠ `INTRO_STAGGER_MS` / `INTRO_SPREAD_MIN_MS` 随「逐牌步长」语义**退役**
+   *   （保留旧名会误导后续维护者）；`INTRO_Z_STEP_MS` 由固定 55 改为预算派生。 */
+  var INTRO_LEAD_MS = 0;            /* Δ30b: 取消留白——切入关卡首帧立即起跑 */
+  var INTRO_TILE_MS = 140;          /* 单卡进场持续时长（120~160 窗口） */
+  var INTRO_WAVE_MIN = 6;           /* 波次下限 */
+  var INTRO_WAVE_MAX = 12;          /* 波次上限 */
+  var INTRO_WAVE_TILES = 12;        /* 每波目标张数（W = ceil(N / 本值) 后夹到上下限） */
+  var INTRO_WAVE_STEP_MIN = 14;     /* 波间步长硬下限 */
+  var INTRO_TARGET_MS = 390;        /* 预算目标（360~420 窗口中心） */
+  var INTRO_Z_STEP_MIN = 8;         /* 层节拍下限（原固定 55 已废） */
+  var INTRO_Z_STEP_MAX = 24;        /* 层节拍上限 */
+  var INTRO_REF_CELL = 44;          /* 纯函数默认格宽（离线断言用；运行时由 layout 给出） */
+  var INTRO_DISP_MAX_CELL = 1.4;    /* 单卡初始位移上限（格宽） */
+  var INTRO_DISP_MIN_CELL = 0.3;    /* 有位移模式的位移下限（格宽） */
+  var INTRO_TICK_AT = 0.85;         /* 落盘定格瞬间 → 落牌涟漪音 */
   var INTRO_ALPHA0 = 0.62;        /* Δ27b §8 入场起点透明度（>= 0.55——不再从 0 起跳发灰） */
   var INTRO_ALPHA_MIN_SAFE = 0.55;/* 起点透明度硬下限（FR-052 §8） */
   var INTRO_ALPHA_FULL_AT = 0.35; /* 入场进度 35% 内 alpha 必须达到 1.0 */
   var INTRO_SCALE_MAX = 1.15;     /* 等比放大上限（超出即令 256² 切片上采样发虚） */
   var INTRO_SCALE_MIN = 0.2;      /* 等比缩小起点下限 */
   var INTRO_NONUNI_MIN = 0.55;    /* 非等比压缩较小轴下限（低于此值图案即「糊」） */
+  /* =========================================================
+   * Δ30a / FR-049 §18 ⑤: 三消坍缩光环常量（#vfx-canvas 层，与卡牌形变错峰接力）
+   *
+   * 时序锚点：光环起始帧 == 坍缩段首帧（140ms），全部在 220ms 前归零——
+   * SC-025 ④ 要求「220ms + 1 帧后画布 alpha > 2 的像素数 = 0」。
+   * 零掉落物：只画同心圆环与四角星芒，MUST NOT 出现任何 y 持续增大的绘制物。
+   * ========================================================= */
+  var RING_TOTAL_MS = 220;          /* 与 CSS slot-shatter 总时长一致（对账用） */
+  var RING_START_MS = 140;          /* 光环起跑 == 坍缩段首帧 */
+  var RING_OUTER_LIFE = 80;         /* 外环 140 → 220ms */
+  var RING_INNER_STAGGER = 32;      /* 双环错峰（SC-025 ⑤ 要求 30~50ms） */
+  var RING_INNER_LIFE = 48;         /* 内环 172 → 220ms */
+  var RING_LW0 = 2.5;               /* 起始线宽（1.5~2.5px 窗口上界） */
+  var RING_LW1 = 1.5;               /* 结束线宽（收细 → 读作「散开变薄」） */
+  var RING_R0_RATIO = 0.45;         /* 起始半径 = 0.45 × 槽宽 */
+  var RING_OUTER_R1 = 2.0;          /* 外环终点 = 2.0 × 槽宽（1.6~2.2 窗口） */
+  var RING_INNER_R1 = 1.6;          /* 内环终点 = 1.6 × 槽宽 */
+  var RING_COLOR_OUTER = '#FFFFFF';
+  var RING_COLOR_INNER = 'hsl(205, 90%, 72%)';
+  var RAY_MIN = 4;                  /* 星芒枚数（4~8） */
+  var RAY_MAX = 8;
+  var RAY_SIZE_MIN = 3;             /* 半长 3~7px → 全幅 6~14px */
+  var RAY_SIZE_MAX = 7;
+  var RAY_INNER_RATIO = 0.19;       /* 四角星内凹半径比（越小越尖） */
+  var RAY_START_MS = 16;            /* 星芒相对坍缩首帧的起跑偏移 */
+  var RAY_LIFE_MS = 64;             /* 140 + 16 → 220ms */
   var INTRO_MODES = [
     'diagonal_cascade', 'center_ripple', 'outer_converge', 'spiral_vortex',
     'wings_clasp', 'sky_rain', 'layer_stack', 'zipper_interleave',
@@ -1597,13 +1077,11 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
 
   function introEaseOutCubic(p) { return 1 - Math.pow(1 - p, 3); }
   function introEaseOutQuart(p) { return 1 - Math.pow(1 - p, 4); }
-  function introEaseOutBack(p) {
-    var c1 = 1.70158, c3 = c1 + 1;
-    return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
-  }
+  /* Δ30b / FR-052 §11: 只保留「强减速硬停」两支曲线。
+   * `back` / `elastic` 类过冲曲线**已整体废除**——回弹会让末段出现反向位移，
+   * 既破坏「定格感」，也与 SC-026 ④「末段 10% 位移 <= 2%」互斥。 */
   function introEase(kind, p) {
     if (p <= 0) return 0;
-    if (kind === 'back') return introEaseOutBack(p);
     if (kind === 'quart') return introEaseOutQuart(p);
     return introEaseOutCubic(p);
   }
@@ -1618,68 +1096,139 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
   }
 
   /* =========================================================
-   * introSchedule —— 错峰排程的**纯函数**（Δ27b §9）
-   * 「逐张可辨 + 零穿模」两条互斥约束的唯一出口，可离线断言。
+   * 波次预算（纯函数——离线可断言；`introDealTotalMs` 与排程共用同一份）
+   * ========================================================= */
+  function introWaveCount(n) {
+    var cnt = n > 0 ? n : 1;
+    var w = Math.ceil(cnt / INTRO_WAVE_TILES);
+    var cap = Math.floor(cnt / 3);   /* 每波至少 3 张——波内同起同落才有「一组」的观感 */
+    if (cap < 1) cap = 1;
+    if (w > cap) w = cap;
+    if (w < INTRO_WAVE_MIN) w = INTRO_WAVE_MIN;
+    if (w > INTRO_WAVE_MAX) w = INTRO_WAVE_MAX;
+    if (w < 1) w = 1;
+    return w;
+  }
+
+  function introBudgetOf(n, zMax) {
+    var cnt = n > 0 ? n : 1;
+    var zz = zMax > 0 ? zMax : 0;
+    var W = introWaveCount(cnt);
+    /* 层节拍预算 = 目标时长 − 单卡时长 − 波间最低消耗 */
+    var roomForZ = INTRO_TARGET_MS - INTRO_TILE_MS - INTRO_WAVE_STEP_MIN * (W - 1);
+    if (roomForZ < 0) roomForZ = 0;
+    var zStep = zz > 0 ? Math.floor(roomForZ / zz) : 0;
+    if (zStep > INTRO_Z_STEP_MAX) zStep = INTRO_Z_STEP_MAX;
+    if (zz > 0 && zStep < INTRO_Z_STEP_MIN) zStep = INTRO_Z_STEP_MIN;
+    var zTotal = zStep * zz;
+    var waveStep = W > 1 ? (INTRO_TARGET_MS - INTRO_TILE_MS - zTotal) / (W - 1) : 0;
+    if (waveStep < INTRO_WAVE_STEP_MIN) waveStep = INTRO_WAVE_STEP_MIN;
+    return {
+      waves: W, zStep: zStep, zTotal: zTotal, waveStep: waveStep,
+      totalMs: (W - 1) * waveStep + INTRO_TILE_MS + zTotal
+    };
+  }
+
+  /* =========================================================
+   * introSchedule —— 波次排程的**纯函数**（Δ30b / FR-052 §9）
    *
    *   entries : [{ z, key }]，数组顺序 = 编舞序（buildIntroPlan 的 ord 排序结果）
-   *             key = 渲染坐标（`r,c`）——同 key 即同像素位置（会叠在一起）
    *   zMax    : 棋盘最大层高
-   *   → { list: [{ idx, z, delay }], step, spread, totalMs }
+   *   → { list: [{ idx, z, delay, wave }], waves, waveStep, zStep, totalMs }
    *
-   * 三步，三个不变量：
-   *   ① spread = max(260, (N-1)×12) + zMax×55（容量自适应，见 FR-052 §10）
-   *   ② **同坐标层序锁**：把同一 (r,c) 组占用的槽位按升序重新分配给
-   *      z 升序的成员——槽位集合不变（展开期/步长/在途上限全不受影响），
-   *      仅组内重排，于是「同坐标先底层后顶层」从启发式变成**硬保证**。
-   *      （旧式 delay = LEAD + i×12 + z×55 只在高层不早于低层 4 个名次时成立，
-   *       实测 15 模式中有模式越界 → 会穿模）
-   *   ③ delay = LEAD + 最终名次×step → 相邻恒差 step >= 12ms，
-   *      单帧在途恒 <= ceil(260/12) = 22 张
+   * 三条不变量：
+   *   ① 波次切分**层带优先**——同层内再按编舞序切成空间连续的块，于是同一
+   *      `(r,c)` 的层叠牌必然落在不同波次且低层在前（层序锁：同坐标高层
+   *      起跑恒晚 `zStep × Δz`，倒序输入也不穿模）；
+   *   ② 波内 `delay` **完全相同**（同起同落），波间恒差 `waveStep >= 14ms`；
+   *   ③ `delay = wave × waveStep + z × zStep` → 末波 + 最高层恰为
+   *      `(W−1)×waveStep + zMax×zStep`，与 `introDealTotalMs` 公式逐字对齐。
+   *
+   * ⚠ **Δ27b 的「逐张可辨」两条不变量（步长 >= 9ms / 在途 <= 22）作废**：
+   *   141 张保持 9ms 步长需 ≈1440ms，与 420ms 预算算术互斥。零穿模的唯一
+   *   保证是 `draw()` 的 (z,r,c) 比较器，zStep 只负责「先底后上」的节拍。
    * ========================================================= */
   function introSchedule(entries, zMax) {
     var src = entries || [];
-    var cnt = src.length || 1;
+    var cnt = src.length;
     var zz = zMax > 0 ? zMax : 0;
-    var spread = Math.max(INTRO_SPREAD_MIN_MS, (cnt - 1) * INTRO_STAGGER_MS) + zz * INTRO_Z_STEP_MS;
-    var step = cnt > 1 ? spread / (cnt - 1) : 0;
-    var i;
+    var b = introBudgetOf(cnt, zz);
+    var W = b.waves;
+    var i, k;
 
-    /* ① 初始槽位：编舞序 × step（槽位集合 = 最终落点集合，只做组内重排） */
-    var slots = [];
-    for (i = 0; i < src.length; i++) slots.push(i * step);
-
-    /* ② 同坐标层序锁 */
-    var groups = {};
-    for (i = 0; i < src.length; i++) {
-      var gk = src[i].key != null ? String(src[i].key) : ('#' + i);
-      if (!groups[gk]) groups[gk] = [];
-      groups[gk].push(i);
-    }
-    var base = slots.slice();
-    for (var k in groups) {
-      if (!Object.prototype.hasOwnProperty.call(groups, k)) continue;
-      var idxs = groups[k];
-      if (idxs.length < 2) continue;
-      var used = [];
-      for (i = 0; i < idxs.length; i++) used.push(slots[idxs[i]]);
-      used.sort(function (a, b) { return a - b; });
-      idxs.sort(function (a, b) {
-        var az = src[a].z || 0, bz = src[b].z || 0;
-        if (az !== bz) return az - bz;
-        return a - b;
-      });
-      for (i = 0; i < idxs.length; i++) base[idxs[i]] = used[i];
+    if (!cnt) {
+      return { list: [], waves: 0, waveStep: b.waveStep, zStep: b.zStep,
+        zTotal: b.zTotal, totalMs: b.totalMs };
     }
 
-    /* ③ 按槽位定最终名次 → 均匀落点 */
-    var keyed = [];
-    for (i = 0; i < src.length; i++) keyed.push({ idx: i, z: src[i].z || 0, base: base[i] });
-    keyed.sort(function (a, b) { return a.base - b.base || a.idx - b.idx; });
+    /* ① 按层带分组（保持编舞序；z 升序） */
+    var layerZ = [];
+    var layerIdx = {};
+    for (i = 0; i < cnt; i++) {
+      var lz = src[i].z || 0;
+      if (!layerIdx[lz]) { layerIdx[lz] = []; layerZ.push(lz); }
+      layerIdx[lz].push(i);
+    }
+    layerZ.sort(function (a, c2) { return a - c2; });
+
+    /* ② 波次配额：按层内张数比例分配，每层至少 1 波，且不超过该层张数 */
+    var quota = [];
+    var sum = 0;
+    for (k = 0; k < layerZ.length; k++) {
+      var cN = layerIdx[layerZ[k]].length;
+      var q = Math.round(W * cN / cnt);
+      if (q < 1) q = 1;
+      if (q > cN) q = cN;
+      quota.push(q);
+      sum += q;
+    }
+    var guard = 0;
+    while (sum > W && guard++ < 400) {
+      var big = -1, bigQ = 1;
+      for (k = 0; k < quota.length; k++) if (quota[k] > bigQ) { bigQ = quota[k]; big = k; }
+      if (big < 0) break;
+      quota[big]--; sum--;
+    }
+    guard = 0;
+    while (sum < W && guard++ < 400) {
+      var best = -1, bestR = -1;
+      for (k = 0; k < quota.length; k++) {
+        if (quota[k] >= layerIdx[layerZ[k]].length) continue;
+        var rr = layerIdx[layerZ[k]].length / quota[k];
+        if (rr > bestR) { bestR = rr; best = k; }
+      }
+      if (best < 0) break;
+      quota[best]++; sum++;
+    }
+
+    /* ③ 逐层切块 → 全局波次号（波内同起同落） */
+    var waveOf = new Array(cnt);
+    var wave = 0;
+    for (k = 0; k < layerZ.length; k++) {
+      var list = layerIdx[layerZ[k]];
+      var qn = quota[k];
+      var base = Math.floor(list.length / qn);
+      var rem = list.length - base * qn;
+      var cur = 0;
+      for (var j = 0; j < qn; j++) {
+        var size = base + (j < rem ? 1 : 0);
+        for (var m = 0; m < size; m++) waveOf[list[cur + m]] = wave;
+        cur += size;
+        wave++;
+      }
+    }
+
+    /* ④ 定延迟 */
     var out = [];
-    for (i = 0; i < keyed.length; i++) {
-      out.push({ idx: keyed[i].idx, z: keyed[i].z, delay: INTRO_LEAD_MS + i * step });
+    for (i = 0; i < cnt; i++) {
+      var zi = src[i].z || 0;
+      out.push({ idx: i, z: zi, wave: waveOf[i], delay: waveOf[i] * b.waveStep + zi * b.zStep });
     }
-    return { list: out, step: step, spread: spread, totalMs: INTRO_LEAD_MS + spread + INTRO_TILE_MS };
+    return {
+      list: out, waves: wave, waveStep: b.waveStep, zStep: b.zStep,
+      zTotal: b.zTotal,
+      totalMs: (wave > 0 ? (wave - 1) * b.waveStep : 0) + INTRO_TILE_MS + b.zTotal
+    };
   }
 
   /* =========================================================
@@ -1751,88 +1300,91 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
    *   n      : 棋盘边长（格）
    *   rank   : 该牌在 id 升序中的序号（deck_deal 发牌序）
    *   total  : 卡牌总数
+   *   cellPx : 当前格宽（Δ30b 起位移一律按格宽给；缺省 INTRO_REF_CELL）
    * 返回 { ord∈[0,1], ox, oy (px), oxc, oyc (格), sx, sy, a0, ease, wipe }
-   *   ord  越大 → 越晚落定
-   *   a0   入场起点透明度 —— Δ27b §8 恒 >= 0.55（不再从 0 起跳，否则图案
-   *        前三分之一时长始终「发灰」，正是用户报告的模糊感来源之一）
-   *   wipe true → 遮罩揭示（逐帧变宽的水平裁切），sx/sy 恒 1；
-   *        替代 blinds_flip 旧式的 scaleX 0.05 几何压缩（非等比压到 0.05
-   *        时图案已严重变形、观感即「糊」，Δ27b §8 明令禁止）
+   *
+   * Δ30b / FR-052 §11 两项改造：
+   *   ① **位移收窄到 0.3~1.4 格宽**——原 px 硬编码（wings_clasp ±120 /
+   *      sky_rain −90 / windmill ±90）在 n=8 盘面（cell ≈ 42px）已达
+   *      2.1~2.9 格，「短距快落」退化成「从屏幕外飞进来」。
+   *   ② **缓动统一 quart（强减速硬停）**——center_ripple / spiral_vortex /
+   *      sky_rain 原用 `back`（回弹过冲）已改 quart；全表零 back / elastic。
    * ========================================================= */
-  function introSpecOf(mode, t, n, rank, total) {
+  function introSpecOf(mode, t, n, rank, total, cellPx) {
     var r = t.r || 0, c = t.c || 0;
     var nn = n > 1 ? n : 2;
     var h = (nn - 1) / 2;
     var z = t.z || 0;
     var totalN = total > 1 ? total : 1;
     var cd = introDist01(r, c, nn);
+    var cc = (cellPx > 0) ? cellPx : INTRO_REF_CELL;
     var out = { ord: 0, ox: 0, oy: 0, oxc: 0, oyc: 0, sx: 1, sy: 1, a0: INTRO_ALPHA0, ease: 'cubic', wipe: false };
 
     switch (mode) {
       case 0: /* diagonal_cascade —— 对角瀑布流：左上 → 右下斜向波浪落下 */
         out.ord = (r + c) / (2 * (nn - 1));
-        out.oy = -45;
+        out.oy = -0.9 * cc;
         break;
-      case 1: /* center_ripple —— 中心涟漪绽放：由近及远 Ease-Out-Back 弹出 */
+      case 1: /* center_ripple —— 中心涟漪绽放：由近及远弹出（quart 硬停） */
         out.ord = cd.d;
         out.sx = out.sy = INTRO_SCALE_MIN; /* 0.2 起（等比，不受非等比下限约束） */
-        out.ease = 'back';
+        out.ease = 'quart';
         break;
-      case 2: /* outer_converge —— 外环聚拢：由远及近，自外 60px 向内滑入 */
+      case 2: /* outer_converge —— 外环聚拢：由远及近，自外 1.1 格向内滑入 */
         out.ord = 1 - cd.d;
         if (cd.len > 0.0001) {
-          out.ox = (cd.dx / cd.len) * 60;
-          out.oy = (cd.dy / cd.len) * 60;
+          out.ox = (cd.dx / cd.len) * 1.1 * cc;
+          out.oy = (cd.dy / cd.len) * 1.1 * cc;
         }
         break;
       case 3: { /* spiral_vortex —— 螺旋星璇：极角 + 半径构成螺旋序依次弹入 */
         var ang = Math.atan2(cd.dy, cd.dx);
         var an = ((ang + Math.PI / 2) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) / (Math.PI * 2);
         out.ord = 0.62 * an + 0.38 * cd.d;
-        var amp = 55 * (0.45 + 0.55 * cd.d);
+        var amp = 0.9 * cc * (0.45 + 0.55 * cd.d);
         out.ox = Math.cos(ang - 0.9) * amp;
         out.oy = Math.sin(ang - 0.9) * amp;
         out.sx = out.sy = 0.55;
-        out.ease = 'back';
+        out.ease = 'quart';
         break;
       }
       case 4: /* wings_clasp —— 双翼合拢：左半自左、右半自右，中央最后咬合 */
         out.ord = 0.85 * (1 - Math.abs(c - h) / (h || 1)) + 0.15 * (r / (nn - 1));
-        out.ox = c < nn / 2 ? -120 : 120;
+        out.ox = (c < nn / 2 ? -1.2 : 1.2) * cc;
         break;
-      case 5: /* sky_rain —— 天降甘霖：列/行错落，自 -90px 带回弹落下 */
+      case 5: /* sky_rain —— 天降甘霖：列/行错落，自 −1.2 格硬停落下 */
         out.ord = 0.45 * (c / (nn - 1)) + 0.55 * (r / (nn - 1));
-        out.oy = -90;
-        out.ease = 'back';
+        out.oy = -1.2 * cc;
+        out.ease = 'quart';
         break;
-      case 6: /* layer_stack —— 层峦叠嶂：z=0→4 整层分批自上方放大压下 */
+      case 6: /* layer_stack —— 层峦叠嶂：按 z 整层分批自上方放大压下 */
         out.ord = (z + (r + c) / (2 * (nn - 1))) / 5;
-        out.oy = -50;
+        out.oy = -1.0 * cc;
         out.sx = out.sy = 1.14;
         out.ease = 'quart';
         break;
       case 7: /* zipper_interleave —— 交错拉链：偶数行自左、奇数行自右 */
         out.ord = (r + 0.4 * (c / (nn - 1))) / (nn - 1 + 0.4);
-        out.ox = (r % 2 === 0) ? -100 : 100;
+        out.ox = (r % 2 === 0 ? -1.2 : 1.2) * cc;
         break;
       case 8: { /* windmill_quadrants —— 风车四象限：TL/TR/BR/BL 四向切入 */
         var q = (r < nn / 2) ? (c < nn / 2 ? 0 : 1) : (c < nn / 2 ? 3 : 2);
         out.ord = q * 0.25 + cd.d * 0.25;
-        if (q === 0) out.ox = -90;
-        else if (q === 1) out.oy = -90;
-        else if (q === 2) out.ox = 90;
-        else out.oy = 90;
+        if (q === 0) out.ox = -1.2 * cc;
+        else if (q === 1) out.oy = -1.2 * cc;
+        else if (q === 2) out.ox = 1.2 * cc;
+        else out.oy = 1.2 * cc;
         break;
       }
       case 9: /* v_formation —— V 字雁阵：r + |c - centerC| 呈 V 字波浪自上方 */
         out.ord = (r + Math.abs(c - h)) / (nn - 1 + h);
-        out.oy = -70;
+        out.oy = -1.2 * cc;
         break;
       case 10: /* checkerboard_weave —— 棋盘格交织：偶格前半拍、奇格后半拍 */
         out.ord = ((r + c) % 2 === 0)
           ? (r / (nn - 1)) * 0.45
           : 0.5 + (r / (nn - 1)) * 0.45;
-        out.oy = -40;
+        out.oy = -0.8 * cc;
         out.sx = out.sy = 0.7;
         break;
       case 11: /* blinds_flip —— 百叶窗揭示：按列从左到右**遮罩逐帧变宽**
@@ -1842,19 +1394,21 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         out.ord = c / (nn - 1);
         out.wipe = true;
         break;
-      case 12: /* deck_deal —— 中心发牌式：起点=棋盘正中，按 id 序飞散铺开 */
+      case 12: /* deck_deal —— 中心发牌式：起点=棋盘正中附近，按 id 序飞散铺开
+       * Δ30b: 格数制位移按 0.28 缩放——n=8 时最远角距离 4.95 格 → 1.39 格，
+       * 落进 1.4 格上限内（原口径等于「整盘横穿」）。 */
         out.ord = rank / (totalN - 1);
-        out.oxc = h - c;
-        out.oyc = h - r;
+        out.oxc = (h - c) * 0.28;
+        out.oyc = (h - r) * 0.28;
         out.sx = out.sy = 0.55;
         out.ease = 'quart';
         break;
       case 13: /* tailwind_glide —— 顺风滑入：沿自身箭头 d 的后方滑入 */
         out.ord = (r + c) / (2 * (nn - 1));
-        if (t.d === 1) out.ox = -55;        /* 朝右 R → 自左侧滑入 */
-        else if (t.d === 3) out.ox = 55;    /* 朝左 L → 自右侧滑入 */
-        else if (t.d === 0) out.oy = 55;    /* 朝上 U → 自下方滑入 */
-        else out.oy = -55;                  /* 朝下 D → 自上方滑入 */
+        if (t.d === 1) out.ox = -1.1 * cc;        /* 朝右 R → 自左侧滑入 */
+        else if (t.d === 3) out.ox = 1.1 * cc;    /* 朝左 L → 自右侧滑入 */
+        else if (t.d === 0) out.oy = 1.1 * cc;    /* 朝上 U → 自下方滑入 */
+        else out.oy = -1.1 * cc;                  /* 朝下 D → 自上方滑入 */
         break;
       case 14: /* starlight_scatter —— 星雨点亮：伪随机均匀散点缩放点亮 */
         out.ord = (((t.id || 0) * 7 + 3) % totalN) / (totalN - 1);
@@ -1862,7 +1416,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         break;
       default:
         out.ord = (r + c) / (2 * (nn - 1));
-        out.oy = -45;
+        out.oy = -0.9 * cc;
         break;
     }
     if (!isFinite(out.ord)) out.ord = 0;
@@ -1885,6 +1439,23 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       if (out.sy < INTRO_NONUNI_MIN) out.sy = INTRO_NONUNI_MIN;
     }
     if (!(out.a0 >= INTRO_ALPHA_MIN_SAFE)) out.a0 = INTRO_ALPHA_MIN_SAFE;
+    /* Δ30b / SC-026 ④: 位移归一（两种表达合并判定）
+     *   · 上限 1.4 格宽（硬）——超出即等比压回
+     *   · 有位移的模式下限 0.3 格宽——低于即等比拉开（位移为 0 的纯缩放/遮罩
+     *     模式不参与下限，如 center_ripple / blinds_flip / starlight_scatter） */
+    var dxPx = out.ox + out.oxc * cc;
+    var dyPx = out.oy + out.oyc * cc;
+    var disp = Math.sqrt(dxPx * dxPx + dyPx * dyPx);
+    var maxD = INTRO_DISP_MAX_CELL * cc;
+    if (disp > maxD && disp > 0) {
+      var kMax = maxD / disp;
+      out.ox *= kMax; out.oy *= kMax; out.oxc *= kMax; out.oyc *= kMax;
+      disp = maxD;
+    }
+    if (disp > 0 && disp < INTRO_DISP_MIN_CELL * cc) {
+      var kMin = (INTRO_DISP_MIN_CELL * cc) / disp;
+      out.ox *= kMin; out.oy *= kMin; out.oxc *= kMin; out.oyc *= kMin;
+    }
     return out;
   }
 
@@ -1921,12 +1492,11 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     var rafId = 0;
     var anims = [];        /* {kind:'fly'|'block'|'match'|'reveal', tileId, ...} */
     var particles = [];
-    var shards = [];        /* T082: 白瓷多边形碎片池 */
-    var vfxShards = [];
-    /* Δ28d: 爆心闪光——碎裂瞬间在 3 槽包围盒中心打一次 180ms 的径向辉光
-     * （`lighter` 混合）。这是参考效果「高级感」的关键一层：碎片再通透，
-     * 没有爆心的 bloom 就只是「纸屑散开」。一次性开销（每帧 1 次 gradient fill）。 */
-    var vfxFlash = null;
+    /* Δ30a: 三消坍缩光环池——双环 + 四角星芒（**零掉落物**）。
+     * `ringPool` 持有空闲记录、`collapseRings` 数组本体**不重建**
+     * （MUST NOT 每次三消新建对象数组）。 */
+    var collapseRings = [];
+    var ringPool = [];
     /* Δ28d: 记录上一帧 VFX 层是否还有内容——由「有」转「空」时必须补一次清屏，
      * 否则最后一帧碎片会被永久冻结在画布上（详见 tick 尾部注释）。 */
     var vfxWasLive = false;
@@ -2154,7 +1724,6 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       introAnim = { startTime: nowMs(), mode: m, active: true, totalMs: 0 };
       introPlan = null;
       introTicked = {};
-      dealBusyGlobal = true; /* Δ28e: 编舞期间禁止做重活（碎块图集键控） */
       markDirty();
       return m;
     }
@@ -2164,7 +1733,6 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       var wasActive = !!(introAnim && introAnim.active);
       if (introAnim) introAnim.active = false;
       introPlan = null;
-      dealBusyGlobal = false; /* Δ28e: 编舞结束 → 放行重活 */
       dirty = true;
       markDirty();
       return wasActive;
@@ -2191,12 +1759,10 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       return left > 0 ? left : 0;
     }
 
-    /* FR-052 §10 权威时长公式（纯函数——可离线断言） */
+    /* Δ30b / FR-052 §10 权威时长公式（纯函数——可离线断言）
+     * total = (W−1) × WAVE_STEP + TILE + zStep × zMax，恒落 360~420ms。 */
     function introDealTotalMs(n, zMax) {
-      var cnt = n > 0 ? n : 1;
-      var zz = zMax > 0 ? zMax : 0;
-      var spread = Math.max(INTRO_SPREAD_MIN_MS, (cnt - 1) * INTRO_STAGGER_MS);
-      return INTRO_LEAD_MS + spread + INTRO_TILE_MS + INTRO_Z_STEP_MS * zz;
+      return introBudgetOf(n, zMax).totalMs;
     }
     function introMaxZOf() {
       var tiles = (lastProbe && lastProbe.tiles) ? lastProbe.tiles : [];
@@ -2233,7 +1799,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       var zMax = 0;
       for (i = 0; i < list.length; i++) {
         var t = list[i];
-        var sp = introSpecOf(introAnim.mode, t, n, rankOf[t.id] || 0, total);
+        var sp = introSpecOf(introAnim.mode, t, n, rankOf[t.id] || 0, total, cell);
         if ((t.z || 0) > zMax) zMax = t.z || 0;
         items.push({ t: t, sp: sp });
       }
@@ -2257,7 +1823,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       var sched = introSchedule(items.map(function (o) {
         return { z: o.t.z || 0, key: o.t.r + ',' + o.t.c };
       }), zMax);
-      var step = sched.step;
+      var step = sched.waveStep;
 
       var plan = {};
       for (i = 0; i < sched.list.length; i++) {
@@ -2273,9 +1839,15 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
           sx: spp.sx, sy: spp.sy, a0: spp.a0, wipe: spp.wipe === true
         };
       }
-      var maxDelay = INTRO_LEAD_MS + sched.spread;
+      /* Δ30b: 末波起跑时刻 = 最大 delay（LEAD 已归零，公式自然退化为波次时间轴） */
+      var maxDelay = 0;
+      for (i = 0; i < sched.list.length; i++) {
+        if (sched.list[i].delay > maxDelay) maxDelay = sched.list[i].delay;
+      }
       introAnim.totalMs = Math.max(maxDelay + INTRO_TILE_MS, introDealTotalMs(total, zMax));
       introAnim.maxDelay = maxDelay;
+      introAnim.waveStepMs = step;
+      introAnim.waves = sched.waves;
       introAnim.stepMs = step;
       introAnim.zMax = zMax;
       return plan;
@@ -2340,8 +1912,10 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
             /* overallProgress = 该牌在**落牌时间轴**上的归一化位置——
              * 恒随落定时刻单调不减（若用 ord 会因层高补偿而乱序，
              * 音高就会忽高忽低）。节流由 SoundManager 保证 >= 22ms。 */
-            var span = Math.max(1, (introAnim.maxDelay || INTRO_LEAD_MS) - INTRO_LEAD_MS);
-            var prog = (rec.delay - INTRO_LEAD_MS) / span;
+            /* Δ30b: LEAD 归零后 `(delay − LEAD) / (maxDelay − LEAD)` 自然退化为
+             * 波次时间轴 `delay / maxDelay`——同帧多牌按时间轴升序发声。 */
+            var span = Math.max(1, introAnim.maxDelay || 0);
+            var prog = rec.delay / span;
             if (!isFinite(prog)) prog = 0;
             if (prog < 0) prog = 0;
             if (prog > 1) prog = 1;
@@ -2360,7 +1934,6 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       if (allDone) {
         introAnim.active = false;
         introPlan = null;
-        dealBusyGlobal = false; /* Δ28e: 编舞结束 → 放行碎块图集键控 */
         dirty = true;
         return false;
       }
@@ -2551,35 +2124,16 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         p.life -= 16;
         if (p.life <= 0) particles.splice(i, 1);
       }
-      for (i = shards.length - 1; i >= 0; i--) {
-        var sh = shards[i];
-        sh.x += sh.vx; sh.y += sh.vy;
-        sh.vy += 0.22; /* 重力 */
-        sh.rot += sh.vr;
-        sh.life -= 16;
-        if (sh.life <= 0) shards.splice(i, 1);
+      /* Δ30a: 坍缩光环推进——按绝对时间扣减（与墙钟同源，帧率无关）。
+       * 池「有 → 空」时置 dirty，由尾部 vfxWasLive 守卫补一次清屏。 */
+      for (i = collapseRings.length - 1; i >= 0; i--) {
+        var rgc = collapseRings[i];
+        if (now - rgc.t0 >= rgc.dur) {
+          collapseRings.splice(i, 1);
+          ringPool.push(rgc);
+          dirty = true;
+        } else active = true;
       }
-      if (shards.length > 0) active = true;
-      for (i = vfxShards.length - 1; i >= 0; i--) {
-        var vsh = vfxShards[i];
-        /* Δ27c/T136 物理定标：重力 2600 px/s² 持续加速 + 恒定翻滚。
-         * MUST NOT 施加空气阻力或终速限制（会拖出「先减速→悬停→再飘落」的
-         * 三段式，正是「慢吞吞飘落」的成因）。越过屏幕下沿即回收。 */
-        /* Δ29b: 用**常加速度精确解**积分（先按 (vy + ½g·dt)·dt 位移，再加 g·dt），
-         * 而不是朴素显式欧拉。这样同一段墙钟时间内，无论切成几帧（8/16/33ms），
-         * 位置**逐点相同**——「帧率无关性」从「误差可接受」升级为「恒等」，
-         * 掉帧时既不变慢也不会把急坠摊薄。 */
-        vsh.x += vsh.vx * dtVfx;
-        vsh.y += (vsh.vy + 0.5 * DOCK_SHARD_GRAVITY * dtVfx) * dtVfx;
-        vsh.vy += DOCK_SHARD_GRAVITY * dtVfx;
-        vsh.rot += (vsh.vr || 0) * dtVfx; /* vr = rad/s */
-        /* Δ29b: 2.5D 翻滚相位独立推进（MUST NOT 与平面自转同相） */
-        vsh.tumble = (vsh.tumble || 0) + (vsh.vr || 0) * DOCK_SHARD_TUMBLE_RATE * dtVfx;
-        vsh.life -= dtVfx * 1000;
-        if (vsh.life <= 0 || (vsh.y - 80 > vfxViewH())) vfxShards.splice(i, 1);
-      }
-      if (vfxShards.length > 0) active = true;
-      if (vfxFlash) active = true;
       if (particles.length > 0) active = true;
       /* Δ27a/FR-053: 飞行推进——每张独立计时，落定即回调揭示槽位并出表。
        * 兜底：超过 dur + 400ms 仍在表内（极端掉帧 / 回调异常）→ 强制落定，
@@ -2607,239 +2161,126 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
        * 上一帧的碎片被**永久冻结**在全屏 #vfx-canvas 上（实测残留 15 万像素、
        * 占比 ~10%，即 SC-023 ⑩ 说的「残留亮斑」）。故池由「有」转「空」时必须
        * 强制再清一次画布。粒子/碎片同属该画布层，一并纳入守卫。 */
-      var vfxLive = (vfxShards.length > 0 || particles.length > 0 || vfxFlash !== null);
+      var vfxLive = (collapseRings.length > 0 || particles.length > 0);
       if (vfxLive) vfxWasLive = true;
       else if (vfxWasLive) { vfxWasLive = false; dirty = true; }
       return active;
     }
 
-    /* 三消粒子：Δ14 图鉴主题色 12~20 个（单帧 ≤200） */
-    function spawnShards(a, now) {
-      var count = SHARD_COUNT_MIN + Math.floor(Math.random() * (SHARD_COUNT_MAX - SHARD_COUNT_MIN + 1));
-      if (shards.length + count > 400) count = Math.max(0, 400 - shards.length);
-      var cx = a.x != null ? a.x : cssSize / 2;
-      var cy = a.y != null ? a.y : -cell;
-      for (var i = 0; i < count; i++) {
-        var ang = Math.random() * Math.PI * 2;
-        var speed = 1.5 + Math.random() * 3.5;
-        var verts = [];
-        var n = 4 + Math.floor(Math.random() * 3); /* 4~6 边 */
-        var r0 = 4 + Math.random() * 6;
-        for (var v = 0; v < n; v++) {
-          var a2 = (v / n) * Math.PI * 2 + Math.random() * 0.6;
-          var rr = r0 * (0.7 + Math.random() * 0.6);
-          verts.push({ x: Math.cos(a2) * rr, y: Math.sin(a2) * rr });
-        }
-        var life = SHARD_LIFE_MIN + Math.floor(Math.random() * (SHARD_LIFE_MAX - SHARD_LIFE_MIN));
-        shards.push({
-          x: cx, y: cy,
-          vx: Math.cos(ang) * speed,
-          vy: Math.sin(ang) * speed - 2, /* 向上炸开 */
-          rot: Math.random() * Math.PI * 2,
-          vr: (Math.random() - 0.5) * 0.25,
-          verts: verts,
-          life: life,
-          life0: life
-        });
-      }
+    /* =========================================================
+     * Δ30a / FR-049 §18 ⑤: 三消坍缩光环（双环 + 四角星芒，零掉落物）
+     *
+     * 时序锚点：光环起始帧 == 坍缩段首帧（140ms），全部在 220ms 前归零——
+     * SC-025 ④ 要求「220ms + 1 帧后画布 alpha > 2 的像素数 = 0」。
+     * 零掉落物：本模块只画同心圆环与四角星芒，MUST NOT 出现任何 y 持续增大的
+     * 绘制物（原 shards 图集 / 抛物线物理 / 爆心辉光已整体下线）。
+     * 性能：每帧一次遍历完成，禁 ctx.filter / 逐枚 shadowBlur / 逐帧新建 canvas。
+     * ========================================================= */
+    function ringAlphaOf(p) {
+      /* 单调衰减到 0（1.7 次幂——起手亮、尾段迅速收干净） */
+      var q = 1 - p;
+      if (q < 0) q = 0;
+      return Math.pow(q, 1.7);
     }
-      /* Δ21d/T101: 无描边 Low-Poly 多面体瀑布发射器 */
-      function spawnDockShatter(slotRects) {
-        slotRects = slotRects || [];
-        /* 兜底：若未传入槽位矩形，则取 #dock 前 3 个有牌槽位 */
-        if (!slotRects.length && typeof document !== 'undefined') {
-          var nodes = document.querySelectorAll('#dock .slot');
-          var picks = [];
-          for (var pi = 0; pi < nodes.length && picks.length < 3; pi++) {
-            if (nodes[pi] && nodes[pi].getBoundingClientRect && nodes[pi].classList && nodes[pi].classList.contains('has-tile')) {
-              picks.push(nodes[pi].getBoundingClientRect());
-            }
-          }
-          if (picks.length < 3) {
-            for (var pj = 0; pj < nodes.length && picks.length < 3; pj++) {
-              if (nodes[pj] && nodes[pj].getBoundingClientRect) picks.push(nodes[pj].getBoundingClientRect());
-            }
-          }
-          slotRects = picks;
-        }
-        /* 联合矩形：覆盖 3 个槽位全宽 */
-        var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (var si = 0; si < slotRects.length; si++) {
-          var rect = slotRects[si] || {};
-          var rx = (rect.left != null ? rect.left : (rect.x != null ? rect.x : 0));
-          var ry = (rect.top != null ? rect.top : (rect.y != null ? rect.y : 0));
-          var rw = rect.width || rect.w || 0;
-          var rh = rect.height || rect.h || 0;
-          if (rw < 1) rw = 1; if (rh < 1) rh = 1;
-          if (rx < minX) minX = rx;
-          if (ry < minY) minY = ry;
-          if (rx + rw > maxX) maxX = rx + rw;
-          if (ry + rh > maxY) maxY = ry + rh;
-        }
-        if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 160; maxY = 44; }
-        var rw = Math.max(1, maxX - minX);
-        var rh = Math.max(1, maxY - minY);
-        /* 出生半径 <= 槽宽（槽宽 = 联合矩形高，即单槽边长）
-         * Δ28e: 出生区改为「贴着 3 个槽位的一横条」——水平方向比 3 槽并集各外扩
-         * 0.75 槽宽，垂直方向只外扩 0.62 槽宽。旧口径 1.35 槽宽四周等距外扩，
-         * 出生云是个大方块，碎片看起来「凭空出现在槽位附近」而不是「从牌里崩出来」。
-         * Δ29b: 水平外扩 0.75 → 1.0 槽宽、垂直 0.62 → 0.95 槽宽——数量降到 36~54 枚
-         * 且尺寸放大后，需要更大的出生面积才能满足 0.85× 中心距（粒粒分明）。 */
-        var slotW = Math.max(28, Math.min(rh, rw / 3));
-        var padX = slotW * 1.0;
-        var padY = slotW * 0.95;
-        var bx0 = minX - padX, bx1 = maxX + padX;
-        var by0 = minY - padY, by1 = maxY + padY;
-        var bboxW = Math.max(1, bx1 - bx0);
-        var bboxH = Math.max(1, by1 - by0);
-        /* 爆心 = 3 槽并集中心（不是出生盒中心——盒在垂直方向不对称于槽位行） */
-        var burstCX = (minX + maxX) / 2;
-        /* Δ28f: 扫掠方向 = 屏幕较近的一侧（爆心在左半屏 → 向左下扫，否则向右下扫）。
-         * 全团共用同一方向，观感才是一条弧而不是对称扇形。 */
-        var sweepDir = (burstCX < vfxViewW() * 0.5) ? -1 : 1;
-        /* Δ28d: 爆心辉光定位在 3 槽中心 */
-        vfxFlash = {
-          x: burstCX,
-          y: (minY + maxY) / 2,
-          r: Math.max(bboxW, bboxH) * 0.52,
-          t0: nowMs(),
-          dur: 180
-        };
 
-        function makeVerts(n, r0) {
-          var verts = [];
-          for (var v = 0; v < n; v++) {
-            var a2 = (v / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.9;
-            var rr = r0 * (0.6 + Math.random() * 0.75);
-            verts.push({ x: Math.cos(a2) * rr, y: Math.sin(a2) * rr });
-          }
-          return verts;
-        }
-
-        /* ---------- Δ27c/T135: 数量收口 120~150 + 三级尺寸 + 疏密约束 ---------- */
-        var atlasSlices = ShardAtlas.slices(); /* null → 程序化兜底（FR-049 §3） */
-        var total = DOCK_SHARD_TOTAL_MIN +
-          Math.floor(Math.random() * (DOCK_SHARD_TOTAL_MAX - DOCK_SHARD_TOTAL_MIN + 1));
-        /* Δ29b: 配比用「大块向上取整 / 细粉向下取整」保证两条硬指标恒成立——
-         *   大块占比 >= 25%（ceil 保证不低于下限）且每卡 >= 3 枚；
-         *   细粉占比 <= 20%（floor 保证不超上限）。中块吃余数。
-         * 旧写法 `round(large)+round(medium)+余数` 在 total=37 时细粉会溢到 21.6%。 */
-        var largeCount = Math.ceil(total * DOCK_SHARD_RATIO_LARGE);
-        var smallCount = Math.floor(total * DOCK_SHARD_RATIO_SMALL);
-        var mediumCount = total - largeCount - smallCount;
-        var kinds = [];
-        var a, b, c;
-        for (a = 0; a < largeCount; a++) kinds.push('large');
-        for (b = 0; b < mediumCount; b++) kinds.push('medium');
-        for (c = 0; c < smallCount; c++) kinds.push('small');
-        /* 大块优先占位（它们需要更大的净空），再中块、小块 */
-        kinds.sort(function (k1, k2) {
-          var r1 = k1 === 'large' ? 0 : (k1 === 'medium' ? 1 : 2);
-          var r2 = k2 === 'large' ? 0 : (k2 === 'medium' ? 1 : 2);
-          return r1 - r2;
-        });
-
-        function sizeRangeOf(kind) {
-          if (kind === 'large') return DOCK_SHARD_SIZE_LARGE;
-          if (kind === 'medium') return DOCK_SHARD_SIZE_MEDIUM;
-          return DOCK_SHARD_SIZE_SMALL;
-        }
-
-        var placed = []; /* { x, y, vis } —— 疏密约束的已占位列表 */
-        var picked = []; /* 已选切片索引（同帧 >= 6 种） */
-        var n = kinds.length;
-        for (var ki = 0; ki < n; ki++) {
-          var kind = kinds[ki];
-          var rg = sizeRangeOf(kind);
-          var vis = rg[0] + Math.random() * (rg[1] - rg[0]); /* 可见长边 px */
-          /* 疏密：两级拒绝采样（Δ29b）
-           *   硬约束（必须满足）：中心距 >= 0.5 × min(两者长边) —— 这是「糊成一团」的
-           *     直接判据，任何情况下不得违反；
-           *   软目标（尽量满足）：中心距 >= 0.85 × min(两者长边) —— 「粒粒分明」。
-           * 为什么分两级：36~54 枚 14~72px 的碎块塞进一横条，0.85× 是**过约束**
-           * （面积核算见 shard-vfx-smoke ② 注释），只按 0.85 采样会让兜底分支
-           * 把碎片堆到同一处（实测出现 127 对重度重叠）。先试 0.85（64 次），
-           * 不成立再试 0.5（128 次），最后才取「预算内最好的一枚」。 */
-          var px = 0, py = 0, ok = false, bestX = 0, bestY = 0, bestGap = -1;
-          var gapSoft = DOCK_SHARD_GAP_RATIO;   /* 0.85 */
-          var gapHard = 0.5;
-          var tries = 0;
-          while (tries < 192) {
-            tries++;
-            var needK = (tries <= 64) ? gapSoft : gapHard;
-            var cx2 = bx0 + Math.random() * bboxW;
-            var cy2 = by0 + Math.random() * bboxH;
-            var minGap = Infinity;
-            for (var pi2 = 0; pi2 < placed.length; pi2++) {
-              var need = needK * Math.min(vis, placed[pi2].vis);
-              var dx2 = cx2 - placed[pi2].x, dy2 = cy2 - placed[pi2].y;
-              var d2 = Math.sqrt(dx2 * dx2 + dy2 * dy2) - need;
-              if (d2 < minGap) minGap = d2;
-            }
-            if (minGap > bestGap) { bestGap = minGap; bestX = cx2; bestY = cy2; }
-            if (minGap >= 0) { ok = true; px = cx2; py = cy2; break; }
-          }
-          if (!ok) { px = bestX; py = bestY; }
-          placed.push({ x: px, y: py, vis: vis });
-
-          /* 切片索引：优先轮转 + 随机，保证同帧 >= 6 种不同切片（Δ28b: 27 张） */
-          var atlas = null;
-          if (atlasSlices) {
-            atlas = (ki < SHARD_ATLAS_TOTAL) ? ki : Math.floor(Math.random() * SHARD_ATLAS_TOTAL);
-            if (picked.indexOf(atlas) < 0) picked.push(atlas);
-          }
-          /* Δ28f 口径保留：全团共用**一个扫掠方向**（sweepDir，取屏幕较近的一侧），
-           * 水平分量只抖动幅度形成「一条带」的厚度，方向**绝不翻转**。
-           * Δ29b：水平位移受「全程 <= 1.5 槽宽」反算的上限钳制——
-           *   budget = 1.5 × slotW / life（px/s）；|vx| = min(抽取值, budget)。
-           * 否则 180px/s × 520ms = 93.6px 会突破 1.5 槽宽（≈60px），碎片漫天乱飞。 */
-          var life = DOCK_SHARD_LIFE_MIN +
-            Math.floor(Math.random() * (DOCK_SHARD_LIFE_MAX - DOCK_SHARD_LIFE_MIN + 1));
-          var vxBudget = (DOCK_SHARD_HOP_MAX_RATIO * slotW) * 1000 / Math.max(1, life);
-          var vxMag = DOCK_SHARD_VX_MIN + Math.random() * (DOCK_SHARD_VX_MAX - DOCK_SHARD_VX_MIN);
-          if (vxMag > vxBudget) vxMag = vxBudget;
-          if (vxMag < DOCK_SHARD_VX_MIN) vxMag = DOCK_SHARD_VX_MIN;
-          var vx = sweepDir * vxMag;
-          /* Δ29b: 竖直初速**必须为负**（向上微跳），随后被 6400 的重力翻转为急坠 */
-          var vy = DOCK_SHARD_VY_MIN + Math.random() * (DOCK_SHARD_VY_MAX - DOCK_SHARD_VY_MIN);
-          var vrMag = DOCK_SHARD_VR_MIN + Math.random() * 8;
-          var vr = (Math.random() < 0.5 ? -1 : 1) * vrMag;
-          var rec = {
-            x: px, y: py,
-            vx: vx, vy: vy,
-            rot: Math.random() * Math.PI * 2,
-            vr: vr,               /* rad/s（Δ27c：改为角速度量纲，更新时 × dt） */
-            /* Δ29b: 2.5D 翻滚相位——独立于 rot，避免与平面自转同相（同相会读成「转圈」） */
-            tumble: Math.random() * Math.PI * 2,
-            verts: atlas ? null : makeVerts(4 + Math.floor(Math.random() * 3), Math.max(3, vis * 0.42)),
-            size: vis,            /* 可见长边（px） */
-            kind: kind,
-            atlas: atlas,         /* 图集切片索引；null = 程序化兜底 */
-            alpha0: DOCK_SHARD_ALPHA_MIN, /* Δ29b: 恒 1.0（末段才淡出） */
-            /* Δ29b: 出生竖直初速快照（vy 会被逐帧积分改写；门禁需用它反算
-             * 微跳高度 vy0²/2g —— headless ~10fps 采不到 94~150ms 的往返） */
-            vy0: vy,
-            flip: Math.random() < 0.5,
-            life: life,
-            life0: life
-          };
-          vfxShards.push(rec);
-        }
-        /* 同帧切片多样性兜底：不足 6 种时把前几枚改抽未用过的切片 */
-        if (atlasSlices && picked.length < DOCK_SHARD_ATLAS_KINDS_MIN) {
-          var want = DOCK_SHARD_ATLAS_KINDS_MIN - picked.length;
-          for (var wi = 0; wi < vfxShards.length && want > 0; wi++) {
-            var idxTry = (wi * 3 + 1) % SHARD_ATLAS_TOTAL;
-            if (picked.indexOf(idxTry) >= 0) continue;
-            if (vfxShards[wi].atlas == null) continue;
-            vfxShards[wi].atlas = idxTry;
-            picked.push(idxTry);
-            want--;
-          }
-        }
-        markDirty();
-        return vfxShards.length;
+    /* 四角星芒（✦）：8 顶点星形，外半径 size、内凹 0.19×——一次 fill 完成 */
+    function drawStarRay(v, x, y, rot, size, alpha) {
+      if (!(size > 0.4) || alpha <= 0.004) return;
+      v.save();
+      v.translate(x, y);
+      v.rotate(rot);
+      v.globalAlpha = alpha > 1 ? 1 : alpha;
+      v.fillStyle = '#FFFFFF';
+      v.beginPath();
+      for (var k = 0; k < 8; k++) {
+        var ang = k * Math.PI / 4 - Math.PI / 2;
+        var rr = (k % 2 === 0) ? size : size * RAY_INNER_RATIO;
+        var px = Math.cos(ang) * rr;
+        var py = Math.sin(ang) * rr;
+        if (k === 0) v.moveTo(px, py); else v.lineTo(px, py);
       }
+      v.closePath();
+      v.fill();
+      v.restore();
+    }
+
+    /* 起跑一次坍缩光环（main.js 在坍缩段首帧调用一次）
+     *   cx, cy  : 中心槽中心（视口 CSS px——与 #vfx-canvas 同量纲）
+     *   slotW   : 单槽边长（半径基准）
+     *   reduced : prefers-reduced-motion → 只出单环、不出星芒（SC-025 ⑩）
+     * 返回本次投放的记录数（0 = 几何不可用，已静默跳过，不影响主流程）。 */
+    function spawnCollapseImpact(cx, cy, slotW, reduced) {
+      if (!(cx >= 0) || !(cy >= 0) || !(slotW > 0)) return 0;
+      var t0 = nowMs();
+      var made = 0;
+      var rings = reduced ? 1 : 2;
+      for (var k = 0; k < rings; k++) {
+        var rec = ringPool.pop() || {};
+        rec.kind = (k === 0) ? 'outer' : 'inner';
+        rec.x = cx; rec.y = cy; rec.w = slotW;
+        rec.t0 = t0 + (k === 0 ? 0 : RING_INNER_STAGGER);
+        rec.dur = (k === 0) ? RING_OUTER_LIFE : RING_INNER_LIFE;
+        rec.r0 = RING_R0_RATIO;
+        rec.r1 = (k === 0) ? RING_OUTER_R1 : RING_INNER_R1;
+        rec.color = (k === 0) ? RING_COLOR_OUTER : RING_COLOR_INNER;
+        rec.lw0 = RING_LW0; rec.lw1 = RING_LW1;
+        collapseRings.push(rec);
+        made++;
+      }
+      if (!reduced) {
+        var rays = RAY_MIN + Math.floor(Math.random() * (RAY_MAX - RAY_MIN + 1));
+        for (var q = 0; q < rays; q++) {
+          var rr = ringPool.pop() || {};
+          rr.kind = 'ray';
+          rr.x = cx; rr.y = cy; rr.w = slotW;
+          rr.t0 = t0 + RAY_START_MS;
+          rr.dur = RAY_LIFE_MS;
+          rr.ang = (q / rays) * Math.PI * 2 + Math.random() * 0.28;
+          rr.spin = (Math.random() - 0.5) * 1.4;
+          rr.size = RAY_SIZE_MIN + Math.random() * (RAY_SIZE_MAX - RAY_SIZE_MIN);
+          collapseRings.push(rr);
+          made++;
+        }
+      }
+      markDirty();
+      return made;
+    }
+
+    /* 绘制：一次遍历完成双环 + 星芒（`lighter` 混合读作「光」而非「贴纸」） */
+    function drawCollapse(v, now) {
+      if (!collapseRings.length) return;
+      v.save();
+      v.globalCompositeOperation = 'lighter';
+      for (var i = 0; i < collapseRings.length; i++) {
+        var r = collapseRings[i];
+        var p = (now - r.t0) / r.dur;
+        if (!(p > 0) || p >= 1) continue;
+        if (r.kind === 'ray') {
+          var a = ringAlphaOf(p) * 0.92;
+          if (a <= 0.01) continue;
+          var rad = r.w * (0.55 + 0.75 * introEaseOutQuart(p));
+          drawStarRay(v,
+            r.x + Math.cos(r.ang) * rad,
+            r.y + Math.sin(r.ang) * rad,
+            r.ang + (r.spin || 0) * p,
+            (r.size || 4) * (1 - 0.35 * p),
+            a);
+        } else {
+          var alpha = ringAlphaOf(p);
+          if (alpha <= 0.01) continue;
+          var radius = r.w * (r.r0 + (r.r1 - r.r0) * introEaseOutQuart(p));
+          v.globalAlpha = alpha;
+          v.strokeStyle = r.color;
+          v.lineWidth = r.lw0 + (r.lw1 - r.lw0) * p;
+          v.beginPath();
+          v.arc(r.x, r.y, radius, 0, Math.PI * 2);
+          v.stroke();
+        }
+      }
+      v.restore();
+      v.globalAlpha = 1;
+    }
+
       /* 三消粒子：Δ14 图鉴主题色 12~20 个（单帧 ≤200） */
       function spawnParticles(a, now) {
         var sv = suitVisual(a.suit);
@@ -2878,22 +2319,15 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       ctx.globalAlpha = 1;
     }
 
-    /* 视口高度（碎片越界回收用；Node 桩回落 640） */
-    function vfxViewH() {
-      if (typeof global !== 'undefined' && global.innerHeight) return global.innerHeight;
-      if (vfxCanvas && vfxCanvas.clientHeight) return vfxCanvas.clientHeight;
-      return 640;
-    }
-    function vfxViewW() {
-      if (typeof global !== 'undefined' && global.innerWidth) return global.innerWidth;
-      if (vfxCanvas && vfxCanvas.clientWidth) return vfxCanvas.clientWidth;
-      return 360;
-    }
-
-    /* Δ20/T093 → Δ27c/T135: 全屏 #vfx-canvas 3D 立体碎块瀑布绘制
-     * 单枚 MUST 以**一次** drawImage 完成（图集路径），禁用逐枚
-     * getImageData / ctx.filter / 多次 clip / 逐枚 shadowBlur。 */
-    function drawVfx() {
+    /* Δ20/T093 → Δ30a: 全屏 #vfx-canvas 绘制（坍缩光环 + 飞行牌缝合段）
+     * 每帧一次遍历完成光环绘制，禁用 ctx.filter / 逐枚 shadowBlur /
+     * 逐帧新建 canvas；MUST NOT 出现任何 y 持续增大的绘制物。
+     *
+     * `atMs`：**仅门禁取证用**的时刻覆盖（不传 = 真实墙钟）。坍缩光环总寿命
+     * 只有 80ms（外环 80 / 内环 48 / 星芒 64），低帧率环境（headless 单帧
+     * 可达 150ms）墙钟采样永远落在窗口外 → 允许门禁把时间轴拨到指定相位取
+     * 像素证据。飞行段恒用真实墙钟，不受此参数影响。 */
+    function drawVfx(atMs) {
       if (!vfxCtx || !vfxCanvas) return;
       var dpr = Math.max(1, (typeof global !== 'undefined' && global.devicePixelRatio) || 1);
       var w = (typeof global !== 'undefined' && global.innerWidth) ? global.innerWidth : (vfxCanvas.clientWidth || 360);
@@ -2905,98 +2339,10 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       if (vfxCanvas.height !== pxH) vfxCanvas.height = pxH;
       if (typeof vfxCtx.setTransform === 'function') vfxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       vfxCtx.clearRect(0, 0, w, h);
-      /* Δ28d: 爆心辉光（在碎片之下，lighter 混合） */
-      if (vfxFlash) {
-        var fEl = nowMs() - vfxFlash.t0;
-        if (fEl >= vfxFlash.dur) {
-          vfxFlash = null;
-        } else {
-          var fp = fEl / vfxFlash.dur;
-          var fR = vfxFlash.r * (0.55 + 0.85 * fp);
-          var fA = (1 - fp) * (1 - fp) * 0.62;
-          if (fR > 0.5 && fA > 0.004) {
-            var fg = vfxCtx.createRadialGradient(vfxFlash.x, vfxFlash.y, 0, vfxFlash.x, vfxFlash.y, fR);
-            fg.addColorStop(0, 'rgba(255,255,255,' + fA.toFixed(3) + ')');
-            fg.addColorStop(0.42, 'rgba(222,240,255,' + (fA * 0.52).toFixed(3) + ')');
-            fg.addColorStop(0.78, 'rgba(186,214,255,' + (fA * 0.18).toFixed(3) + ')');
-            fg.addColorStop(1, 'rgba(170,200,255,0)');
-            vfxCtx.globalCompositeOperation = 'lighter';
-            vfxCtx.fillStyle = fg;
-            vfxCtx.beginPath();
-            vfxCtx.arc(vfxFlash.x, vfxFlash.y, fR, 0, Math.PI * 2);
-            vfxCtx.fill();
-            vfxCtx.globalCompositeOperation = 'source-over';
-          }
-        }
-      }
-      /* Δ27c/T135: 图集切片（会话级缓存；未就绪 → 本次静默走程序化兜底）
-       * Δ29b: 2.5D 空间翻滚 —— 自转相位驱动 `|cos θ|` 透视压缩 + 明暗面互换 +
-       *   侧壁偏移，使碎块在空中读得出是「块」而不是「片」。
-       *   实现走**合成变换**（scale 的正负号 + 非等比压缩 + 平移偏移），
-       *   MUST NOT 逐帧新建 canvas、MUST NOT 逐帧回读像素、MUST NOT 逐枚 filter。 */
-      var shardImgs = ShardAtlas.slices();
-      for (var i = 0; i < vfxShards.length; i++) {
-        var sh = vfxShards[i];
-        /* Δ29b: alpha 恒 1.0 —— 仅「生命末段 <= 120ms」线性淡出（越出屏幕下沿直接回收）。
-         * MUST NOT 全程半透明、MUST NOT 起手就淡（通透感由暗面 / 亮边 / 方向光表达）。 */
-        var a = (sh.alpha0 != null) ? sh.alpha0 : 1;
-        if (sh.life <= DOCK_SHARD_FADE_TAIL) {
-          a *= Math.max(0, sh.life / DOCK_SHARD_FADE_TAIL);
-        }
-        if (a <= 0) continue;
-        vfxCtx.globalAlpha = a > 1 ? 1 : a;
-        vfxCtx.save();
-        vfxCtx.translate(sh.x, sh.y);
-        vfxCtx.rotate(sh.rot);
-        /* 严禁 shadowBlur / ctx.filter（性能 + 零描边红线） */
-        vfxCtx.shadowBlur = 0;
-        /* 2.5D 翻滚：|cos| 压缩（下限 0.35）+ 背向时明暗面互换（x 取负） */
-        var ct = Math.cos(sh.tumble || 0);
-        var sq = DOCK_SHARD_TUMBLE_FLOOR + (1 - DOCK_SHARD_TUMBLE_FLOOR) * Math.abs(ct);
-        var back = ct < 0;
-        var sxk = (back ? -1 : 1) * (sh.flip ? -1 : 1);
-        var img = (shardImgs && sh.atlas != null) ? shardImgs[sh.atlas] : null;
-        if (img) {
-          /* 图集路径：**单枚一次 drawImage**（3D 立体感由素材自身 + 上述合成变换承载） */
-          var drawSz = (sh.size || 14) / SHARD_SUBJECT_RATIO;
-          /* 侧壁偏移：压缩方向让出 `(1-sq)` 的位移，读作「厚度绕轴转过去」 */
-          var wallDx = (1 - sq) * drawSz * 0.16;
-          vfxCtx.scale(sxk, sq);
-          vfxCtx.drawImage(img, -drawSz / 2 + wallDx, -drawSz / 2, drawSz, drawSz);
-        } else {
-          /* 程序化 Low-Poly 兜底（素材缺失 / 首组三消尚未就绪）
-           * Δ29b: 同样吃 2.5D 压缩，避免兜底形态与图集形态的体感割裂 */
-          vfxCtx.scale(1, sq);
-          var verts = sh.verts;
-          if (!verts || verts.length < 3) {
-            var r = (sh.size != null ? sh.size * 0.42 : 3);
-            verts = [{ x: 0, y: -r }, { x: r, y: 0 }, { x: 0, y: r }, { x: -r, y: 0 }];
-          }
-          var n = verts.length;
-          /* 侧边厚度：向下偏移 2px 的浅冷灰 */
-          vfxCtx.beginPath();
-          vfxCtx.moveTo(verts[0].x, verts[0].y + 2);
-          for (var si = 1; si < n; si++) vfxCtx.lineTo(verts[si].x, verts[si].y + 2);
-          vfxCtx.closePath();
-          vfxCtx.fillStyle = '#CBD5E1';
-          vfxCtx.fill();
-          /* 正面：纯白 */
-          vfxCtx.beginPath();
-          vfxCtx.moveTo(verts[0].x, verts[0].y);
-          for (var fi = 1; fi < n; fi++) vfxCtx.lineTo(verts[fi].x, verts[fi].y);
-          vfxCtx.closePath();
-          vfxCtx.fillStyle = '#FFFFFF';
-          vfxCtx.fill();
-          /* 一侧极淡折光边 */
-          vfxCtx.strokeStyle = '#F1F5F9';
-          vfxCtx.lineWidth = 1;
-          vfxCtx.beginPath();
-          vfxCtx.moveTo(verts[0].x, verts[0].y);
-          vfxCtx.lineTo(verts[1].x, verts[1].y);
-          vfxCtx.stroke();
-        }
-        vfxCtx.restore();
-      }
+      /* Δ30a: 三消坍缩光环（坍缩首帧起跑，220ms 前全部归零）。
+       * 与卡牌形变错峰接力：卡牌在 140~220ms 收到 0，光环同时扩散并收干净。 */
+      var colNow = (typeof atMs === 'number' && isFinite(atMs)) ? atMs : nowMs();
+      try { drawCollapse(vfxCtx, colNow); } catch (eCol) { /* 光环异常不杀帧 */ }
       vfxCtx.globalAlpha = 1;
       vfxCtx.shadowBlur = 0;
       /* Δ27a/FR-053 §5：飞行牌的「棋盘矩形之外」部分由本层接续绘制。
@@ -3364,11 +2710,10 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         anims.push({ kind: 'block', tileId: e.tileId, t0: now, dur: BLOCK_MS });
         if (opts.onShake) opts.onShake();
       } else if (e.e === 'match') {
-        /* match 事件——顶部 Dock 槽位坐标爆发白瓷碎片 */
+        /* Δ30a: 三消演出改由 main.js 的磁吸坍缩承担（本层只留主题色粒子） */
         var cx = cssSize / 2;
         var cy = -cell * 0.5; /* 顶部 Dock 槽位上方 */
         anims.push({ kind: 'match', tileId: e.ids[0], suit: e.suit, t0: now, dur: 300, x: cx, y: cy });
-        spawnShards({ x: cx, y: cy }, now);
       } else if (e.e === 'reveal') {
         /* Δ7: 次顶层暴露——延迟后上浮（revealAt 驱动 drawBoardTile 内插值） */
         revealAt[e.id] = now + REVEAL_DELAY;
@@ -3509,13 +2854,8 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
      * Dock chip 由 main.js 渲染（棋盘重绘同帧经 renderDock 事件驱动——
      * 贴图就绪即 bump 通知,后续 dock/match 事件自然消费新切片） */
     IconAssets.ensureLoaded();
-    /* Δ27c/T134 ③: 碎块图集键控 MUST 在 startDeal() 之前完成——渲染器一创建
-     * 就启动加载（一次性 ~150ms），MUST NOT 把 2048² 的回读压在开局编舞窗口上。
-     * 若首组三消时仍未就绪 → 该次静默走程序化 Low-Poly 兜底（不等、不掉帧）。 */
-    /* Δ28e: 新实例没有在跑的编舞——清掉上一实例可能遗留的「忙」标记，
-     * 否则碎块图集键控会一直被推迟（最坏要等满 60 次重试）。 */
-    dealBusyGlobal = false;
-    ShardAtlas.ensureLoaded();
+    /* Δ30a: 碎块图集链路已整体下线——渲染器创建时不再有任何图集加载 /
+     * 键控 / 让路重试（`dealBusyGlobal` 随之退役），开局编舞窗口零后台重活。 */
     IconAssets.onSpritesReady(function () {
       markDirty();
     });
@@ -3531,8 +2871,9 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     lastRendererApi = {
       refresh: refresh,
       handleEvent: handleEvent,
-      spawnDockShatter: spawnDockShatter,
-      vfxShards: vfxShards,
+      /* Δ30a: 坍缩光环唯一入口（main.js 在坍缩段首帧调用一次） */
+      spawnCollapseImpact: spawnCollapseImpact,
+      collapseRings: collapseRings,
       hitTest: hitTest,
       setHighlight: setHighlight,
       setHighlights: setHighlights,
@@ -3571,26 +2912,33 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       /* Δ27a/FR-053 §5：本帧静态层绘制序（tileId 序列）——门禁断言「飞行牌与
        * 静止牌共用同一 (z,r,c) 升序」，不得统一置顶。 */
       drawOrderOf: function () { return lastDrawOrder.slice(); },
-      /* Δ27c：碎块池只读快照（shard-vfx-smoke 门禁断言数量/物理/配比） */
-      vfxShardsOf: function () { return vfxShards.slice(); },
-      /* Δ28d：爆心辉光描述符（delta27-verify ⑤ 断言「0~180ms 有辉光 / 之后无残留」）。
-       * 返回 null 表示辉光已过期——绘制路径会先把它置 null 再跳过绘制，故与画面一致。 */
-      vfxFlashInfo: function () {
-        return vfxFlash
-          ? { x: vfxFlash.x, y: vfxFlash.y, r: vfxFlash.r, t0: vfxFlash.t0, dur: vfxFlash.dur }
-          : null;
+      /* Δ30a：坍缩光环只读快照（门禁断言双环错峰 / 星芒枚数 / 半径曲线 / 生命周期） */
+      collapseRingsOf: function () {
+        var out = [];
+        for (var ri = 0; ri < collapseRings.length; ri++) {
+          var r = collapseRings[ri];
+          out.push({
+            kind: r.kind, x: r.x, y: r.y, w: r.w, t0: r.t0, dur: r.dur,
+            r0: r.r0, r1: r.r1, color: r.color, lw0: r.lw0, lw1: r.lw1,
+            size: r.size, ang: r.ang
+          });
+        }
+        return out;
       },
-      /* Δ28d：清空 VFX 层（碎块 / 粒子 / 旧碎片），`keepFlash` 为真时保留爆心辉光。
-       * 用途：① 换关 / 重置 / Undo 时不得残留上一局碎片（否则新局开场就带白点）；
-       * ② 门禁隔离实验——清碎片但留辉光，使「该点有像素」唯一归因于辉光。 */
-      clearVfx: function (keepFlash) {
-        vfxShards.length = 0;
+      /* Δ30a：清空 VFX 层（光环 / 粒子）。换关 / 重置 / Undo 时不得残留上一局演出。 */
+      clearVfx: function () {
+        for (var ci = 0; ci < collapseRings.length; ci++) ringPool.push(collapseRings[ci]);
+        collapseRings.length = 0;
         particles.length = 0;
-        shards.length = 0;
-        if (!keepFlash) vfxFlash = null;
         vfxWasLive = false;
         markDirty();
       },
+      /* Δ30a 取证钩子（只读渲染，不改任何状态）：
+       * headless / 低端机单帧可达 100~150ms，而坍缩演出总长仅 220ms（外环 80ms、
+       * 内环 48ms、星芒 64ms）——rAF 会整段跳过它，画布取证永远采到 0 像素。
+       * 门禁据此同步渲染一帧再读像素（像素证据 + 池内记录两条腿都要有）。
+       * atMs 可把时间轴拨到指定相位（不传 = 真实墙钟）。 */
+      drawVfxNow: function (atMs) { drawVfx(atMs); },
       /* 自测/调试用只读布局（CSS 像素：origin/cellStep/tileSize/n） */
       layoutOf: function () { return layout; },
       SUITS: SUITS
@@ -4133,12 +3481,6 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
   }
 
   STM.createBoardRenderer = createBoardRenderer;
-  STM.spawnDockShatter = function (slotRects) {
-    if (lastRendererApi && typeof lastRendererApi.spawnDockShatter === 'function') {
-      return lastRendererApi.spawnDockShatter(slotRects);
-    }
-    return 0;
-  };
   STM.SUITS = SUITS;
   STM.chipSVG = chipSVG;
   STM.petAvatarHTML = petAvatarHTML; /* Δ17: 萌宠头像统一出口 */
@@ -4148,50 +3490,50 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
   STM.IconAssets = IconAssets;
   STM.BackdropStage = BackdropStage;
   STM.rendererTest = { setSuitLevel: setSuitLevel, suitVisual: suitVisual, spriteCache: spriteCache, getSprite: getSprite, IconAssets: IconAssets, dockIconDataURL: dockIconDataURL, paintDockIcons: paintDockIcons, DIR_COLORS: DIR_COLORS };
-  /* T084: Δ19 渲染常量外露（离线自测断言用——不参与运行时逻辑）
-   * Δ29b: 数量 36~54 / 三级尺寸放大 / 微跳急坠 / alpha 恒 1.0 / 2.5D 翻滚。
+  /* Δ30a: 三消坍缩光环常量外露（离线自测断言用——不参与运行时逻辑）
    * ⚠ 本表 MUST 与实现**同源同步**——不同步会让门禁常量断言读到旧值、
-   * 实现已改 → 「假绿」（Δ29 的隐藏地雷，T159 ④）。 */
-  STM.rendererTest.SHARDS = { min: SHARD_COUNT_MIN, max: SHARD_COUNT_MAX };
-  STM.rendererTest.DOCK_SHARDS = {
-    min: DOCK_SHARD_TOTAL_MIN,
-    max: DOCK_SHARD_TOTAL_MAX,
-    lifeMin: DOCK_SHARD_LIFE_MIN,
-    lifeMax: DOCK_SHARD_LIFE_MAX,
-    gravity: DOCK_SHARD_GRAVITY,
-    /* Δ29b: 微跳急坠——vyMin/vyMax 为**负值**（向上），水平同号且受 1.5 槽宽预算钳制 */
-    vxMin: DOCK_SHARD_VX_MIN,
-    vxMax: DOCK_SHARD_VX_MAX,
-    vyMin: DOCK_SHARD_VY_MIN,
-    vyMax: DOCK_SHARD_VY_MAX,
-    hopMaxRatio: DOCK_SHARD_HOP_MAX_RATIO,
-    alphaMin: DOCK_SHARD_ALPHA_MIN,
-    alphaMax: DOCK_SHARD_ALPHA_MAX,
-    fadeTail: DOCK_SHARD_FADE_TAIL,
-    vrMin: DOCK_SHARD_VR_MIN,
-    tumbleRate: DOCK_SHARD_TUMBLE_RATE,
-    tumbleFloor: DOCK_SHARD_TUMBLE_FLOOR,
-    gapRatio: DOCK_SHARD_GAP_RATIO,
-    ratio: { large: DOCK_SHARD_RATIO_LARGE, medium: DOCK_SHARD_RATIO_MEDIUM, small: 1 - DOCK_SHARD_RATIO_LARGE - DOCK_SHARD_RATIO_MEDIUM },
-    size: { large: DOCK_SHARD_SIZE_LARGE, medium: DOCK_SHARD_SIZE_MEDIUM, small: DOCK_SHARD_SIZE_SMALL },
-    atlasKindsMin: DOCK_SHARD_ATLAS_KINDS_MIN
+   * 实现已改 → 「假绿」（Δ29 的隐藏地雷）。 */
+  STM.rendererTest.COLLAPSE = {
+    TOTAL_MS: RING_TOTAL_MS,
+    START_MS: RING_START_MS,
+    OUTER_LIFE: RING_OUTER_LIFE,
+    INNER_STAGGER: RING_INNER_STAGGER,
+    INNER_LIFE: RING_INNER_LIFE,
+    LW0: RING_LW0,
+    LW1: RING_LW1,
+    R0_RATIO: RING_R0_RATIO,
+    OUTER_R1: RING_OUTER_R1,
+    INNER_R1: RING_INNER_R1,
+    COLOR_OUTER: RING_COLOR_OUTER,
+    COLOR_INNER: RING_COLOR_INNER,
+    RAY_MIN: RAY_MIN,
+    RAY_MAX: RAY_MAX,
+    RAY_SIZE_MIN: RAY_SIZE_MIN,
+    RAY_SIZE_MAX: RAY_SIZE_MAX,
+    RAY_START_MS: RAY_START_MS,
+    RAY_LIFE_MS: RAY_LIFE_MS
   };
-  STM.rendererTest.VFX_SHARDS = STM.rendererTest.DOCK_SHARDS;
-  STM.rendererTest.SHATTER_SHARDS = STM.rendererTest.DOCK_SHARDS;
-  STM.rendererTest.FRAGMENTS = STM.rendererTest.DOCK_SHARDS;
+  STM.COLLAPSE = STM.rendererTest.COLLAPSE;
   STM.rendererTest.GAP = GAP;
-  STM.DOCK_SHARDS = STM.rendererTest.DOCK_SHARDS;
-  STM.VFX_SHARDS = STM.rendererTest.DOCK_SHARDS;
+  /* Δ30a: 碎块链路已整体下线 → STM.DOCK_SHARDS / STM.VFX_SHARDS 两个别名一并删除。
+   * 留着 = `undefined` 静默通过旧门禁的 `!!` 判据 = 假绿。 */
   /* ingame-hud-render-defects: 几何唯一出口外露（纯函数——Node/N 层/rect 任意组合可测） */
   STM.rendererTest.getTileCssRect = getTileCssRect;
   STM.rendererTest.tileGridOf = tileGridOf;
   /* Δ22c/T111 + Δ27b: 编舞常量表与纯函数规格（离线自测断言——不参与运行时逻辑） */
   STM.rendererTest.INTRO = {
     LEAD_MS: INTRO_LEAD_MS,
-    STAGGER_MS: INTRO_STAGGER_MS,
-    SPREAD_MIN_MS: INTRO_SPREAD_MIN_MS,
-    Z_STEP_MS: INTRO_Z_STEP_MS,
     TILE_MS: INTRO_TILE_MS,
+    WAVE_MIN: INTRO_WAVE_MIN,
+    WAVE_MAX: INTRO_WAVE_MAX,
+    WAVE_TILES: INTRO_WAVE_TILES,
+    WAVE_STEP_MIN: INTRO_WAVE_STEP_MIN,
+    TARGET_MS: INTRO_TARGET_MS,
+    Z_STEP_MIN: INTRO_Z_STEP_MIN,
+    Z_STEP_MAX: INTRO_Z_STEP_MAX,
+    REF_CELL: INTRO_REF_CELL,
+    DISP_MAX_CELL: INTRO_DISP_MAX_CELL,
+    DISP_MIN_CELL: INTRO_DISP_MIN_CELL,
     TICK_AT: INTRO_TICK_AT,
     ALPHA0: INTRO_ALPHA0,
     ALPHA_MIN_SAFE: INTRO_ALPHA_MIN_SAFE,
@@ -4205,12 +3547,14 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
   STM.rendererTest.introSpecOf = introSpecOf;
   /* FR-052 §10 权威时长公式（纯函数——离线可断言 700 / 1546 / 2340ms） */
   STM.rendererTest.introSchedule = introSchedule;
+  /* Δ30b: 缓动纯函数外露（门禁断言「末段 10% 位移 <= 2%」与「零 back」） */
+  STM.rendererTest.introEaseOf = introEase;
   STM.rendererTest.introDealTotalMs = function (n, zMax) {
-    var cnt = n > 0 ? n : 1;
-    var zz = zMax > 0 ? zMax : 0;
-    var spread = Math.max(INTRO_SPREAD_MIN_MS, (cnt - 1) * INTRO_STAGGER_MS);
-    return INTRO_LEAD_MS + spread + INTRO_TILE_MS + INTRO_Z_STEP_MS * zz;
+    return introBudgetOf(n, zMax).totalMs;
   };
+  /* Δ30b: 预算解算外露（门禁断言 W / WAVE_STEP / zStep / totalMs 逐项同源） */
+  STM.rendererTest.introBudgetOf = introBudgetOf;
+  STM.rendererTest.introWaveCount = introWaveCount;
   /* Δ27a/FR-053: 飞行常量与纯运动学外露（flight-smoke 离线断言） */  STM.rendererTest.FLIGHT = {
     U_MS: FLIGHT_U_MS,
     EXIT_MS_MIN: FLIGHT_EXIT_MS_MIN,
@@ -4228,48 +3572,4 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
   STM.rendererTest.flightSegOf = function (pos, cellPx, cssSizePx) {
     return flightSegOf(pos, cellPx, cssSizePx);
   };
-  /* Δ27c/T134: 碎块图集外露（shards-audit 离线审计 / shard-vfx-smoke 运行时断言） */
-  STM.ShardAtlas = ShardAtlas;
-  STM.rendererTest.ShardAtlas = ShardAtlas;
-  STM.rendererTest.SHARD_SUBJECT_RATIO = SHARD_SUBJECT_RATIO;
-  STM.rendererTest.SHARD_THEMES = SHARD_THEMES;
-  STM.rendererTest.SHARD_ATLAS_TOTAL = SHARD_ATLAS_TOTAL;
-  STM.rendererTest.SHARD_RAMP_MID = SHARD_RAMP_MID;
-  STM.rendererTest.SHARD_RAMP_GAMMA = SHARD_RAMP_GAMMA;
-  STM.rendererTest.SHARD_SHADE_ALPHA = SHARD_SHADE_ALPHA;
-  STM.rendererTest.SHARD_RIM_MIX = SHARD_RIM_MIX;
-  /* Δ29b: 泛洪键控口径外露（shards-audit ⑬ 断言「暗面 >= 25% 且主体零掏空」） */
-  STM.rendererTest.SHARD_KEYING = {
-    bgThreshold: SHARD_BG_THRESHOLD,
-    edgeSoftLo: SHARD_EDGE_SOFT_LO,
-    edgeLift: SHARD_EDGE_LIFT,
-    mode: 'flood-fill'
-  };
-  /* Δ29b: 纯函数——给定一串帧时长，推进一枚碎块的物理（帧率无关性离线断言用）。
-   * 与 tick() 内的积分序**完全一致**（先位移、再加重力），MUST NOT 另写一份。 */
-  STM.rendererTest.pumpShard = function (rec, dtMsList) {
-    var r = {
-      x: rec.x, y: rec.y, vx: rec.vx, vy: rec.vy,
-      rot: rec.rot || 0, vr: rec.vr || 0, tumble: rec.tumble || 0,
-      life: rec.life != null ? rec.life : 400
-    };
-    for (var i = 0; i < dtMsList.length; i++) {
-      var dt = Math.max(0, Math.min(100, dtMsList[i])) / 1000;
-      r.x += r.vx * dt;
-      r.y += (r.vy + 0.5 * DOCK_SHARD_GRAVITY * dt) * dt;
-      r.vy += DOCK_SHARD_GRAVITY * dt;
-      r.rot += r.vr * dt;
-      r.tumble += r.vr * DOCK_SHARD_TUMBLE_RATE * dt;
-      r.life -= dt * 1000;
-    }
-    return r;
-  };
-  /* 竖直速度翻转时刻（ms）与跳高（px）——纯解析式，供门禁断言 §12 ④ */
-  STM.rendererTest.shardHopOf = function (vy0, g) {
-    var gg = g || DOCK_SHARD_GRAVITY;
-    var tFlipMs = Math.abs(vy0) / gg * 1000;
-    var hop = (vy0 * vy0) / (2 * gg);
-    return { flipMs: tFlipMs, hopPx: hop, vyAfter100: gg * 0.1 };
-  };
-
 })(typeof window !== 'undefined' ? window : globalThis);

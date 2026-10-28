@@ -21,9 +21,8 @@ var lastDockSnapshot = null; /* Δ20/T093: 上一帧 Dock 花色快照（用于�
  * 否则 180ms 的 `.slot-shattering` 演出会被紧随其后的 remove/flyout 事件立刻抹掉。
  * 窗口结束时统一重绘一次（状态取当前真值，不需要中间帧）。 */
 var dockFreezeUntil = 0;
-var dockFreezeTimer = null;
 /* Δ28a: `match` 事件在**点击结算瞬间**下发（RulesEngine.applyTap 是原子的），
- * 此时第 3 张牌往往还在飞——旧实现直接 spawnDockShatter，观感是「牌没到就碎」。
+ * 此时第 3 张牌往往还在飞——旧实现直接起演出，观感是「牌没到就碎」。
  * 现改为：match 时若仍有在途牌 → 挂起，逐张落定后先用 ghost 把槽位画成有牌态，
  * 全部落定再爆发。`dockGhost` 只影响 DOM 渲染，不碰引擎态。 */
 var pendingShatter = null;
@@ -41,7 +40,11 @@ var pendingShatterTimer = null;
  * 移除前的序列，`indexOf` 即为真实槽位。镜像 MUST 与引擎同步更新，
  * 任何漏更（换关 / 重置 / Undo / 洗牌）都会让它漂移。 */
 var dockMirror = [];
-var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽位的有牌态 */
+var dockGhost = null; /* { map: { slotIndex: { suit, gid, dx } } } —— 坍缩前/期间槽位的有牌态
+                       * Δ30a: 由「单对象」改为**按槽位映射**，使 220ms 窗口内的
+                       * 第二次三消不会被第一组覆盖（SC-025 ⑨ 并发）。 */
+var collapseGroupSeq = 0;   /* 坍缩演出组号（单调递增） */
+var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以**最晚结束组**为准） */
 
   /* =========================================================
    * T050: 进度持久化（data-model.md §8，D-03 隐私模式降级）
@@ -900,13 +903,10 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
       onTerminal: handleTerminal
     });
 
-    /* Δ27b/T128: 换关清掉上一关残留的碎裂驻留窗口（否则新关前 180ms 内 Dock 不重绘） */
-    if (dockFreezeTimer) { clearTimeout(dockFreezeTimer); dockFreezeTimer = null; }
+    /* Δ30a: 换关清掉上一关残留的坍缩演出（否则新关前 220ms 内 Dock 不重绘） */
     if (pendingShatterTimer) { clearTimeout(pendingShatterTimer); pendingShatterTimer = null; }
-    if (preshakeTimer) { clearTimeout(preshakeTimer); preshakeTimer = null; } /* Δ29b: 前摇不得跨关残留 */
-    dockFreezeUntil = 0;
+    resetCollapseState();
     pendingShatter = null;
-    dockGhost = null;
     resyncDockMirror(); /* Δ28e: 新一关的待消槽镜像（通常为空） */
     resetPeakBanner(); /* Δ29a: 换关立即清理预警横幅（计时器 + 节点内容，零残留叠层） */
 
@@ -1374,12 +1374,17 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
     /* Dock 7 格（Δ14: chipSVG 消费当前关花色映射——与棋盘图鉴口径一致） */
     var html = '';
     for (var i = 0; i < 7; i++) {
-      /* Δ28a: ghost 优先——match 已把牌从引擎 dock 移除，但视觉上必须先让玩家
-       * 看到「牌落进槽里」，再碎。ghost 只读快照花色，不回写任何引擎态。 */
-      var ghostSuit = (dockGhost && dockGhost.map && dockGhost.map[i] != null) ? dockGhost.map[i] : null;
-      if (ghostSuit != null) {
-        var gCls = dockGhost.shatter ? 'slot has-tile is-filled filled slot-shattering' : 'slot has-tile is-filled filled';
-        html += '<div class="' + gCls + '" data-idx="' + i + '"><div class="dock-chip">' + STM.chipSVG(ghostSuit, currentLevel) + '</div></div>';
+      /* Δ28a/Δ30a: ghost 优先——match 已把牌从引擎 dock 移除，但视觉上必须先让玩家
+       * 看到「牌落进槽里」，再坍缩。ghost 只读快照花色，不回写任何引擎态。
+       * 条目形态 `{ suit, gid, dx }`：`gid` 非空且该组仍在演出中才挂
+       * `.slot-shattering` 并写入 `--suck-dx`（实时 rect 差值，一次性内联）。 */
+      var g = (dockGhost && dockGhost.map && dockGhost.map[i] != null) ? dockGhost.map[i] : null;
+      if (g != null) {
+        var gLive = (g.gid != null) && ((groupEndAt[g.gid] || 0) > Date.now());
+        var gCls = 'slot has-tile is-filled filled' + (gLive ? ' slot-shattering' : '');
+        var gStyle = gLive ? ' style="--suck-dx:' + (Number(g.dx) || 0).toFixed(2) + 'px"' : '';
+        html += '<div class="' + gCls + '" data-idx="' + i + '"><div class="dock-chip"' + gStyle + '>' +
+          STM.chipSVG(g.suit, currentLevel) + '</div></div>';
       } else if (i < s.dock.length) {
         /* Δ27b/T128（FR-053 §6）: 该牌逻辑上已入槽、但飞行尚未落定 →
          * 槽位保持空槽态（不提前亮起），落定由 onFlightLand 回调揭示。 */
@@ -1400,18 +1405,39 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
   }
 
   /* =========================================================
-   * Δ28a: 碎裂时序修正（「牌没到就碎」）
+   * Δ30a / FR-049 §18: 三消「三合一磁吸碰撞 + 闪白高光坍缩」
    *
-   * 根因：`RulesEngine.applyTap` 是**原子结算**——第 3 张牌一点，`dock` / `match` /
-   * `remove` 三个事件在同一批里下发，而该牌的飞行动画才刚开始（U 向 220ms、
-   * L/R/D 两段最长 320ms）。旧实现在 `match` 里直接 `spawnDockShatter`，于是
-   * 前两张的碎片已经炸开、第 3 张还在半空。
+   * 时序（总长 220ms，与 css/style.css 的 slot-shatter 三段一一对应）：
    *
-   * 修法：`match` 时若有 `renderer.dockPending(id)` 为真 → 挂起 `pendingShatter`；
-   * 每张落定先用 `dockGhost` 把槽位画成「有牌态」（逐张可见地落槽），
-   * 3 张全部落定后统一爆发 + 挂 `.slot-shattering` + 冻结 180ms。
-   * `dockGhost` 只是 DOM 渲染态，不写回 `session` / 不参与任何判定。
+   *   t = 0ms    三张牌全部落定 → 一次性写入 --suck-dx（**实时 rect 差值**）
+   *              + 挂 `.slot-shattering` → CSS 在 0~80ms 把三张滑到中间那张、
+   *              80~140ms 闪白膨胀 + 微震、140~220ms 收到 0
+   *   t = 140ms  坍缩段首帧 → renderer.spawnCollapseImpact(纯白 + 冰晶蓝双环 + 四角星芒)
+   *   t = 220ms  清本组 ghost → 若无活跃组则按最新真值重建 #dock（FLIP 补位）
+   *
+   * 为什么不再有「碎块」：Δ27→Δ29 三轮堆出来的 shards 图集 / 九宫格切片 /
+   * 泛洪键控 / 27 张染色 / 柔光预烘焙 / 抛物线物理 / 爆心辉光已**整体下线**
+   * （用户判定「向下掉落的碎块」是累赘杂物）。
+   *
+   * 三条时序不变量（MUST 保留）：
+   *   ① `match` 在点击结算瞬间下发 → MUST NOT 在 `match` 里直接起演出；
+   *      走 `pendingShatter` → `onFlightLand` 逐张 → 全部落定才起算 0ms。
+   *   ② 槽位定位用 `dockMirror`（按事件序重放 `dock`/`remove`），MUST NOT
+   *      读当前 dock / 快照（会退化成「最左 3 槽」）。
+   *   ③ `dockGhost` 只影响 `renderDock()` 的 HTML，不写回 session、不参与判定。
    * ========================================================= */
+  var COLLAPSE_TOTAL_MS = 220;    /* 演出总时长（== css slot-shatter 总时长） */
+  var COLLAPSE_RING_AT_MS = 140;  /* 光环起跑 == 坍缩段首帧 */
+  var DOCK_FREEZE_MS = COLLAPSE_TOTAL_MS;
+  var DOCK_FLIP_MS = 140;         /* FLIP 补位过渡（SC-025 ⑥ 的 120~160ms 窗口） */
+  var collapseTimers = [];        /* [{ gid, ring, end }] —— 每组两个计时器句柄 */
+
+  function prefersReducedMotion() {
+    try {
+      if (global.matchMedia) return !!global.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (eRm) { /* 环境不支持则按正常动效处理 */ }
+    return false;
+  }
 
   /* 从引擎 dock 快照里定位本次三消的 3 个槽位（顺序 = 左→右） */
   /* Δ28e: 镜像与引擎真值对齐（换关 / 重置 / Undo 后调用）。
@@ -1460,7 +1486,7 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
     return out;
   }
 
-  /* 挂起的碎裂：把「已落定」的牌逐张刷进 ghost（可见地落槽，尚未开碎） */
+  /* 挂起的坍缩：把「已落定」的牌逐张刷进 ghost（可见地落槽，尚未开演） */
   function advancePendingShatter() {
     if (!pendingShatter) return;
     var ids = pendingShatter.ids || [];
@@ -1470,12 +1496,12 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
     for (var i = 0; i < slots.length; i++) {
       var id = ids[i];
       var landed = !(renderer && renderer.dockPending && id != null && renderer.dockPending(id));
-      if (landed && suits[i] != null) map[slots[i]] = suits[i];
+      if (landed && suits[i] != null) map[slots[i]] = { suit: suits[i], gid: null, dx: 0 };
     }
-    dockGhost = { map: map, shatter: false };
+    dockGhost = { map: map };
   }
 
-  /* 3 张全部落定（或超时兜底）后爆发：ghost 挂 `.slot-shattering` → 碎块 → 冻结 180ms */
+  /* 3 张全部落定（或超时兜底）后开演 */
   function flushPendingShatter(force) {
     if (!pendingShatter) return;
     if (!force && renderer && renderer.dockPending) {
@@ -1487,75 +1513,178 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
     var ps = pendingShatter;
     pendingShatter = null;
     if (pendingShatterTimer) { clearTimeout(pendingShatterTimer); pendingShatterTimer = null; }
-    try { fireDockShatter(ps.slots, ps.suits); } catch (eF) { /* VFX 失败不阻断主流程 */ }
+    try { fireDockShatter(ps.slots, ps.suits); } catch (eF) { /* 演出失败不阻断主流程 */ }
   }
 
-  /* =========================================================
-   * Δ29b / FR-049 §2 ①②④ §15: 「挤压闪白前摇 → 膨胀顶点同帧撑爆」
-   *
-   * 取代 Δ20 的「槽内保留 180ms 播放震颤裂纹」：用户要的是**一记短促的挤压闪白**，
-   * 而不是慢慢裂开。时序：
-   *
-   *   t = 0ms      ghost 上屏（3 张牌原位）→ 挂 `.slot-shattering`
-   *                → CSS 在 PRESHAKE_MS 内做**非等比膨胀挤压 + 高光闪白**
-   *   t = 0ms      取**未变形**的槽位 rect（必须先取——CSS 动画一旦起跑，
-   *                getBoundingClientRect 会返回放大后的盒子，碎块出生点会外扩）
-   *   t = PRESHAKE_MS（膨胀顶点）  spawnDockShatter(rects) + 同帧清空 ghost 并重绘
-   *                → 零空窗帧（牌消失的那一帧碎块已存在）、零叠帧（碎块出现时牌已清）
-   *
-   * `#dock` 的 DOM 冻结窗口覆盖「前摇 + 爆发」两段（DOCK_FREEZE_MS = 180ms），
-   * 否则 match 事件处理末尾的 renderDock() 会把 `.slot-shattering` 抹掉。
-   * ========================================================= */
-  var PRESHAKE_MS = 70;      /* 前摇时长（FR-049 §2 ②：60~80ms） */
-  var DOCK_FREEZE_MS = 180;  /* 冻结窗口 = 前摇 + 爆发 */
-  var preshakeTimer = null;
+  /* 直接改 DOM（**不重建 innerHTML**）——重建会让上一组的 CSS 动画从头再来，
+   * 并发两组时表现为「第一组跳回起点」。只触碰本组的 3 个槽位。 */
+  function applyCollapseDom(slotIndices) {
+    if (!els.dock) return;
+    var nodes = els.dock.querySelectorAll('.slot');
+    var map = (dockGhost && dockGhost.map) ? dockGhost.map : {};
+    for (var i = 0; i < slotIndices.length; i++) {
+      var idx = slotIndices[i];
+      var nd = nodes[idx];
+      var g = map[idx];
+      if (!nd || !g) continue;
+      nd.className = 'slot has-tile is-filled filled slot-shattering';
+      nd.innerHTML = '<div class="dock-chip" style="--suck-dx:' +
+        (Number(g.dx) || 0).toFixed(2) + 'px">' + STM.chipSVG(g.suit, currentLevel) + '</div>';
+    }
+    if (STM.paintDockIcons) STM.paintDockIcons();
+  }
 
-  /* 真正的碎裂：先渲染「有牌 + 挤压闪白」的 ghost，膨胀顶点同帧爆发，最后解冻 */
+  /* 解除冻结时的 FLIP 补位（SC-025 ⑥）：重建前记录剩余槽位的旧 rect，
+   * 重建后对 `.dock-chip` 施加 `translateX(旧−新)` 并在 120~160ms 内回到 0。
+   * MUST NOT 瞬跳、MUST NOT 出现「空槽闪一下再填上」的中间帧。 */
+  function renderDockWithFlip() {
+    if (!els.dock || !session) { renderDock(); return; }
+    var dockArr = session.state().dock || [];
+    var oldLeft = {};
+    var nodes = els.dock.querySelectorAll('.slot');
+    var i;
+    for (i = 0; i < dockArr.length && i < nodes.length; i++) {
+      if (nodes[i] && nodes[i].getBoundingClientRect) {
+        oldLeft[dockArr[i].id] = nodes[i].getBoundingClientRect().left;
+      }
+    }
+    renderDock();
+    var nodes2 = els.dock.querySelectorAll('.slot');
+    for (i = 0; i < dockArr.length && i < nodes2.length; i++) {
+      var id = dockArr[i].id;
+      var old = oldLeft[id];
+      if (old == null || !nodes2[i].getBoundingClientRect) continue;
+      var chip = nodes2[i].querySelector('.dock-chip');
+      if (!chip) continue;
+      var dx = old - nodes2[i].getBoundingClientRect().left;
+      if (!(Math.abs(dx) > 0.5)) continue;
+      chip.style.transition = 'none';
+      chip.style.transform = 'translateX(' + dx.toFixed(2) + 'px)';
+      /* 强制一次重排，保证过渡从位移态起跑（否则会与首帧合并成瞬跳） */
+      if (chip.offsetWidth >= 0) { /* read-only flush */ }
+      chip.style.transition = 'transform ' + DOCK_FLIP_MS + 'ms cubic-bezier(.16,.84,.24,1)';
+      chip.style.transform = 'translateX(0px)';
+    }
+  }
+
+  /* 起演：0ms 磁吸、140ms 光环、220ms 收尾（并发组各自独立计时） */
   function fireDockShatter(slotIndices, suits) {
     slotIndices = slotIndices || [];
     suits = suits || [];
-    var map = {};
-    var g;
-    for (g = 0; g < slotIndices.length; g++) {
-      if (suits[g] != null) map[slotIndices[g]] = suits[g];
-    }
-    if (preshakeTimer) { clearTimeout(preshakeTimer); preshakeTimer = null; }
+    if (!slotIndices.length) return;
+    var gid = ++collapseGroupSeq;
+    var now = Date.now();
+    var k;
 
-    /* ① 先让 ghost 上屏（有牌态、无动画）→ 立刻取未变形 rect */
-    dockGhost = { map: map, shatter: false };
-    dockFreezeUntil = 0;
-    renderDock();
+    /* ① 实时 rect 采集 —— dx = 中心槽 left − 本槽 left。
+     * MUST NOT 用「槽宽 × 序号」换算：窗口缩放 / 横竖屏切换 / #dock 间距调整后
+     * 必然与 DOM 脱节（Δ27 已在飞行终点上踩过同类坑）。
+     *
+     * ⚠ Δ30a 真机踩坑：`.slot.has-tile` 挂着 `dock-seat` 入场动画
+     * （`scale(.72) → 1.08 → 1`，260ms）。坍缩恰好在「第 3 张刚落定」那一帧起演，
+     * 此时 `getBoundingClientRect()` 返回的是**被 transform 缩放过的**盒子——
+     * 实测槽宽 44 → 31.68（×0.72），光环半径与内环间距整体缩水 28%。
+     * 故基准几何 MUST 取布局尺寸 `offsetWidth/offsetHeight`（不含 transform），
+     * 再用「rect 中心」反推未缩放左上角（scale 以中心为原点 → 中心不变）。
+     * 取不到 rect 时退化为「原位闪白 + 双环」——时序与总时长不变。 */
     var nodes = els.dock ? els.dock.querySelectorAll('.slot') : [];
     var rects = [];
-    for (var k = 0; k < slotIndices.length; k++) {
-      var idx = slotIndices[k];
-      if (nodes[idx] && nodes[idx].getBoundingClientRect) rects.push(nodes[idx].getBoundingClientRect());
+    for (k = 0; k < slotIndices.length; k++) {
+      var nd = nodes[slotIndices[k]];
+      var rr = (nd && nd.getBoundingClientRect) ? nd.getBoundingClientRect() : null;
+      if (!rr || !(rr.width > 0)) { rects.push(null); continue; }
+      var lw = (nd.offsetWidth > 0) ? nd.offsetWidth : rr.width;
+      var lh = (nd.offsetHeight > 0) ? nd.offsetHeight : rr.height;
+      var ccx = rr.left + rr.width / 2;
+      var ccy = rr.top + rr.height / 2;
+      rects.push({ left: ccx - lw / 2, top: ccy - lh / 2, width: lw, height: lh });
     }
+    var order = slotIndices.slice().sort(function (a, b) { return a - b; });
+    var midIdx = order[Math.floor(order.length / 2)];
+    var midRect = null;
+    for (k = 0; k < slotIndices.length; k++) if (slotIndices[k] === midIdx) midRect = rects[k];
+    var cx = 0, cy = 0, slotW = 0;
+    if (midRect) {
+      cx = midRect.left + midRect.width / 2;
+      cy = midRect.top + midRect.height / 2;
+      slotW = midRect.width;
+    }
+    var reduced = prefersReducedMotion();
 
-    /* ② 挂前摇动画（`.slot-shattering` 复用既有类名，只改时序与关键帧） */
-    dockGhost = { map: map, shatter: true };
-    renderDock();
-    dockFreezeUntil = Date.now() + DOCK_FREEZE_MS;
-    if (dockFreezeTimer) clearTimeout(dockFreezeTimer);
-    dockFreezeTimer = setTimeout(function () {
-      dockFreezeTimer = null;
-      dockFreezeUntil = 0;
-      /* 前摇回调被节流推迟时，交给它自己清槽，避免这里提前抹掉动画 */
-      if (preshakeTimer) return;
-      dockGhost = null;
-      if (session && els.dock) renderDock();
-    }, DOCK_FREEZE_MS);
+    /* ② ghost 落位（按槽位映射；并发时保留其他组的条目） */
+    var map = (dockGhost && dockGhost.map) ? dockGhost.map : {};
+    for (k = 0; k < slotIndices.length; k++) {
+      var idx = slotIndices[k];
+      if (suits[k] == null) continue;
+      var dx = 0;
+      if (midRect && rects[k] && !reduced) dx = midRect.left - rects[k].left;
+      map[idx] = { suit: suits[k], gid: gid, dx: dx };
+    }
+    dockGhost = { map: map };
 
-    /* ③ 膨胀顶点：同帧「出碎块 + 清槽」 */
-    preshakeTimer = setTimeout(function () {
-      preshakeTimer = null;
-      dockFreezeUntil = 0;
-      if (rects.length && renderer && renderer.spawnDockShatter) {
-        try { renderer.spawnDockShatter(rects); } catch (eVfx) { /* VFX 异常不阻断清槽 */ }
+    groupEndAt[gid] = now + COLLAPSE_TOTAL_MS;
+    if (!(dockFreezeUntil > groupEndAt[gid])) dockFreezeUntil = groupEndAt[gid];
+
+    /* ③ 只改本组 3 个槽位的 DOM（零重建 → 上一组动画不受影响） */
+    applyCollapseDom(slotIndices);
+
+    /* ④ 坍缩段首帧：纯白 + 冰晶蓝双环 + 四角星芒（零掉落物） */
+    var ringTimer = setTimeout(function () {
+      if (renderer && renderer.spawnCollapseImpact && slotW > 0) {
+        try { renderer.spawnCollapseImpact(cx, cy, slotW, reduced); } catch (eR) { /* VFX 异常不阻断 */ }
       }
-      dockGhost = null;
-      if (session && els.dock) renderDock();
-    }, PRESHAKE_MS);
+    }, COLLAPSE_RING_AT_MS);
+
+    /* ⑤ 收尾：清本组 ghost → 若无活跃组则重建 + FLIP 补位 */
+    var endTimer = setTimeout(function () { finishCollapseGroup(gid); }, COLLAPSE_TOTAL_MS);
+    collapseTimers.push({ gid: gid, ring: ringTimer, end: endTimer });
+  }
+
+  /* 一组演出结束：清本组条目；还有更晚结束的组则只清本组槽位，否则重建 + FLIP */
+  function finishCollapseGroup(gid) {
+    delete groupEndAt[gid];
+    for (var ti = collapseTimers.length - 1; ti >= 0; ti--) {
+      if (collapseTimers[ti].gid === gid) collapseTimers.splice(ti, 1);
+    }
+    if (dockGhost && dockGhost.map) {
+      for (var key in dockGhost.map) {
+        if (!Object.prototype.hasOwnProperty.call(dockGhost.map, key)) continue;
+        var ent = dockGhost.map[key];
+        if (ent && ent.gid === gid) delete dockGhost.map[key];
+      }
+    }
+    var anyLive = false;
+    for (var g2 in groupEndAt) {
+      if (Object.prototype.hasOwnProperty.call(groupEndAt, g2)) { anyLive = true; break; }
+    }
+    if (anyLive) {
+      /* 并发：只把本组那 3 个槽位清成空槽，其他组动画不受影响 */
+      var nodes = els.dock ? els.dock.querySelectorAll('.slot') : [];
+      var map = (dockGhost && dockGhost.map) ? dockGhost.map : {};
+      for (var i = 0; i < nodes.length; i++) {
+        if (map[i]) continue;
+        if (nodes[i] && nodes[i].classList && nodes[i].classList.contains('slot-shattering')) {
+          nodes[i].className = 'slot empty';
+          nodes[i].innerHTML = '';
+        }
+      }
+      return;
+    }
+    dockFreezeUntil = 0;
+    dockGhost = null;
+    if (session && els.dock) renderDockWithFlip();
+  }
+
+  /* 换关 / 重置：清空全部演出计时器与 ghost（不得跨局残留） */
+  function resetCollapseState() {
+    for (var i = 0; i < collapseTimers.length; i++) {
+      if (collapseTimers[i].ring) clearTimeout(collapseTimers[i].ring);
+      if (collapseTimers[i].end) clearTimeout(collapseTimers[i].end);
+    }
+    collapseTimers = [];
+    groupEndAt = {};
+    dockFreezeUntil = 0;
+    dockGhost = null;
   }
 
   function renderItems() {
@@ -1746,12 +1875,9 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
   function handleSessionEvent(e) {
     if (e.e === 'phase') { renderHud(); return; }
     if (e.e === 'reset') {
-      if (dockFreezeTimer) { clearTimeout(dockFreezeTimer); dockFreezeTimer = null; }
       if (pendingShatterTimer) { clearTimeout(pendingShatterTimer); pendingShatterTimer = null; }
-      if (preshakeTimer) { clearTimeout(preshakeTimer); preshakeTimer = null; } /* Δ29b: 重置清前摇 */
-      dockFreezeUntil = 0;
+      resetCollapseState();
       pendingShatter = null;
-      dockGhost = null;
       dockMirror = []; /* Δ28e: 镜像随重置清空 */
       resetIq();
       renderer.refresh(); renderHud(); renderDock(); renderItems();
@@ -2521,8 +2647,13 @@ var dockGhost = null; /* { map: { slotIndex: suit } } —— 碎裂前/期间槽
      *   · peakBannerState —— 横幅可见性 / 主色相 / 去重标记（banner 专项断言） */
     isChallengeLevel: isChallengeLevel,
     challengePercent: challengePercent,
+    /* Δ30a: 演出时序常量（前摇已废除——`preshakeMs` 保留键位并指向「坍缩段首帧」，
+     * 使既有断言「冲击时刻 ∈ [60,80]ms」的继任者可直接改读 collapseMs/ringAtMs） */
     peakTiming: {
-      preshakeMs: PRESHAKE_MS,
+      preshakeMs: COLLAPSE_RING_AT_MS,
+      collapseMs: COLLAPSE_TOTAL_MS,
+      ringAtMs: COLLAPSE_RING_AT_MS,
+      flipMs: DOCK_FLIP_MS,
       freezeMs: DOCK_FREEZE_MS,
       showMs: PEAK_SHOW_MS,
       dismissMs: PEAK_DISMISS_MS
