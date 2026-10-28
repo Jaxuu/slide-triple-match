@@ -1490,7 +1490,10 @@ html, body {
 .lobby-zone-topright    { top: max(14px, env(safe-area-inset-top)); right: 12px; }
 .lobby-zone-midtop      { top: 11%; left: 0; right: 0; text-align: center; }
 .lobby-zone-center      { top: 22%; left: 0; right: 0; display: flex; justify-content: center; }
-.lobby-zone-midbottom   { bottom: 15%; left: 0; right: 0; display: flex; justify-content: center; }
+/* Δ32 UI 修复（Bug 1）：中下区按钮略微上提（15% → 17%），
+ * 与缩小后的相框重新分配纵向留白——相框上下的呼吸间距由
+ * 3.5px / 61px 调整为约 30px / 64px，整组元素视觉重心回到视口中部 */
+.lobby-zone-midbottom   { bottom: 17%; left: 0; right: 0; display: flex; justify-content: center; }
 .lobby-zone-bottomleft  { bottom: max(14px, env(safe-area-inset-bottom)); left: 12px; display: flex; align-items: center; gap: 8px; }
 
 /* ---------- 顶部左区：设置 / 调试 圆钮 ---------- */
@@ -1642,9 +1645,19 @@ html, body {
  * 替代 Δ16 的「2×2 风景木质拼图相框」：齿轮+风翼纹饰环形底座 + 能量晶片 */
 .portal {
   position: relative;
-  width: min(78vw, 340px);
+  /* Δ32 UI 修复（Bug 1）：相框整体等比缩小至原尺寸 ~87%（340 → 296），
+   * 原 340px 相框 + 顶部悬浮铭牌上探 34px 会把副标题 Critters 的下缘
+   * 压住（实测 brand.bottom 161 / plaque.top 164.5，仅 3.5px 呼吸）。
+   *
+   * 纵向节奏改用视口高度驱动（纯百分比定位 + 固定像素间距在矮屏会撞车）：
+   *   ① margin-top = 138px − 11vh —— 抵消 #lobby 六区 top:11% / 22% 的
+   *      百分比差，使「标题底 → 铭牌顶」恒为 ~29px 呼吸间距；
+   *   ② width 上限 72vh − 232px —— 即「不让相框撞到下方关卡按钮」的
+   *      最大可行尺寸（784 高 → 332px，不生效；604 高 → 203px，生效）。
+   *   ③ 296px 为基准尺寸上限，保证大屏不被 vw 撑爆。 */
+  width: min(72vw, 296px, calc(72vh - 232px));
   aspect-ratio: 1;
-  margin-top: 26px; /* 让出顶部悬浮铭牌空间 */
+  margin-top: calc(138px - 11vh); /* 让出顶部悬浮铭牌 + 与标题区的呼吸间距 */
   display: grid;
   place-items: center;
 }
@@ -1762,6 +1775,8 @@ html, body {
 .portal-nav-btn {
   position: absolute; top: 50%;
   transform: translateY(-50%);
+  /* Δ32：尺寸保持 38px 不变——相框虽等比缩小，但箭头是触控目标，
+   * 再缩小会跌破可点击尺寸（< 44px 命中区已属下限，不再下探）。 */
   width: 38px; height: 38px;
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, .70);
@@ -1831,7 +1846,8 @@ html, body {
 
 /* ---------- 窄屏微调 ---------- */
 @media (max-width: 400px) {
-  .portal { width: 86vw; margin-top: 22px; }
+  /* Δ32：窄屏沿用同一套 vh 驱动的纵向节奏，仅放宽 vw 占比（相框不被过度压扁） */
+  .portal { width: min(76vw, 296px, calc(72vh - 232px)); }
   /* 星盘收窄后按钮内嵌于圆盘两侧，保证 375px 窄屏零溢出 */
   .portal-nav-btn { width: 42px; height: 42px; font-size: 21px; }
 }
@@ -1882,11 +1898,14 @@ html, body {
   position: relative;
   width: min(86vw, 380px);
   max-height: 86vh;
-  overflow-y: auto;
-  padding: 44px 20px 20px;
+  /* Δ32 UI 修复（Bug 2）：原 overflow-y:auto + overflow-x:visible 会被
+   * CSS 规范归一为 auto/auto（实测 computed = auto / auto），把顶部
+   * 绝对定位的琥珀金铭牌上探部分整块切掉（实测被裁 16px）。
+   * 现改为 overflow: visible —— 卡片本身永不裁切；纵向溢出交由
+   * .jelly-body 内部滚动承担（见下）。 */
+  overflow: visible;
+  padding: 64px 20px 22px; /* 顶部预留铭牌安全区（铭牌 12px + 高 40px + 间距） */
   border-radius: 30px;
-  /* 纵向可滚动（档案网格），但不得裁切顶部铭牌 —— 溢出交由内层承担 */
-  overflow-x: visible;
   background: linear-gradient(170deg, #FFFDF8 0%, var(--cream) 46%, var(--cream-deep) 100%);
   box-shadow:
     inset 0 3px 0 rgba(255, 255, 255, .95),   /* 顶部高光 */
@@ -1899,10 +1918,14 @@ html, body {
   to   { opacity: 1; transform: none; }
 }
 
-/* 琥珀金胶囊标题铭牌（替代天蓝圆弧顶盖） */
+/* 琥珀金胶囊标题铭牌（替代天蓝圆弧顶盖）
+ * Δ32 UI 修复（Bug 2）：原 top:-17px 让铭牌上探到卡片边界之外，
+ * 一旦卡片存在任何 overflow 裁切就会把上半部分切掉。现整体内收至
+ * 卡片内部（top:12px），配合 .jelly-card 的 padding-top:64px，
+ * 标题胶囊、右上关闭按钮与底部主按钮三者均在卡片内完整呈现。 */
 .jelly-plaque {
   position: absolute;
-  top: -17px; left: 50%;
+  top: 12px; left: 50%;
   transform: translateX(-50%);
   padding: 7px 30px;
   border-radius: 999px;
@@ -1920,7 +1943,19 @@ html, body {
   font-size: clamp(11px, 3.0vw, 13px);
   color: #9A8464;
 }
-.jelly-body { display: flex; flex-direction: column; gap: 10px; }
+/* Δ32：卡片不再滚动（overflow:visible），纵向溢出改为 body 内部滚动——
+ * 上限 = 86vh 卡片高度 −（padding-top 64 + padding-bottom 22 + 副标题约 30）
+ * padding-bottom 6px：让底部主按钮的 0 4px 0 立体投影落在滚动容器内，
+ * 否则 overflow:auto 会把投影与圆角下缘一起切平（视觉上像被裁断）。 */
+.jelly-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 6px;
+  max-height: calc(86vh - 128px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 
 /* 右上角圆润关闭按钮（奶油软胶质感——与卡片同系） */
 .jelly-close {
