@@ -469,6 +469,19 @@ html, body {
   background: linear-gradient(180deg, #DCE8F2 0%, #EFE4E8 100%);
 }
 
+/* ---------- Δ33/T115: 主屏独立窗口（PWA standalone）安全区让位 ----------
+ * 配合 index.html 的 black-translucent 状态栏：内容顶到状态栏下方，
+ * 故必须把刘海/状态栏高度作为 #app 的 padding-top 让出（box-sizing:border-box
+ * 已全局声明，padding 不会把 #app 撑出 100dvh）。
+ * 浏览器内标签页模式 display-mode 恒为 browser，env(safe-area-inset-top)
+ * 通常为 0 —— 本条对现有布局零影响。 */
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  #app {
+    /* 只让顶部：底部安全区已由 #items 的 padding-bottom 承担，重复让位会挤压棋盘 */
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
 @media (min-width: 720px) and (max-width: 1023px) {
   #app {
     margin: 0 auto;

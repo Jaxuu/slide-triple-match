@@ -1,0 +1,66 @@
+{
+  "lobby": {
+    "vw": 390,
+    "vh": 844,
+    "dpr": 2,
+    "brand": {
+      "x": 137.8,
+      "y": 92.8,
+      "w": 114.5,
+      "h": 61
+    },
+    "portal": {
+      "x": 47,
+      "y": 230.8,
+      "w": 296,
+      "h": 296
+    },
+    "level": {
+      "x": 100.5,
+      "y": 633.5,
+      "w": 189,
+      "h": 67
+    },
+    "avatar": {
+      "x": 12,
+      "y": 774,
+      "w": 56,
+      "h": 56
+    }
+  },
+  "basic": {
+    "level": "3",
+    "board": {
+      "w": 764,
+      "h": 764,
+      "avgLum": 156.1,
+      "darkRatio": 0.216,
+      "colors": 735
+    },
+    "dock": 7,
+    "items": 3
+  },
+  "mechanics": {
+    "level": "12",
+    "bannerGone": true,
+    "flags": "L12 · 8×8 [齿轮/冰封]"
+  },
+  "highlight": {
+    "bannerSeen": true,
+    "banner": {
+      "x": 11,
+      "y": 71,
+      "w": 368,
+      "h": 76,
+      "opacity": "1",
+      "text": "✦ 险境预警 · 仅 38% 探险家一次突破 ✦"
+    },
+    "board": {
+      "w": 764,
+      "h": 764,
+      "avgLum": 160.1,
+      "darkRatio": 0.158,
+      "colors": 742
+    }
+  }
+}
