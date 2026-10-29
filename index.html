@@ -2,8 +2,19 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Slide &amp; Triple · 滑块三消</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>Glide Critters · 萌灵飞滑</title>
+<!-- Δ33/T115: 移动端「添加到主屏幕」全屏 Web App 三件套
+     · apple-mobile-web-app-capable —— iOS < 17.4 的独立窗口开关（旧名，仍必须）
+     · mobile-web-app-capable —— 标准名，Android Chrome / 新版 iOS 读取
+     · status-bar-style=black-translucent —— 内容顶到状态栏下，配合 viewport-fit=cover
+       + CSS 的 env(safe-area-inset-*) 实现真·全屏沉浸（详见 style.css 的 #app 段落） -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Glide Critters">
+<meta name="application-name" content="Glide Critters">
+<meta name="theme-color" content="#151A26">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
