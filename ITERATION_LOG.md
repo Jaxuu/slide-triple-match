@@ -1706,3 +1706,143 @@ T220 要求真机抽查 `tools/browser-bugtest.js`，一跑就发现它自己坏
 
 外加一条 `--debug-audio` 诊断口：当 `osc=0` 时自动再点一张「合法飞出牌」，若那张有声、这张没声，
 就说明问题在命中而不是音频管线——**定位「假红灯」比修它更花时间**，这个口子值得留着。
+
+---
+
+## R6 缺陷修复（2026-10-30 · Phase 20 / T222~T237）
+
+> 本轮同样是**玩家可感知缺陷**驱动，两条都由用户实机提出：① 三消时待消槽里的卡牌
+> 会横向滑出去「穿模」；② 重置关卡 / 关弹窗时，开局落子动画的时间戳被偷跑，玩家看到的
+> 是从半空开始的瞬移。spec 先行二次 refine（**FR-030 重写**：磁吸 → 原位微跃；
+> **FR-028 改写**：统一高落差 + 可见性闸门），再按 `plan.md` §R6-1~§R6-4 落地。
+
+### 1. 缺陷三：三消的「横向穿模」（FR-030 / SC-020）
+
+**旧实现（Δ31a `Pure-Card Collapse`）**：`70ms` 三牌向中心槽水平猛撞（内联写
+`--suck-dx = 中心槽 left − 本槽 left`）→ `60ms` 中心牌挤压回弹 → `80ms` 坍缩，
+`210ms` 后 FLIP 补位 `200ms`。
+
+**根因不是「位移太远」，而是「位移」这件事本身**。只要 `dx ≠ 0`，就同时引出三个结构问题：
+
+| # | 结构问题 | 为什么无法靠「调小幅度」解决 |
+|---|---|---|
+| ① | **跨槽穿越** | 左右两张要滑过**非本组**的槽框与卡面。三张牌不可能永远相邻（中间可能隔着已被消除的空槽），滑行路径必然压到别人的格子 |
+| ② | **槽框裁剪** | `#dock .slot{overflow:hidden}` 是槽框的设计属性，全靠演出期临时改 `visible` 绕过——一旦漏掉某个状态类（`.has-tile` / `.is-filled`）就被裁成半张牌 |
+| ③ | **层叠上下文脆弱** | `dock-seat` 的 `transform` 让 `.slot` 的 `z-index` 跨不了槽，合体帧的「谁盖谁」取决于 DOM 顺序而非 `z-index` |
+
+结论写成了不变量 **I-9 原位优先**：需要「合体感」时用**同槽内的形变 / 亮度 / 缩放**表达，
+MUST NOT 用跨槽位移表达。
+
+**新实现（原位微跃欢呼 + 柔光升华消散）**
+
+- **关键帧** `chip-hop 200ms linear`，五段：`0%` 静止（与落定帧逐像素一致）→ `10%` / 20ms
+  预压 `scale(1.03,.94)` → `22%` / 44ms 起跳 `translateY(-6px) scale(1.06)` →
+  `40%` / 80ms 回落 `translateY(-1px) scale(1)` → `100%` / 200ms 原地 `scale(0)` + `opacity 0`。
+  **三张牌 `animation-delay` 完全相同**（错峰会破坏「同时欢呼」的语义）。
+- **柔光层**：`.dock-chip::after` 纯白覆盖层，`opacity` 四点 `0/40%→0 / 55%→.70 / 80%→.15 / 100%→0`。
+  MUST NOT 用 `filter: brightness()` 单独顶替——它会把花色图案一起过曝，峰值对比读不出来。
+- **退化**：可用槽位不足 3 个时走 `chip-solo`（原位闪白 → 缩至 0，时长仍 200ms），不抛错、不跳过。
+- **补位**：`DOCK_FLIP_MS = 60`（落在 200~260ms）。
+
+**顺带修掉的一处 FLIP 几何缺陷**：旧实现按**数组下标**配对旧/新槽位。消除槽是 `1/3/6` 时，
+新数组第 1 项拿到的是「旧第 1 格（已被消除）」的 `left`，起点整体错位一格。
+改为按 `data-tile-id` 配对，并用纯函数 `STM.dockFlipDxOf(oldLeftById, newLeftById)` 产出位移表
+（基准取 `offsetLeft` 而非 `getBoundingClientRect()`——后者会被 `dock-seat` 的 `scale(.72)` 污染）。
+
+**一处必须记录的 CSS 细节**：`renderDock()` 每次落定都重建 7 个 `.slot`，而坍缩恰好在
+「第 3 张落定」那一帧起演——此时槽框仍在 `scale(.72) → 1.08 → 1` 的途中（260ms），
+跳跃的 `1.06` 峰值会被槽框变换**二次放大**（实测读成 0.94~1.15 抖动），三张牌的「同步」也随之破掉。
+修法是给待消槽加 `slot-pre-collapse{animation:none}`——**「槽框零 animation」的直接表达**，
+而不是取消类名（会连带丢掉 `.has-tile` 的槽框冻结项）。
+
+### 2. 缺陷四：开局动画的时间戳被偷跑（FR-028 / SC-018）
+
+**现象**：设置弹窗点「重新开始」后，落子动画不是从「整盘悬在上方」开始，而是从半空瞬移。
+
+**根因链（三跳）**
+
+| 跳 | 位置 | 事实 |
+|---|---|---|
+| ① 起跑 | `main.js` `tryPrepareLobby()` | `enterGame → loadLevel` 是**同步**的，`startDeal()` 在 ≈`0.6s` 就被调用 |
+| ② 遮挡 | `#splash-screen` / `#modal-root` | 深链 `?level=N` 下 splash 实测要到 ≈`4.6s` 才移除——比 `startDeal()` 晚 **4 秒** |
+| ③ 偷跑 | `BoardRenderer.frame()` | 旧闸门只数「已绘制帧数」，不看「是否被遮挡 / 页面是否可见」→ `t0` 在遮罩背后就被写入，等遮罩撤掉时动画早已跑到一半 |
+
+**新实现**：闸门四条件（遮挡层全不可见 + `visibilityState === 'visible'` + 画布 rect 有效 +
+之后**真实画完 ≥2 帧**）才写 `t0`；闸门期每帧 `dirty = true` 保证 `drawnOk` 真的在推进。
+
+**看门狗的实测修正（本轮最贵的一课）**
+
+原设计是「`startDeal()` 后 `1200ms` 仍未开闸 → `skipDeal()` 强制静置」。这个设计在
+深链下是**致命的**：`startDeal()` 在 0.6s、splash 到 4.6s，单次 `1200ms` 看门狗正好在遮罩
+背后到期 → 整段雨幕被吞掉。**探针实测**：`act=false`、`tot=400`，却一帧都没渲染。
+
+改成「**`1200ms` 复查 + 重挂 + `8000ms` 总预算**」——遮挡期重挂下一轮复查（`watchdogRearms += 1`），
+只有累计超预算才 `skipDeal()`。复测正确：
+
+```
+#202  blk=-      st=null    gf=1    ← 遮罩已撤，闸门开始计数
+#204  blk=-      st=4810.2  gf=2    ← 2 帧后开闸，t0 = 4810.2（= splash 移除之后）
+#218  blk=-      st=4810.2  act=false  ← 400ms 后正常收尾
+```
+
+**高落差垂直雨幕**：`FALL_CELL 1.0 → 3.0`（合法窗口 `2.6~3.4`），并**取消首排收缩**——
+旧实现 `fallPx = (r===0) ? 0.5·tileSide : min(FALL_CELL·cell, r·cell + 0.5·tileSide)` 让首排只掉半格，
+观感是「首排凭空冒出来」。改为全盘统一 `fallPx = 3.0 × 卡面边长`，极差 ≤`0.5px`；
+代价是越界高度从 `0.5` 抬到 `3.4` 卡面边长，必须给 `#vfx-canvas` 的互补裁剪加 **HUD 安全线**——
+裁剪上沿取 `#hud` 下沿，否则高落差段会从顶部流光横幅底下穿过去。
+
+### 3. 门禁：三处长期假绿 + 一次条数只增不减
+
+**这一轮最重要的发现不是代码缺陷，而是门禁自己坏了三处**：
+
+| # | 假绿 | 为什么一直绿 | 修法 |
+|---|---|---|---|
+| ① | `delta27-verify` ⑥「墙钟落定」 | 旧口径从 `startDeal()` 起算，量到的是「等 splash 消失」的 4.3s——**恒超上限**。它能绿，是因为单次 `1200ms` 看门狗把编舞 `skipDeal()` 掉了（`isDealing()` 变假、动画一帧没播） | 改从**开闸帧 `startTime`** 起算，另记 `openWaitMs` |
+| ② | `delta27-verify` ⑧ HUD 反向证据 | 判据是 `maxBelow > 0`——**1 个抗锯齿边界像素**就能满足 | 改「**成片**像素 ≥2% 带宽面积」（`bandArea × 0.02`，下限 2000） |
+| ③ | `delta27-verify` ⑧ 采样本身 | `hudProbe` 依赖前面 `ob` 段的 `startDeal()`，等 CDP 往返回来编舞已收尾 → 采到静止帧，两条断言恒真/恒假 | `hudProbe` **自己 `skipDeal()` + `startDeal()` 再采样** |
+
+**条数只增不减（§3 纪律 2）**：`render-selftest 367→377` / `deal-smoke 70→98` /
+`delta27-verify 120→129` / `flight-smoke 56→62`；`audio-smoke 120` / `lobby-smoke 83` /
+`icon-bbox-audit 7` / `solver 72-72` 零回归。
+
+其中 `delta27-verify` 是「43 → 32 → 129」：③ 段 Δ31a 磁吸语义随代码下线精简 11 条，
+③b 段补 14 条 **R6 静态 CSS 语义断言**（`chip-hop` 五段逐段、零 `translateX` / 零 `rotate` /
+零 `skew`、柔光层结构、`chip-flash` 四点、**槽框盒冻结含 `background`**、`overflow: visible`、
+`slot-pre-collapse`、`chip-solo` 退化）。**槽框 `background` 冻结此前完全无覆盖**——
+旧断言只查 `border` / `padding` / `border-radius`，改 `background` 不会被任何门禁抓到。
+
+**反向验证 6/6**：把被保护的行为逐一改坏一次，门禁必须红灯。补丁未命中时 `exit 3` 报
+`PATCH-NOOP`（防止「改了没生效」伪装成「反向验证通过」）；`src/**/*.js` 是 CRLF，
+补丁串命中前必须按文件实际行尾 `replace(/\n/g, '\r\n')`，否则永远 NOOP。
+
+| # | 改坏什么 | 应该红灯 |
+|---|---|---|
+| RV-1 | `chip-hop` 40% 段加 `translate(-8px, -1px)` | `render-selftest`「零横向分量」 |
+| RV-2 | ghost chip 写回 `--suck-dx:18px` | `render-selftest`「横向通道」 |
+| RV-3 | `if (!dealVisible())` 改 `if (false)` | `deal-smoke`「探针 false」 |
+| RV-4 | 看门狗重挂改回 `skipDeal()` | `deal-smoke`「遮挡期」 |
+| RV-5 | 裁剪上沿 `hudY` → `0` | `delta27-verify`「成片」 |
+| RV-6 | 裁剪上沿 `hudY - 400` | `delta27-verify`「HUD 带」 |
+
+### 4. 真机取证：CDP 截图抓不到 400ms 落距
+
+`browser-bugtest --deep-link` 新增 3 档 × 15 项断言（L3 / L33 / L72）。第一版想用 CDP 截图
+取空中帧，`-mid.png` 里牌已全部落定——**CDP 截图往返 200ms+（软件光栅）**，
+400ms 的落距必然错过。改为在**页面内**按相位（30% / 65%）`canvas.toDataURL`，
+落盘 `-phase30.png` / `-phase65.png`，实拍确认牌确实悬空且顶部被 HUD 安全线裁掉。
+
+同一轮还踩了 5 个「断言自己写错」的坑：
+
+| # | 假红灯 | 根因 |
+|---|---|---|
+| ① | 帧跨度 283ms < 400ms | 取「最后一个 `active=true` 帧」，少算一整个帧间隔 → 改取「第一个 `act===false` 帧」 |
+| ② | 实际终点 363.7ms < 380ms | `totalMs` 是**公式值**（按满排估），实际终点 = `maxDelay + TILE` → 拆成两条：实际终点 `[360,420]` + 预算高估 ≤40ms |
+| ③ | L33 `max=166.6ms` | headless 软件光栅帧率天然不足（样本仅 3~7 个）→ 默认只断言「样本 ≥3 + 无 250ms 冻结」，`--strict-fps` 才硬断言 p95/max |
+| ④ | `maxPix=1046` | 飞牌**离场段**本来就由 `#vfx-canvas` 承载 → 按 `flightsOf().length` 分「空闲帧 / 飞行帧」，零像素只在空闲帧断言 |
+| ⑤ | `sigBad=44` | `.slot.has-tile` 与 `.slot` 的 `border/background` 本就不同（有牌=透明无边框），且 `background` 带 `transition .2s` 会读到插值 → 改按 state 分键的**盒几何签名**（border-width/padding/radius） |
+
+### 5. 一处取舍：看门狗不做「无限重挂」
+
+重挂有代价——闸门若因异常永不满足，`isDealing()` 会永久为真、棋盘长期停在起始态。
+所以保留 `8000ms` 总预算做最终兜底：`armedAt` 起累计超预算 → `skipDeal()`。
+`8000ms` 的取值依据是 splash 实测 4.6s 的两倍余量——**够慢机器走完预加载，又不至于让玩家盯着空盘**。

@@ -921,6 +921,10 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
 
     renderer = STM.createBoardRenderer(els.board, session, {
       onShake: shakeBoard,
+      /* R6 / FR-028 §R6-2 B：可见性探针——帧闸门的第二条件。
+       * 缺省时渲染器按「恒可见」处理（Node 桩 / 自测零影响），
+       * 注入后落子 MUST 等「遮罩/弹窗/结算页全部退场 + 页面可见 + 棋盘有面积」才记 t0。 */
+      dealVisibleProbe: dealVisibleNow,
       /* Δ27b/T128（FR-053 §6）: 飞行落定回调——目标槽位此刻才切入 `has-tile`。
        * 飞行全程该槽保持 `.slot.empty`（classList 变更次数 = 0），落定同帧一次性
        * 亮起并触发 `dock-seat` 弹入。连续点击时每次落定各自回调，互不覆盖。
@@ -1055,34 +1059,94 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
   var bannerLayoutHooked = false;
 
   /* =========================================================
-   * Δ22c/T112: 开局编舞闸门（FR-052 §3 §5）
+   * Δ22c/T112 → R6/T230: 开局编舞闸门（FR-028 §R6-2 D-8）
    *   挑战横幅（FR-036 的 1.6s）与 L1/L2 教学卡 MUST 在编舞完成
    *   之后才出现；横幅 1.6s 计时自编舞完成起算。
    *   点击快进 → flushIntroGate() 立即放行（不等到原定时刻）。
+   *
+   * R6 改动：放行判据从「一次性定时」改成「`isDealing()` 仍为真就继续等」。
+   * 原因：帧闸门会把 `startTime` 推迟到「遮罩退场后」才写，闸门推迟期间
+   * `dealRemainingMs()` 返回的是「尚未开始的整段」（恒 = 总时长），
+   * 按它算的一次性定时会在落子**还没开始**时就到期 → 横幅压在落子上。
+   * 现口径：32ms 粒度轮询，`isDealing()` 变假即放行；看门狗（1200ms）保证收口，
+   * 不引入无限轮询。
    * ========================================================= */
   var introGateTimer = null;
   var introGateQueue = [];
+  var INTRO_GATE_RETRY_MS = 32;
   function clearIntroGate() {
     if (introGateTimer) { clearTimeout(introGateTimer); introGateTimer = null; }
     introGateQueue = [];
   }
+  /* 放行条件：编舞真的结束了（active 为假）**且**剩余时长归零。
+   * 只看 `dealRemainingMs() <= 0` 不够——闸门未开时它恒等于整段时长，
+   * 反过来只看 `isDealing()` 也不够（结束那一帧剩余可能仍 > 0）。 */
+  function introGateReady() {
+    if (renderer && renderer.isDealing && renderer.isDealing()) return false;
+    var d = (renderer && renderer.dealRemainingMs) ? renderer.dealRemainingMs() : 0;
+    return !(d > 0);
+  }
   function flushIntroGate() {
     if (introGateTimer) { clearTimeout(introGateTimer); introGateTimer = null; }
+    if (!introGateQueue.length) return;
+    if (!introGateReady()) { pumpIntroGate(); return; }  /* 未完成 → 继续等，不放行 */
     var q = introGateQueue;
     introGateQueue = [];
     for (var i = 0; i < q.length; i++) {
       try { q[i](); } catch (eGate) { /* 单个闸门回调异常不影响其余 */ }
     }
   }
+  function pumpIntroGate() {
+    if (introGateTimer) return;
+    if (introGateReady()) { flushIntroGate(); return; }
+    introGateTimer = setTimeout(function () {
+      introGateTimer = null;
+      pumpIntroGate();
+    }, INTRO_GATE_RETRY_MS);
+  }
   function afterIntro(fn) {
-    var d = (renderer && renderer.dealRemainingMs) ? renderer.dealRemainingMs() : 0;
-    if (d <= 0) { fn(); return; }
     introGateQueue.push(fn);
-    if (!introGateTimer) introGateTimer = setTimeout(flushIntroGate, d);
+    pumpIntroGate();
+  }
+
+  /* R6 / FR-028 §R6-2 B：开局可见性探针——帧闸门的第二条件。
+   *
+   * 「偷跑」根因链：`tryPrepareLobby()` 在遮罩仍 100% 时后台完整建局 →
+   * `loadLevel()` 末尾同步 `renderer.startDeal()` → 旧闸门只数「画完的帧」、
+   * 不验「是否被遮挡」→ 400ms 落子整段跑在 `#splash-screen` 背后，
+   * 玩家看到棋盘时牌已全部落定 → 读作「瞬间出现 / 生硬」。
+   *
+   * 本函数只回答一件事：**棋盘此刻是否真的能被玩家看到**。
+   *   · 页面不可见（切后台 / 最小化）→ false
+   *   · 任一全屏层可见（`display ≠ none` 且 `opacity > 0.02`）→ false
+   *     （淡出中 0.98→0.02 仍算遮挡：此刻玩家看到的是遮罩，不是棋盘）
+   *   · 棋盘 rect 宽高为 0（尚未布局 / 祖先 display:none）→ false
+   *
+   * 成本：闸门只有 2~3 帧，期间最多 5 次 getElementById + 5 次 getComputedStyle，
+   * 且此窗口内无其它布局读取。MUST NOT 用 querySelectorAll 全表扫（每帧代价不可控）。 */
+  var DEAL_BLOCKERS = ['modal-root', 'lobby', 'splash-screen', 'result-root', 'fail-root'];
+  function dealVisibleNow() {
+    var d = global.document;
+    if (!d) return true;
+    if (d.visibilityState && d.visibilityState !== 'visible') return false;
+    for (var i = 0; i < DEAL_BLOCKERS.length; i++) {
+      var el = d.getElementById(DEAL_BLOCKERS[i]);
+      if (!el || el.hidden) continue;
+      var cs = null;
+      try {
+        cs = (d.defaultView && d.defaultView.getComputedStyle) ? d.defaultView.getComputedStyle(el) : null;
+      } catch (eCs) { cs = null; }
+      if (!cs) continue;
+      if (cs.display !== 'none' && parseFloat(cs.opacity) > 0.02) return false;
+    }
+    var c = els.board;
+    if (!c || typeof c.getBoundingClientRect !== 'function') return true;
+    var r = c.getBoundingClientRect();
+    return !!(r && r.width > 0 && r.height > 0);
   }
 
   /* 启动本局编舞（进入关卡 / 重置本关都走这里）
-   * Δ31b: 无模式参数、无锁定——开局只有「原位对角波浪层叠弹入」一种。 */
+   * Δ31b → R6: 无模式参数、无锁定——开局只有「垂直雨幕下落 + 微弹定格」一种。 */
   function startDealChoreography() {
     if (!renderer || !renderer.startDeal) return false;
     clearIntroGate();
@@ -1381,15 +1445,16 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     var html = '';
     for (var i = 0; i < 7; i++) {
       /* Δ28a/Δ30a: ghost 优先——match 已把牌从引擎 dock 移除，但视觉上必须先让玩家
-       * 看到「牌落进槽里」，再坍缩。ghost 只读快照花色，不回写任何引擎态。
-       * 条目形态 `{ suit, gid, dx }`：`gid` 非空且该组仍在演出中才挂
-       * `.slot-shattering` 并写入 `--suck-dx`（实时 rect 差值，一次性内联）。 */
+       * 看到「牌落进槽里」，再起演。ghost 只读快照花色，不回写任何引擎态。
+       * R6 条目形态降为 `{ suit, gid }`——横向通道（`--suck-dx` / `dx`）已整段删除，
+       * 三张牌各自留在本槽原地微跃。
+       * `slot-pre-collapse`：待消槽从落定帧起就不再跑 `dock-seat` 落座弹入，
+       * 否则坍缩起跳时槽框仍在 scale(.72)→1.08 途中（详见 css 注释）。 */
       var g = (dockGhost && dockGhost.map && dockGhost.map[i] != null) ? dockGhost.map[i] : null;
       if (g != null) {
         var gLive = (g.gid != null) && ((groupEndAt[g.gid] || 0) > Date.now());
-        var gCls = 'slot has-tile is-filled filled' + (gLive ? ' slot-shattering' : '');
-        var gStyle = gLive ? ' style="--suck-dx:' + (Number(g.dx) || 0).toFixed(2) + 'px"' : '';
-        html += '<div class="' + gCls + '" data-idx="' + i + '"><div class="dock-chip"' + gStyle + '>' +
+        var gCls = 'slot has-tile is-filled filled slot-pre-collapse' + (gLive ? ' slot-shattering' : '');
+        html += '<div class="' + gCls + '" data-idx="' + i + '"><div class="dock-chip">' +
           STM.chipSVG(g.suit, currentLevel) + '</div></div>';
       } else if (i < s.dock.length) {
         /* Δ27b/T128（FR-053 §6）: 该牌逻辑上已入槽、但飞行尚未落定 →
@@ -1397,7 +1462,11 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
         if (renderer && renderer.dockPending && renderer.dockPending(s.dock[i].id)) {
           html += '<div class="slot empty"></div>';
         } else {
-          html += '<div class="slot has-tile is-filled filled" data-idx="' + i + '"><div class="dock-chip">' + STM.chipSVG(s.dock[i].s, currentLevel) + '</div></div>';
+          /* R6/T225: `data-tile-id` 是 FLIP 补位的**唯一配对键**——
+           * 按下标配对会在「消除槽不在末尾」时错位（旧数组第 i 项 ≠ 新数组第 i 项）。 */
+          html += '<div class="slot has-tile is-filled filled" data-idx="' + i +
+            '" data-tile-id="' + s.dock[i].id + '"><div class="dock-chip">' +
+            STM.chipSVG(s.dock[i].s, currentLevel) + '</div></div>';
         }
       } else {
         html += '<div class="slot empty"></div>';
@@ -1411,20 +1480,22 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
   }
 
   /* =========================================================
-   * Δ31a / FR-049 §19: 三消「纯卡牌自身力学」四段演出
+   * R6 / FR-030 §R6-1: 三消「原地微跃欢呼 + 柔光升华消散」
    *
-   * 时序（总长 210ms，与 css/style.css 的 chip-rush / chip-impact 一一对应）：
+   * 时序（总长 200ms，与 css/style.css 的 chip-hop / chip-flash 一一对应）：
    *
-   *   0~70ms    左右两张 `chip-rush`：强初速滑行猛撞中心牌（cubic-bezier(.12,.72,.22,1)，
-   *             前 30% 时长完成 >= 70% 位移 → 读作「撞过去」而非「被吸过去」）；
-   *             到位后 1 帧内 opacity → 0（三张牌合体的视觉完成）
-   *   70~95ms   中心牌 `chip-impact` 挤压：scale(0.92, 1.08) + brightness(2.1)
-   *             + `.dock-chip::after` 纯白覆盖层峰值 0.70（同帧达峰）
-   *   95~115ms  猛烈回弹：scale → 1.32（峰值落 115~130ms，MUST NOT > 1.40）
-   *   115~130ms 峰值保持，brightness / 覆盖层回落至 <= 1.15× / <= 0.15
-   *   130ms     `#dock` 受击微震 `dock-hit`（仅纵向 2.0px / <= 90ms）
-   *             + 坍缩段起跑（加速收到 scale 0）
-   *   210ms     清本组 ghost → 若无活跃组则按最新真值重建 #dock（200ms 弹簧补位）
+   *   0~20ms    预压：三张牌在**各自格子**内 scale(1.03, .94)
+   *   20~44ms   起跳峰值：translateY(-6px) + scale(1.06)
+   *   44~80ms   回落：translateY(-1px) + scale(1)
+   *   80~200ms  原地缩小淡出：scale(0) + opacity 0（柔光升华）
+   *   100ms     `#dock` 受击微震 `dock-hit`（仅纵向 2.0px / <= 90ms）
+   *   200ms     清本组 ghost → 若无活跃组则按最新真值重建 #dock（60ms 弹簧补位）
+   *
+   * 为什么彻底删掉横向通道（`--suck-dx` / 左右滑行 / 中心牌回弹）：
+   * `dx` 的语义是「本槽 left → 中间槽 left」，它把三张牌**物理搬到同一个格子**，
+   * 由此必然引出「跨槽穿越」「槽框裁剪」「层叠上下文脆弱」三个结构问题——
+   * 修好它们的成本远高于原位演出。spec FR-030 的裁定就是「原位是唯一零成本正解」
+   * （plan.md §1.1 不变量 I-9 原位优先）。
    *
    * 为什么不再有任何光圈 / 星星 / 碎块：Δ27→Δ30 三轮堆出来的 shards 图集、
    * 双环星芒、爆心辉光、重力粒子已**整体下线**（用户判定全是「廉价几何特效」）。
@@ -1438,19 +1509,16 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
    *      读当前 dock / 快照（会退化成「最左 3 槽」）。
    *   ③ `dockGhost` 只影响 `renderDock()` 的 HTML，不写回 session、不参与判定。
    * ========================================================= */
-  var COLLAPSE_TOTAL_MS = 210;      /* 演出总时长（== css chip-impact 总时长） */
-  var COLLAPSE_SHUDDER_AT_MS = 130; /* #dock 受击微震 + 坍缩段起跑 */
+  var COLLAPSE_TOTAL_MS = 200;      /* 演出总时长（== css chip-hop 总时长） */
+  var COLLAPSE_SHUDDER_AT_MS = 100; /* #dock 受击微震（与柔光起亮同帧） */
   var DOCK_HIT_MS = 90;             /* 托盘微震总时长（<= 90ms） */
   var DOCK_FREEZE_MS = COLLAPSE_TOTAL_MS;
-  var DOCK_FLIP_MS = 200;           /* FLIP 弹簧补位（§19 ⑥ 的 180~240ms 窗口） */
+  var DOCK_FLIP_MS = 60;            /* FLIP 弹簧补位（落在 200~260ms 窗口） */
   var collapseTimers = [];          /* [{ gid, hit, end }] —— 每组两个计时器句柄 */
 
-  function prefersReducedMotion() {
-    try {
-      if (global.matchMedia) return !!global.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    } catch (eRm) { /* 环境不支持则按正常动效处理 */ }
-    return false;
-  }
+  /* R6: `prefersReducedMotion()` 已下线——降级口径 100% 交给 CSS 的
+   * `@media (prefers-reduced-motion: reduce)`（见 css/style.css 的 chip-static）。
+   * 横向通道删除后，JS 侧不再需要「降级时把 dx 置 0」这条分支。 */
 
   /* 从引擎 dock 快照里定位本次三消的 3 个槽位（顺序 = 左→右） */
   /* Δ28e: 镜像与引擎真值对齐（换关 / 重置 / Undo 后调用）。
@@ -1509,7 +1577,7 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     for (var i = 0; i < slots.length; i++) {
       var id = ids[i];
       var landed = !(renderer && renderer.dockPending && id != null && renderer.dockPending(id));
-      if (landed && suits[i] != null) map[slots[i]] = { suit: suits[i], gid: null, dx: 0 };
+      if (landed && suits[i] != null) map[slots[i]] = { suit: suits[i], gid: null };
     }
     dockGhost = { map: map };
   }
@@ -1532,34 +1600,29 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
   /* 直接改 DOM（**不重建 innerHTML**）——重建会让上一组的 CSS 动画从头再来，
    * 并发两组时表现为「第一组跳回起点」。只触碰本组的 3 个槽位。
    *
-   * Δ31a / FR-049 §19 ②⑧：按槽位序号的中位牌打 `data-collapse-role`——
-   *   · `center` → `chip-impact`（挤压 → 回弹 → 坍缩）
-   *   · `side`   → `chip-rush`（左右滑行猛撞 → 到位即隐）
-   *   · `solo`   → 可用槽位不足 3 个时的退化（原位闪白 + 直接缩至 0）
-   * MUST 用**属性**而非新增 class：`.slot-shattering` 的选择器特异性已经
-   * 是 `1,2,0`，再加 class 会与它纠缠；属性选择器写法可读且零副作用。
+   * R6 / FR-030：三张牌**同角色、同关键帧、同 delay**（零错峰），各自留在本槽。
+   * 因此不再有 `center` / `side` 两套关键帧，也不再写 `z-index`——
+   * 层叠只在「三张牌互相叠压」时才需要，而原位演出根本不会互相叠压。
+   * 仅 `solo`（可用槽位不足 3 个的退化路径）保留 `data-collapse-role`。
    *
-   * 中心牌层级 MUST 设在 `.slot` 上而非 `.dock-chip`：`dock-seat` 动画期间
-   * `.slot` 带 `transform` 会形成层叠上下文，`.dock-chip` 的 z-index 跨不了槽，
-   * 结果是「两张牌盖住中间」而非「三张合体」。`z-index` 不属于 SC-017 ⑤ 冻结项。 */
+   * MUST 用**属性**而非新增 class：`.slot-shattering` 的选择器特异性已经够高，
+   * 再加 class 会与它纠缠；属性选择器写法可读且零副作用。
+   * `slot-pre-collapse` MUST 保留（见 css 注释）——丢掉它会让 `dock-seat`
+   * 因 animation-name 由 none 变回 dock-seat 而**重新起跑**，三张牌瞬间缩到 .72。 */
   function applyCollapseDom(slotIndices) {
     if (!els.dock) return;
     var nodes = els.dock.querySelectorAll('.slot');
     var map = (dockGhost && dockGhost.map) ? dockGhost.map : {};
     var order = (slotIndices || []).slice().sort(function (a, b) { return a - b; });
-    var midIdx = order.length ? order[Math.floor(order.length / 2)] : -1;
     var solo = order.length < 3;
     for (var i = 0; i < slotIndices.length; i++) {
       var idx = slotIndices[i];
       var nd = nodes[idx];
       var g = map[idx];
       if (!nd || !g) continue;
-      var role = solo ? 'solo' : (idx === midIdx ? 'center' : 'side');
-      nd.className = 'slot has-tile is-filled filled slot-shattering';
-      nd.setAttribute('data-collapse-role', role);
-      nd.style.zIndex = (role === 'center') ? '3' : '1';
-      nd.innerHTML = '<div class="dock-chip" style="--suck-dx:' +
-        (Number(g.dx) || 0).toFixed(2) + 'px">' + STM.chipSVG(g.suit, currentLevel) + '</div>';
+      nd.className = 'slot has-tile is-filled filled slot-pre-collapse slot-shattering';
+      if (solo && nd.setAttribute) nd.setAttribute('data-collapse-role', 'solo');
+      nd.innerHTML = '<div class="dock-chip">' + STM.chipSVG(g.suit, currentLevel) + '</div>';
     }
     if (STM.paintDockIcons) STM.paintDockIcons();
   }
@@ -1579,32 +1642,50 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     }
   }
 
-  /* 解除冻结时的 FLIP 弹簧补位（§19 ⑥）：重建前记录剩余槽位的旧 rect，
-   * 重建后对 `.dock-chip` 施加 `translateX(旧−新)` 并在 200ms 内欠阻尼回 0
-   * （`cubic-bezier(.34,1.28,.64,1)` → 过冲约 4%，落进 `<= 6%` 窗口）。
+  /* 解除冻结时的 FLIP 弹簧补位（FR-030 ⑥）：重建前记录剩余槽位的旧位置，
+   * 重建后对 `.dock-chip` 施加 `translateX(旧−新)` 并在 60ms 内欠阻尼回 0
+   * （`cubic-bezier(.34,1.28,.64,1)` → 过冲约 4%，落进 `<= 6%` 槽宽窗口）。
    * MUST NOT 瞬跳、MUST NOT 出现「空槽闪一下再填上」的中间帧。
-   * MUST 只动 `.dock-chip` 的 transform —— `.slot` MUST NOT 位移。 */
+   * MUST 只动 `.dock-chip` 的 transform —— `.slot` MUST NOT 位移。
+   *
+   * R6/T225（解 O-11）：配对键从**下标**改成 `data-tile-id`。
+   * 旧实现 `oldLeft[dockArr[i].id] = nodes[i].left` 里 `dockArr` 是移除后的新数组、
+   * `nodes` 是移除前的旧 DOM——只要消除槽不在末尾（如第 1/3/6 格）下标立刻错位，
+   * 补位起点算成「已被消除的那一格」的 left。门禁只验终态（过渡必然归零）→ 长期假绿。
+   *
+   * 几何一律取 `offsetLeft`（布局位置，不含 transform）：
+   * `renderDock()` 刚重建的 `.slot` 正处在 `dock-seat` 的 `scale(.72)` 上，
+   * 此时 `getBoundingClientRect().left` 会被缩放拉偏（Δ30 已在 `--suck-dx` 上踩过），
+   * 而 FLIP 的 `dx` 要的是**布局位移**，不是视觉位移。 */
   function renderDockWithFlip() {
     if (!els.dock || !session) { renderDock(); return; }
-    var dockArr = session.state().dock || [];
-    var oldLeft = {};
+    var oldLeftById = {};
     var nodes = els.dock.querySelectorAll('.slot');
-    var i;
-    for (i = 0; i < dockArr.length && i < nodes.length; i++) {
-      if (nodes[i] && nodes[i].getBoundingClientRect) {
-        oldLeft[dockArr[i].id] = nodes[i].getBoundingClientRect().left;
-      }
+    var i, tid;
+    for (i = 0; i < nodes.length; i++) {
+      if (!nodes[i] || !nodes[i].getAttribute) continue;
+      tid = nodes[i].getAttribute('data-tile-id');
+      if (tid == null || tid === '') continue;
+      oldLeftById[tid] = nodes[i].offsetLeft;
     }
     renderDock();
+    var newLeftById = {};
     var nodes2 = els.dock.querySelectorAll('.slot');
-    for (i = 0; i < dockArr.length && i < nodes2.length; i++) {
-      var id = dockArr[i].id;
-      var old = oldLeft[id];
-      if (old == null || !nodes2[i].getBoundingClientRect) continue;
+    for (i = 0; i < nodes2.length; i++) {
+      if (!nodes2[i] || !nodes2[i].getAttribute) continue;
+      tid = nodes2[i].getAttribute('data-tile-id');
+      if (tid == null || tid === '') continue;
+      newLeftById[tid] = nodes2[i].offsetLeft;
+    }
+    /* 位移表由纯函数产出（`STM.dockFlipDxOf`）——门禁可离线断言「起点 = 旧 − 新」 */
+    var dxOf = (STM.dockFlipDxOf ? STM.dockFlipDxOf(oldLeftById, newLeftById) : {});
+    for (i = 0; i < nodes2.length; i++) {
+      if (!nodes2[i] || !nodes2[i].getAttribute) continue;
+      tid = nodes2[i].getAttribute('data-tile-id');
+      if (tid == null || tid === '' || dxOf[tid] == null) continue;
       var chip = nodes2[i].querySelector('.dock-chip');
       if (!chip) continue;
-      var dx = old - nodes2[i].getBoundingClientRect().left;
-      if (!(Math.abs(dx) > 0.5)) continue;
+      var dx = dxOf[tid];
       /* 两段式（MUST 保留）：先写 transition:none + 位移 → 强制一次重排
        * （读 offsetWidth）→ 再写 transition + 归零。少了这次强制重排，
        * 位移会与过渡合并成**瞬跳**（Δ30 已踩过）。 */
@@ -1616,7 +1697,7 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     }
   }
 
-  /* 起演：0ms 磁吸、140ms 光环、220ms 收尾（并发组各自独立计时） */
+  /* 起演：0ms 起跳、100ms 托盘微震、200ms 收尾（并发组各自独立计时） */
   function fireDockShatter(slotIndices, suits) {
     slotIndices = slotIndices || [];
     suits = suits || [];
@@ -1625,55 +1706,27 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     var now = Date.now();
     var k;
 
-    /* ① 实时 rect 采集 —— dx = 中心槽 left − 本槽 left。
-     * MUST NOT 用「槽宽 × 序号」换算：窗口缩放 / 横竖屏切换 / #dock 间距调整后
-     * 必然与 DOM 脱节（Δ27 已在飞行终点上踩过同类坑）。
-     *
-     * ⚠ Δ30a 真机踩坑：`.slot.has-tile` 挂着 `dock-seat` 入场动画
-     * （`scale(.72) → 1.08 → 1`，260ms）。坍缩恰好在「第 3 张刚落定」那一帧起演，
-     * 此时 `getBoundingClientRect()` 返回的是**被 transform 缩放过的**盒子——
-     * 实测槽宽 44 → 31.68（×0.72），滑行距离整体缩水 28%。
-     * 故基准几何 MUST 取布局尺寸 `offsetWidth/offsetHeight`（不含 transform），
-     * 再用「rect 中心」反推未缩放左上角（scale 以中心为原点 → 中心不变）。
-     * 取不到 rect 时 `dx` 退化为 0（原位演出）——时序与总时长不变。
-     * ⚠ 每次演出重新采集，MUST NOT 跨尺寸缓存 `--suck-dx`。 */
-    var nodes = els.dock ? els.dock.querySelectorAll('.slot') : [];
-    var rects = [];
-    for (k = 0; k < slotIndices.length; k++) {
-      var nd = nodes[slotIndices[k]];
-      var rr = (nd && nd.getBoundingClientRect) ? nd.getBoundingClientRect() : null;
-      if (!rr || !(rr.width > 0)) { rects.push(null); continue; }
-      var lw = (nd.offsetWidth > 0) ? nd.offsetWidth : rr.width;
-      var lh = (nd.offsetHeight > 0) ? nd.offsetHeight : rr.height;
-      var ccx = rr.left + rr.width / 2;
-      var ccy = rr.top + rr.height / 2;
-      rects.push({ left: ccx - lw / 2, top: ccy - lh / 2, width: lw, height: lh });
-    }
-    var order = slotIndices.slice().sort(function (a, b) { return a - b; });
-    var midIdx = order[Math.floor(order.length / 2)];
-    var midRect = null;
-    for (k = 0; k < slotIndices.length; k++) if (slotIndices[k] === midIdx) midRect = rects[k];
-    var reduced = prefersReducedMotion();
+    /* R6：**零几何采集**。旧实现逐槽 `getBoundingClientRect()` + `offsetWidth`
+     * 反推未缩放左上角，只为算 `dx = midRect.left − rect.left`（横向滑向中心）。
+     * 横向通道删除后这段整体下线——没有 rect 就没有「槽框 scale 干扰」这一整类坑。 */
 
-    /* ② ghost 落位（按槽位映射；并发时保留其他组的条目） */
+    /* ① ghost 落位（按槽位映射；并发时保留其他组的条目） */
     var map = (dockGhost && dockGhost.map) ? dockGhost.map : {};
     for (k = 0; k < slotIndices.length; k++) {
       var idx = slotIndices[k];
       if (suits[k] == null) continue;
-      var dx = 0;
-      if (midRect && rects[k] && !reduced) dx = midRect.left - rects[k].left;
-      map[idx] = { suit: suits[k], gid: gid, dx: dx };
+      map[idx] = { suit: suits[k], gid: gid };
     }
     dockGhost = { map: map };
 
     groupEndAt[gid] = now + COLLAPSE_TOTAL_MS;
     if (!(dockFreezeUntil > groupEndAt[gid])) dockFreezeUntil = groupEndAt[gid];
 
-    /* ③ 只改本组 3 个槽位的 DOM（零重建 → 上一组动画不受影响） */
+    /* ② 只改本组 3 个槽位的 DOM（零重建 → 上一组动画不受影响） */
     applyCollapseDom(slotIndices);
 
-    /* ④ 130ms：`#dock` 受击微震 + 坍缩段起跑。
-     * MUST 只走纵向 2.0px —— 横向不动，`--suck-dx` 与飞行终点 X 完全不受影响；
+    /* ③ 100ms：`#dock` 受击微震。
+     * MUST 只走纵向 2.0px —— 横向不动，飞行终点 X 完全不受影响；
      * 纵向 2px 恰好卡在 `flight-smoke` 的「落定偏差 <= 2px」容差内。
      * 摘类 MUST 走 `animationend`（定时器与动画时钟不同源，会残留类）。 */
     var hitTimer = setTimeout(function () {
@@ -1683,7 +1736,7 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
       els.dock.classList.add('dock-hit');
     }, COLLAPSE_SHUDDER_AT_MS);
 
-    /* ⑤ 收尾：清本组 ghost → 若无活跃组则重建 + FLIP 补位 */
+    /* ④ 收尾：清本组 ghost → 若无活跃组则重建 + FLIP 补位 */
     var endTimer = setTimeout(function () { finishCollapseGroup(gid); }, COLLAPSE_TOTAL_MS);
     collapseTimers.push({ gid: gid, hit: hitTimer, end: endTimer });
   }
@@ -2698,10 +2751,11 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
      *   · peakBannerState —— 横幅可见性 / 主色相 / 去重标记（banner 专项断言） */
     isChallengeLevel: isChallengeLevel,
     challengePercent: challengePercent,
-    /* Δ31a / FR-049 §19：纯卡牌力学演出时序常量（光圈/星芒/粒子已整体下线）。
-     * `shudderAtMs` = 130ms（`#dock` 受击微震 + 坍缩段起跑）。
-     * 旧的前摇 / 光环起跑两个键**已移除**——留着会让旧门禁读到「光环起跑」
-     * 这个已不存在的语义而假绿（Δ29/Δ30 各踩过一次）。 */
+    /* R6 / FR-030：三消「原位微跃 + 柔光升华」时序常量。
+     * `shudderAtMs` = 100ms（`#dock` 受击微震，与柔光起亮同帧）。
+     * 旧的四段关键帧语义（chip-rush / chip-impact / center / side）**已移除**——
+     * 留着会让旧门禁读到「滑行到位」「回弹峰值」这些已不存在的语义而假绿
+     * （Δ29/Δ30 各踩过一次）。 */
     peakTiming: {
       shudderAtMs: COLLAPSE_SHUDDER_AT_MS,
       collapseMs: COLLAPSE_TOTAL_MS,

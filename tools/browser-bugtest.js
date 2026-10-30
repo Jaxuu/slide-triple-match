@@ -2,6 +2,7 @@
  * Slide & Triple — browser-bugtest（Δ12: blocked-slider-vanish 真机验证）
  *
  * node tools/browser-bugtest.js [--level N] [--pre-fix]
+ * node tools/browser-bugtest.js --deep-link [--strict-fps]
  *
  * 背景: /speckit-bug-test——以真实 Chrome/Edge（CDP）复现评估报告的复现步骤:
  *   点击受阻滑块 → blocked 动画 → 贴图应存活（修复前: rAF 主循环死亡、贴图永久消失）。
@@ -15,6 +16,15 @@
  *   E. 二次点击同格（复现路径「再点消失滑块」）→ 全部检查重新通过
  *   F. gear 动画路径（同根缺陷）存活
  * --pre-fix: 用 git show HEAD~1 的 BoardRenderer 覆盖内存副本注入（红向对照）
+ *
+ * T236 / R6 深链首帧场景（--deep-link）:
+ *   G. 深链 ?level=N 首帧：遮罩仍可见时棋盘 MUST 处于起始态且 t0 未记
+ *      （探针实测 splash 要到 ≈4.6s 才移除，故看门狗 MUST 重挂而非静置）
+ *   H. 遮罩移除后逐帧采样：首帧相位 = 0（≤1%）、total ∈ 380~420ms
+ *   I. 帧间隔 p95 ≤20ms / max ≤34ms（headless 软件渲染下仅报告；--strict-fps 才硬断言）
+ *   J. 穿模帧 = 0（逐帧断言绘制序恒 (z,r,c) 升序）
+ *   K. 三消窗口内 #vfx-canvas alpha>2 像素数恒 0 + .slot 计算样式逐项不变
+ *   产物：截图与 JSON 存 shots/deeplink/（不入库，.gitignore 已覆盖）
  * ========================================================= */
 'use strict';
 
@@ -26,6 +36,9 @@ var LEVEL = 3;
 var li = args.indexOf('--level');
 if (li >= 0 && args[li + 1]) LEVEL = parseInt(args[li + 1], 10);
 var PRE_FIX = args.indexOf('--pre-fix') >= 0;
+/* T236：深链首帧取证模式 + 严格帧率开关 */
+var DEEP_LINK = args.indexOf('--deep-link') >= 0;
+var STRICT_FPS = args.indexOf('--strict-fps') >= 0;
 
 /* ---------- 定位浏览器 ---------- */
 var fs = require('fs');
@@ -45,6 +58,220 @@ var ERR_SENTINEL =
   'window.__stmErrors = [];\n' +
   'window.addEventListener("error", function (e) { window.__stmErrors.push(String(e.message || e.error)); });\n' +
   'window.addEventListener("unhandledrejection", function (e) { window.__stmErrors.push("promise:" + String(e.reason)); });\n';
+
+/* ---------- T236 深链首帧采样器（必须在页面脚本之前注入） ----------
+ * 为什么必须在页面内逐帧采样：CDP 往返 ~30~60ms，而落距窗口只有 400ms，
+ * 从外面 poll 必然抓不到「首帧相位」。
+ * 为什么必须包 requestAnimationFrame：只有这样才能拿到渲染器**真正使用**的那个
+ * rAF 时间戳 ts，`dealStateOf().startTime` 与 ts 的差才是可比的相位证据；
+ * 用 performance.now() 自测会引入「我的回调先于渲染器回调」的半帧误差。 */
+var DEEP_LINK_SAMPLER = `(function(){
+  var W = window.__dl = { s: [], geo: null, col: null };
+  function blk(){
+    var ids = ['modal-root','lobby','splash-screen','result-root','fail-root'];
+    for (var i = 0; i < ids.length; i++){
+      var el = document.getElementById(ids[i]);
+      if (!el || el.hidden) continue;
+      var cs;
+      try { cs = getComputedStyle(el); } catch (e) { continue; }
+      if (cs.display !== 'none' && parseFloat(cs.opacity || '1') > 0.02) return ids[i];
+    }
+    var b = document.getElementById('board');
+    if (!b) return 'no-board';
+    var r = b.getBoundingClientRect();
+    return (r.width > 0 && r.height > 0) ? '' : 'zero-board';
+  }
+  function geoMap(){
+    try {
+      var s = STM.main.session(); if (!s) return null;
+      var b = s.state().board, m = {};
+      for (var i = 0; i < b.length; i++) m[b[i].id] = { z: b[i].z || 0, r: b[i].r, c: b[i].c };
+      return m;
+    } catch (e) { return null; }
+  }
+  function orderOk(g){
+    if (!g) return null;
+    var r = STM.main.renderer(); if (!r || !r.drawOrderOf) return null;
+    var ord = r.drawOrderOf(), prev = null;
+    for (var i = 0; i < ord.length; i++){
+      var t = g[ord[i]]; if (!t) continue;
+      var k = t.z * 10000 + t.r * 100 + t.c;
+      if (prev !== null && k < prev) return false;
+      prev = k;
+    }
+    return true;
+  }
+  /* #vfx-canvas 的 alpha > 2 像素数——**禁全画布 getImageData**
+   * （840x1800 = 150 万像素，单次 100ms+，200ms 的坍缩窗会被整段跳过）。
+   * 改逐行扫描（每 8 个设备行一条，整行宽）——覆盖 12.5% 行数、全宽度，
+   * 光圈/星芒/粒子若复活必然跨多行，漏检概率可忽略。 */
+  function vfxScan(){
+    var cv = document.getElementById('vfx-canvas');
+    if (!cv) return { err: 'no #vfx-canvas' };
+    var ctx = cv.getContext('2d');
+    var w = cv.width, h = cv.height, n = 0;
+    try {
+      for (var y = 0; y < h; y += 8){
+        var d = ctx.getImageData(0, y, w, 1).data;
+        for (var i = 3; i < d.length; i += 4) if (d[i] > 2) n++;
+      }
+    } catch (e) { return { err: 'getImageData: ' + e.message }; }
+    return { nonZero: n, w: w, h: h, rows: Math.ceil(h / 8) };
+  }
+  /* 槽框**盒几何**签名（R6-G6）。
+   * 为什么按 state 分键：有牌槽（has-tile / is-filled）与空槽的 border / background
+   * 本来就不同（有牌 = 透明无边框），落牌 / 消牌引起的 state 翻转是**合法**的，
+   * 直接整串比对会把 44 帧正常状态变化误判成「改形」。
+   * 真正要抓的是：同一 state 下盒几何被演出改动（slot-shattering 若加了
+   * border / padding / radius 就会在此暴露）。background 不进签名——它带
+   * transition: background .2s，状态翻转后 200ms 内读到的是插值中间值；
+   * 「演出 MUST NOT 改 background」由 render-selftest 的静态 CSS 断言覆盖。 */
+  function boxOf(el){
+    var cs = getComputedStyle(el);
+    var cn = el.className || '';
+    var state = (cn.indexOf('has-tile') >= 0 || cn.indexOf('is-filled') >= 0 ||
+                 el.childElementCount > 0) ? 'T' : 'E';
+    return {
+      state: state,
+      sh: cn.indexOf('slot-shattering') >= 0,
+      g: [cs.borderTopWidth, cs.borderLeftWidth, cs.paddingTop, cs.paddingLeft,
+          cs.borderTopLeftRadius, cs.borderBottomRightRadius].join('/')
+    };
+  }
+  /* 贪心选牌：优先补满 dock 里**已有最多张**的那个花色。
+   * 为什么不能只用「一次快照里的 3 张同花色」：L3 实测第 3 张在连点两张后
+   * 变成 blocked（canTap 随局面变化），一次快照取 3 张会打出
+   * ["flyout","flyout","blocked"] 而永远凑不成三消（假红灯）。 */
+  function bestTapId(){
+    try {
+      var s = STM.main.session(), st = s.state(), eng = s.engineState(), RE = STM.RulesEngine;
+      var cnt = {}, d = st.dock || [];
+      for (var i = 0; i < d.length; i++){ var k = d[i].s | 0; cnt[k] = (cnt[k] || 0) + 1; }
+      var best = null, bestSc = -1;
+      for (var j = 0; j < st.board.length; j++){
+        var b = st.board[j];
+        if (!RE.canTap(eng, b.id)) continue;
+        var sc = cnt[b.s | 0] || 0;
+        if (sc > bestSc){ bestSc = sc; best = b.id; }
+      }
+      return best;
+    } catch (e) { return null; }
+  }
+  function tappableTriple(){
+    try {
+      var s = STM.main.session(), st = s.state(), eng = s.engineState(), RE = STM.RulesEngine;
+      var by = {};
+      for (var i = 0; i < st.board.length; i++){
+        var b = st.board[i];
+        if (!RE.canTap(eng, b.id)) continue;
+        var k = b.s | 0;
+        if (!by[k]) by[k] = [];
+        by[k].push(b.id);
+      }
+      for (var kk in by) if (by[kk].length >= 3) return by[kk].slice(0, 3);
+      return null;
+    } catch (e) { return null; }
+  }
+  /* 三消窗口采样：基线盒几何 → 连点三张 → 逐帧读 vfx 像素 + 槽框几何
+   * 判据口径（与 delta27-verify ⑤ 同源）：
+   *   · #vfx-canvas 在**飞牌离场段**本来就承载像素（棋盘外的那半张牌），
+   *     所以 vfx 零像素只在「无在途飞行」的帧上断言；
+   *   · 反向证据 = 飞行帧确有像素（证明画布通路仍在工作，不是「全黑假绿」）。 */
+  W.col = function(){
+    return new Promise(function(done){
+      var firstIds = tappableTriple();
+      if (!firstIds) { done({ err: 'no tappable triple' }); return; }
+      var s = STM.main.session();
+      var rnd = STM.main.renderer();
+      var ns0 = document.querySelectorAll('#dock .slot');
+      var ref = [];
+      for (var b = 0; b < ns0.length; b++){
+        ref[b] = {};
+        var bx = boxOf(ns0[b]);
+        ref[b][bx.state] = bx.g;
+      }
+      var frames = 0, maxPix = 0, maxPixFly = 0, flyFrames = 0, idleFrames = 0;
+      var geomBad = 0, geomChecked = 0, sawShat = false, pixErr = null;
+      var ti = 0, lastTap = -1e9, t0 = performance.now(), taps = [];
+      var shatAt = -1;
+      function step(){
+        var now = performance.now();
+        /* 连点：最多 6 次、每次间隔 90ms；看到坍缩后停手（不污染采样窗） */
+        if (ti < 6 && now - lastTap > 90 && !(shatAt > 0 && now - shatAt > 260)){
+          var id = bestTapId();
+          if (id != null){
+            var tr = null;
+            try { tr = s.tap(id); } catch (eTap) { tr = { type: 'throw' }; }
+            taps.push((tr && tr.type ? tr.type : 'null') + '#' + id);
+          } else {
+            taps.push('none');
+          }
+          ti++; lastTap = now;
+        }
+        var ns = document.querySelectorAll('#dock .slot');
+        for (var i = 0; i < ns.length; i++){
+          if (!ref[i]) ref[i] = {};
+          var bx2 = boxOf(ns[i]);
+          if (bx2.sh){ sawShat = true; if (shatAt < 0) shatAt = now; }
+          if (ref[i][bx2.state] == null) ref[i][bx2.state] = bx2.g;
+          else { geomChecked++; if (ref[i][bx2.state] !== bx2.g) geomBad++; }
+        }
+        var flying = 0;
+        try { flying = (rnd && rnd.flightsOf) ? rnd.flightsOf().length : 0; } catch (eF) { flying = 0; }
+        var px = vfxScan();
+        if (px.err) pixErr = px.err;
+        else if (flying > 0) { flyFrames++; if (px.nonZero > maxPixFly) maxPixFly = px.nonZero; }
+        else { idleFrames++; if (px.nonZero > maxPix) maxPix = px.nonZero; }
+        frames++;
+        var stop = (shatAt > 0 && now - shatAt > 420) || now - t0 > 3000;
+        if (!stop) requestAnimationFrame(step);
+        else done({ frames: frames, maxPix: maxPix, maxPixFly: maxPixFly,
+                    flyFrames: flyFrames, idleFrames: idleFrames,
+                    geomBad: geomBad, geomChecked: geomChecked,
+                    sawShat: sawShat, pixErr: pixErr,
+                    slots: ns.length, taps: taps });
+      }
+      requestAnimationFrame(step);
+    });
+  };
+  var orig = window.requestAnimationFrame;
+  window.requestAnimationFrame = function(cb){
+    return orig.call(window, function(ts){
+      var ret = cb(ts);
+      try {
+        if (W.s.length < 2400){
+          var r = (window.STM && STM.main && STM.main.renderer) ? STM.main.renderer() : null;
+          var st = (r && r.dealStateOf) ? r.dealStateOf() : null;
+          if (st){
+            if (!W.geo) W.geo = geoMap();
+            W.s.push({
+              ts: Math.round(ts * 100) / 100,
+              blk: blk(),
+              st: st.startTime == null ? null : Math.round(st.startTime * 100) / 100,
+              armed: st.armed, gf: st.gateFrames, act: st.active,
+              tot: st.totalMs, md: st.maxDelay, wd: st.watchdog, rw: st.watchdogRearms,
+              ord: orderOk(W.geo)
+            });
+            /* 相位取证帧：CDP 截图往返 200ms+（软件光栅），必然错过 400ms 的落距，
+             * 故在**页面内**按相位直接从 #board 取 dataURL（file:// 已由
+             * --allow-file-access-from-files 解 taint，getImageData 同样可用）。
+             * 0.30 / 0.65 两个相位足以证明「牌在空中、且被 HUD 安全线裁掉上半」。 */
+            if (st.startTime != null && st.active){
+              var span = (st.maxDelay || 0) + 200;
+              var ph = span > 0 ? (ts - st.startTime) / span : 0;
+              var cvB = document.getElementById('board');
+              if (cvB && cvB.toDataURL){
+                if (!W.snap30 && ph >= 0.30){ try { W.snap30 = cvB.toDataURL('image/png'); } catch (e30) {} }
+                if (!W.snap65 && ph >= 0.65){ try { W.snap65 = cvB.toDataURL('image/png'); } catch (e65) {} }
+              }
+            }
+          }
+        }
+      } catch (e) {}
+      return ret;
+    });
+  };
+})();`;
 
 /* ---------- CDP 客户端（内置 WebSocket，极简协议封装） ---------- */
 function cdp(wsUrl) {
@@ -80,7 +307,8 @@ function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 /* ---------- 主流程 ---------- */
 var TMP = require('os').tmpdir() + '/stm-bugtest-profile';
 
-async function main() {
+/* 启动无头浏览器并连上 CDP（两条驱动共用：blocked-slider 场景 / 深链首帧场景） */
+async function launchBrowser() {
   /* 1. 启动无头浏览器 */
   var PORT = 9222 + Math.floor(Math.random() * 500);
   var cp = require('child_process');
@@ -120,6 +348,14 @@ async function main() {
   await c.send('Page.enable');
   await c.send('Runtime.enable');
   await c.send('Page.addScriptToEvaluateOnNewDocument', { source: ERR_SENTINEL });
+  return { c: c, proc: proc };
+}
+
+async function main() {
+  var ctx0 = await launchBrowser();
+  var c = ctx0.c;
+  var proc = ctx0.proc;
+  var cp = require('child_process');
 
   /* 3. 打开游戏（file:// 直载——宪章 file:// 零报错红线） */
   var path = require('path');
@@ -169,9 +405,268 @@ async function main() {
 /* 导出给驱动层（同文件内完成全部断言更简单——直接续写） */
 module.exports = { main: main };
 
+/* =========================================================
+ * T236 / R6 —— 深链首帧真机取证（--deep-link）
+ *
+ * 场景：`?level=N` 深链直载。`tryPrepareLobby()` 在 `#splash-screen` 仍 100%
+ * 时就同步 `enterGame() → loadLevel() → startDeal()`，因此「遮罩背后的偷跑」
+ * 与「遮罩撤掉后动画已过半」是同一根因的两个面。
+ *
+ * 实测基线（R6，本机 headless=new / --disable-gpu）：
+ *   · `startDeal()` @ ≈0.6s；`#splash-screen` 移除 @ ≈4.6s
+ *   · 旧「单次 1200ms 到期即 skipDeal()」口径 → 探针实测 `act=false`、
+ *     `tot=400` 却**一帧未渲染**（整段雨幕被吞）。故看门狗改为「复查 + 重挂」，
+ *     总预算 `GATE_WATCHDOG_MAX_MS = 8000`。
+ *
+ * 断言（三档 L3 / L33 / L72 各跑一遍）：
+ *   ① 遮罩仍可见的每一帧：`startTime ≡ null`、`armed ≡ true`、`gateFrames ≡ 0`
+ *   ② 遮挡期确实发生过看门狗重挂（`watchdogRearms >= 1`）——防「静置假绿」
+ *   ③ 开闸首帧：`startTime === 该帧 rAF ts`（相位 = 0，≤1%）且遮罩已撤
+ *   ④ `totalMs ∈ [380,420]`；实测帧跨度 ∈ [totalMs, totalMs+40]（帧粒度上界）
+ *   ⑤ 帧间隔 p95 ≤20ms / max ≤34ms（headless 软件渲染下仅报告；`--strict-fps` 硬断言）
+ *   ⑥ 穿模帧 = 0（逐帧断言绘制序恒 `(z,r,c)` 升序）+ 反向证据（有序帧数 > 0）
+ *   ⑦ 三消窗口内 `#vfx-canvas` alpha>2 像素数恒 0
+ *   ⑧ 三消窗口内 `.slot` 计算样式逐项不变（border/padding/background/radius）
+ * ========================================================= */
+async function deepLinkDriver() {
+  var fs = require('fs');
+  var path = require('path');
+  var root = path.resolve(__dirname, '..');
+  var SHOT_DIR = root + '/shots/deeplink';
+  try { fs.mkdirSync(SHOT_DIR, { recursive: true }); } catch (eMk) {}
+
+  var ctx = await launchBrowser();
+  var c = ctx.c;
+  var failures = [];
+  var report = { strictFps: STRICT_FPS, levels: [] };
+  function check(name, cond, extra) {
+    if (cond) console.log('  ✓ ' + name);
+    else { failures.push(name); console.log('  ✗ ' + name + (extra ? ' [' + extra + ']' : '')); }
+  }
+  async function ev(expr, opts) {
+    var r = await c.send('Runtime.evaluate', Object.assign(
+      { expression: expr, returnByValue: true }, opts || {}));
+    if (r.exceptionDetails) throw new Error('eval error: ' + JSON.stringify(r.exceptionDetails.exception));
+    return r.result.value;
+  }
+  async function shot(name) {
+    try {
+      var r = await c.send('Page.captureScreenshot', { format: 'png' });
+      fs.writeFileSync(SHOT_DIR + '/' + name, Buffer.from(r.data, 'base64'));
+      return true;
+    } catch (e) { console.log('  （截图失败 ' + name + ': ' + e.message + '）'); return false; }
+  }
+  function pct(arr, p) {
+    if (!arr.length) return 0;
+    var a = arr.slice().sort(function (x, y) { return x - y; });
+    return a[Math.min(a.length - 1, Math.floor(a.length * p))];
+  }
+
+  await c.send('Page.addScriptToEvaluateOnNewDocument', { source: DEEP_LINK_SAMPLER });
+
+  var SCALES = [{ lv: 3, tag: 'L3' }, { lv: 33, tag: 'L33' }, { lv: 72, tag: 'L72' }];
+  try {
+    for (var si = 0; si < SCALES.length; si++) {
+      var sc = SCALES[si];
+      console.log('\n[' + sc.tag + '] 深链 ?level=' + sc.lv + ' 首帧采样');
+      var url = 'file:///' + root.replace(/\\/g, '/') + '/index.html?level=' + sc.lv;
+      await c.send('Page.navigate', { url: url });
+
+      /* 轮询到「会话就绪 + 首帧已开闸 + 编舞结束」；最多 12s（splash 实测 ≈4.6s） */
+      var seen = false, waited = 0;
+      while (waited < 12000) {
+        await sleep(120);
+        waited += 120;
+        var v = await ev('(function(){ var S = (window.__dl && window.__dl.s) || [];' +
+          ' if (!S.length) return "0"; var opened = false;' +
+          ' for (var i = 0; i < S.length; i++) if (S[i].st != null) opened = true;' +
+          ' var last = S[S.length - 1];' +
+          ' return (opened ? "S" : "-") + (opened && last.act === false ? "F" : "-"); })()');
+        if (v === 'SF') { seen = true; break; }
+      }
+      await shot('deeplink-' + sc.tag + '-settled.png');
+      if (!seen) { check(sc.tag + ' 深链首屏编舞跑完（未超 12s 超时）', false, 'waited=' + waited); continue; }
+
+      /* 相位取证帧（页面内 dataURL，见采样器注释）——落盘为 -phase30 / -phase65 */
+      var snapA = await ev('window.__dl.snap30 || ""');
+      var snapB = await ev('window.__dl.snap65 || ""');
+      function writeDataUrl(name, url) {
+        if (!url || url.indexOf('base64,') < 0) return false;
+        try {
+          fs.writeFileSync(SHOT_DIR + '/' + name, Buffer.from(url.split('base64,')[1], 'base64'));
+          return true;
+        } catch (e) { return false; }
+      }
+      var gotA = writeDataUrl('deeplink-' + sc.tag + '-phase30.png', snapA);
+      var gotB = writeDataUrl('deeplink-' + sc.tag + '-phase65.png', snapB);
+      check('相位取证帧已落盘（30% / 65% —— 证明牌确实在空中下落）',
+        gotA && gotB, 'phase30=' + gotA + ' phase65=' + gotB);
+
+      var raw = await ev('JSON.stringify(window.__dl.s)');
+      var all = JSON.parse(raw || '[]');
+      /* 同一 rAF 帧内可能有多个被包裹的回调 → 按 ts 去重（保留最后一条，
+       * 即渲染器 frame() 跑完之后的状态） */
+      var s = [], lastTs = -1;
+      for (var i2 = 0; i2 < all.length; i2++) {
+        if (all[i2].ts === lastTs) s[s.length - 1] = all[i2];
+        else { s.push(all[i2]); lastTs = all[i2].ts; }
+      }
+
+      var masked = s.filter(function (x) { return x.blk !== ''; });
+      var opened = s.filter(function (x) { return x.st != null; });
+      var first = opened.length ? opened[0] : null;
+      /* 「动画结束帧」= 开闸之后**第一个** `active === false` 的帧。
+       * MUST NOT 用「最后一个 active === true 的帧」——那是结束帧的**前一帧**，
+       * 会少算一整个帧间隔（实测把 400ms 读成 283ms，纯属度量口径错）。 */
+      var endFrame = null;
+      if (first) {
+        for (var i3 = 0; i3 < s.length; i3++) {
+          if (s[i3].ts > first.st && s[i3].act === false) { endFrame = s[i3]; break; }
+        }
+      }
+      var rearmMax = 0;
+      for (var i4 = 0; i4 < s.length; i4++) if ((s[i4].rw || 0) > rearmMax) rearmMax = s[i4].rw;
+
+      /* ① 遮罩可见期 MUST NOT 记 t0 / MUST 处于起始态 */
+      var badMasked = masked.filter(function (x) { return x.st !== null || x.armed !== true || x.gf !== 0; });
+      check('① 遮罩仍可见时 startTime ≡ null / armed ≡ true / gateFrames ≡ 0',
+        masked.length > 0 && badMasked.length === 0,
+        '遮罩帧=' + masked.length + ' 违规=' + badMasked.length +
+        (badMasked.length ? ' ' + JSON.stringify(badMasked[0]) : ''));
+      /* ② 遮挡期确实重挂过（否则「静置」会把整段雨幕吞掉——真机红向判据） */
+      check('② 遮挡期看门狗确实重挂（watchdogRearms >= 1，非静置）',
+        rearmMax >= 1, 'rearms=' + rearmMax);
+      /* ③ 开闸首帧相位 = 0 且遮罩已撤 */
+      check('③ 开闸首帧遮罩已撤（MUST NOT 在遮挡期偷偷开闸）',
+        !!first && first.blk === '', first ? 'blk="' + first.blk + '"' : 'no-open-frame');
+      var phase = first ? (first.ts - first.st) / Math.max(1, first.tot) : 1;
+      check('③ 首帧相位 = 0（≤1% —— 动画从 0 开始渲染，零偷跑）',
+        !!first && Math.abs(first.ts - first.st) < 0.5 && phase <= 0.01,
+        first ? 'ts-start=' + (first.ts - first.st).toFixed(2) + 'ms phase=' + (phase * 100).toFixed(2) + '%' : 'n/a');
+      /* ④ 总时长 */
+      check('④ totalMs ∈ [380,420]（预算值 —— dealRemainingMs 的权威口径）',
+        !!first && first.tot >= 380 && first.tot <= 420, first ? 'total=' + first.tot : 'n/a');
+      var span = (first && endFrame) ? (endFrame.ts - first.st) : -1;
+      /* 实际编舞终点 = 计划里最后一排起跑（`maxDelay`）+ 单牌时长 `TILE_MS`。
+       * MUST NOT 拿 `totalMs` 当终点：`totalMs = max(maxDelay + TILE, 公式值)`，
+       * 而公式按「底排满排 + 右下角取到 zMax」估算。真机实测（R6）：
+       *   L3 363.7 / L33 361.7 / L72 375.0 —— 均 < 公式 400，差 25~38ms，
+       *   根因是底排未占满（实测 maxDelay 恒为 `6 × ROW_STEP`，c/z 项没吃满）。
+       * 这是**保守高估**（`dealRemainingMs()` 只会偏长，不会提前放行），
+       * 视觉上 362ms 与 400ms 同为「约 0.4s」。 */
+      var TILE_MS = 200; /* 与 STM.rendererTest.INTRO.TILE_MS 同源（render-selftest 断言） */
+      var endTheo = first ? (first.md || 0) + TILE_MS : -1;
+      /* 帧间隔（动画窗口内） */
+      var iv = [];
+      if (first && endFrame) {
+        for (var i5 = 1; i5 < s.length; i5++) {
+          if (s[i5].ts <= first.st || s[i5].ts > endFrame.ts) continue;
+          iv.push(s[i5].ts - s[i5 - 1].ts);
+        }
+      }
+      var p95 = pct(iv, 0.95), mx = iv.length ? Math.max.apply(null, iv) : 0;
+      console.log('  帧间隔: n=' + iv.length + ' p50=' + pct(iv, 0.5).toFixed(1) +
+        'ms p95=' + p95.toFixed(1) + 'ms max=' + mx.toFixed(1) + 'ms');
+      check('④ 实际编舞终点（maxDelay + TILE）∈ [360,420]（与预算的差值见下条）',
+        !!first && endTheo >= 360 && endTheo <= 420,
+        'endTheo=' + endTheo.toFixed(1) + ' maxDelay=' + (first ? first.md : '-'));
+      check('④ 预算对实际终点的高估 ≤40ms（计划未被改坏的真护栏）',
+        !!first && (first.tot - endTheo) >= 0 && (first.tot - endTheo) <= 40,
+        'total=' + (first ? first.tot : '-') + ' endTheo=' + endTheo.toFixed(1) +
+        ' 差=' + (first ? (first.tot - endTheo).toFixed(1) : '-'));
+      check('④ 实测帧跨度 ∈ [终点, 终点 + 一个帧间隔]（结束帧即第一个 active=false 帧）',
+        !!first && span >= endTheo - 0.5 && span <= endTheo + mx + 1,
+        'span=' + span.toFixed(1) + ' endTheo=' + endTheo.toFixed(1) + ' maxIv=' + mx.toFixed(1));
+      if (STRICT_FPS) {
+        check('⑤ 帧间隔 p95 ≤20ms / max ≤34ms（--strict-fps 硬门禁）',
+          p95 <= 20 && mx <= 34, 'p95=' + p95.toFixed(1) + ' max=' + mx.toFixed(1));
+      } else {
+        /* headless=new + --disable-gpu 是软件光栅，帧率天然达不到 60fps
+         * （实测 L3 p95 83ms / L33 167ms / L72 100ms，且样本只有 3~7 个帧间隔
+         * ——n=3 的 p95 统计意义为零）。故默认只做两条**环境无关**的硬断言：
+         *   ① 动画期至少采到 3 个帧间隔 → 证明是逐帧渲染，不是「1~2 帧落定」；
+         *   ② 无 ≥250ms 级冻结 → 主循环未卡死。
+         * 严格帧率门禁（p95 ≤20 / max ≤34）需真机前台运行并加 --strict-fps。 */
+        check('⑤ 动画期逐帧渲染（帧间隔样本 >= 3，非「一帧落定」）',
+          iv.length >= 3, 'n=' + iv.length);
+        check('⑤ 无 250ms 级冻结（headless 软件光栅基线；严格 p95 门禁见 --strict-fps）',
+          mx <= 250, 'max=' + mx.toFixed(1));
+      }
+      /* ⑥ 穿模帧 = 0 */
+      var ordFalse = s.filter(function (x) { return x.ord === false; });
+      var ordTrue = s.filter(function (x) { return x.ord === true; });
+      check('⑥ 穿模帧 = 0（逐帧绘制序恒 (z,r,c) 升序）',
+        ordFalse.length === 0, '违规帧=' + ordFalse.length);
+      check('⑥ 反向证据：采样确有有效序帧（非「读不到序」的假绿）',
+        ordTrue.length > 0, '有效序帧=' + ordTrue.length);
+
+      /* ⑦⑧ 三消窗口：vfx 零像素 + 槽框计算样式不变 */
+      var col = null;
+      try {
+        col = await ev('window.__dl.col()', { awaitPromise: true });
+      } catch (eCol) { col = { err: eCol.message }; }
+      if (col && !col.err) {
+        check('⑦ 三消窗口内无在途飞行帧上 #vfx-canvas alpha>2 像素数恒 0',
+          col.maxPix === 0 && !col.pixErr,
+          'maxPix=' + col.maxPix + ' 空闲帧=' + col.idleFrames +
+          ' 飞行帧=' + col.flyFrames + (col.pixErr ? ' err=' + col.pixErr : ''));
+        check('⑦ 反向证据：飞牌期 VFX 层确有像素（画布通路仍在工作，非「全黑假绿」）',
+          col.maxPixFly > 0, 'maxFly=' + col.maxPixFly);
+        check('⑦ 采样窗内确实发生过三消演出（断言非空转）',
+          col.sawShat === true, 'taps=' + JSON.stringify(col.taps) + ' ids=' + JSON.stringify(col.ids));
+        check('⑧ .slot 盒几何逐项不变（同 state 下 border-width / padding / radius 零改形）',
+          col.geomBad === 0 && col.geomChecked > 0,
+          '违规=' + col.geomBad + ' 比对=' + col.geomChecked + ' 槽数=' + col.slots);
+        await shot('deeplink-' + sc.tag + '-collapse.png');
+      } else {
+        check('⑦⑧ 三消窗口采样成功', false, col ? JSON.stringify(col.err) : 'null');
+      }
+
+      var errs = await ev('JSON.stringify(window.__stmErrors)');
+      check('页面零未捕获异常（全程哨兵）', errs === '[]', errs);
+
+      report.levels.push({
+        tag: sc.tag, lv: sc.lv, frames: s.length, maskedFrames: masked.length,
+        rearmMax: rearmMax, totalMs: first ? first.tot : null,
+        maxDelay: first ? first.md : null, endTheoMs: endTheo,
+        firstPhasePct: first ? +(phase * 100).toFixed(3) : null,
+        spanMs: +span.toFixed(1), frameIntervals: { n: iv.length, p50: +pct(iv, 0.5).toFixed(1),
+          p95: +p95.toFixed(1), max: +mx.toFixed(1) },
+        ordViolations: ordFalse.length, ordValidFrames: ordTrue.length,
+        collapse: col
+      });
+      console.log('  → ' + JSON.stringify({ total: first ? first.tot : null, endTheo: endTheo,
+        span: +span.toFixed(1), rearm: rearmMax, p95: +p95.toFixed(1), max: +mx.toFixed(1),
+        ordBad: ordFalse.length, vfxIdle: col ? col.maxPix : null,
+        vfxFly: col ? col.maxPixFly : null, geomBad: col ? col.geomBad : null,
+        shat: col ? col.sawShat : null }));
+    }
+  } catch (err) {
+    failures.push('异常中断: ' + err.message);
+    console.error('  ✗ 异常中断:', err.message);
+  }
+
+  try {
+    fs.writeFileSync(SHOT_DIR + '/deeplink-report.json', JSON.stringify(report, null, 2));
+    console.log('\n取证产物：shots/deeplink/（截图 + deeplink-report.json，不入库）');
+  } catch (eW) {}
+
+  console.log('');
+  if (failures.length) {
+    console.log('browser-bugtest(--deep-link): FAILED — ' + failures.join('; '));
+    ctx.c.close(); ctx.proc.kill();
+    process.exit(1);
+  }
+  console.log('browser-bugtest(--deep-link): all green（深链首帧零偷跑 + 三档 400ms + 零穿模 + 零 vfx 残留 + 槽框零改形）');
+  ctx.c.close();
+  ctx.proc.kill();
+  process.exit(0);
+}
+
 /* ---------- 独立运行入口: 执行 L1 blocked 场景三步走 ---------- */
 (async function () {
   if (require.main !== module) return;
+  if (DEEP_LINK) { await deepLinkDriver(); return; }
   var ctx = await main();
   var c = ctx.c;
   var failures = [];
@@ -240,6 +735,22 @@ module.exports = { main: main };
       await sleep(100);
     }
     check('点击点最顶层元素为棋盘（开机遮罩 / 大厅层已让位）', topTag === 'board', 'top=' + topTag);
+
+    /* C3. 等进场编舞彻底结束再取基线色。
+     * R6 之后深链 `?level=N` 的编舞**要等遮罩撤除才开播**（看门狗复查重挂，
+     * 不再单次到期即静置），因此「遮罩让位」与「编舞结束」不再同一时刻。
+     * 基线若取在挤压尾巴还在的那几帧，「block 结束后贴图回到原位」会读到
+     * 亚像素差异而假红灯（实测 227,201,185 → 207,194,187，牌并未移动）。 */
+    var dealWaited = 0;
+    for (var wg = 0; wg < 120; wg++) {
+      var dealing = await ev('(function(){ try { var r = STM.main.renderer();' +
+        ' return (r && r.isDealing && r.isDealing()) ? 1 : 0; } catch (e) { return 0; } })()');
+      if (!dealing) break;
+      dealWaited += 50;
+      await sleep(50);
+    }
+    console.log('  编舞收尾等待:', dealWaited + 'ms');
+    await sleep(150);
 
     /* D. 取背景基线色（受阻滑块格旁空格中心） + 点击前该格色 */
     function colorAt(x, y) {

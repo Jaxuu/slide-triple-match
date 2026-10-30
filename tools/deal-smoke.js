@@ -115,9 +115,14 @@ console.log('FR-028 开局编舞冒烟（垂直雨幕下落 + 微弹定格 / 帧
 
 /* ---------- ① 常量与公式 ---------- */
 console.log('① 常量与公式（垂直雨幕口径）');
-check('常量表 TILE 200 / IMPACT_AT 0.78 / FALL_CELL 1.0 / SQUASH 5 / DAMP 4',
-  !!I && I.TILE_MS === 200 && I.IMPACT_AT === 0.78 && I.FALL_CELL === 1.0 &&
+check('常量表 TILE 200 / IMPACT_AT 0.78 / FALL_CELL 3.0 / SQUASH 5 / DAMP 4',
+  !!I && I.TILE_MS === 200 && I.IMPACT_AT === 0.78 && I.FALL_CELL === 3.0 &&
   I.SQUASH_PX === 5 && I.DAMP === 4);
+check('R6 高落差：FALL_CELL ∈ [2.6, 3.4] 且导出窗口常量与实现同源',
+  I.FALL_CELL >= 2.6 && I.FALL_CELL <= 3.4 &&
+  I.FALL_CELL_MIN === 2.6 && I.FALL_CELL_MAX === 3.4 &&
+  I.FALL_CELL >= I.FALL_CELL_MIN && I.FALL_CELL <= I.FALL_CELL_MAX);
+check('R6 看门狗 1200ms（开局 MUST NOT 卡死）', I.GATE_WATCHDOG_MS === 1200);
 check('TILE ∈ [180,220] / IMPACT_AT ∈ [0.75,0.82] / SQUASH ∈ [4,6]（硬边界）',
   I.TILE_MS >= 180 && I.TILE_MS <= 220 && I.IMPACT_AT >= 0.75 && I.IMPACT_AT <= 0.82 &&
   I.SQUASH_PX >= 4 && I.SQUASH_PX <= 6);
@@ -243,6 +248,7 @@ var zMaxR = 0;
 for (var zi = 0; zi < board.length; zi++) if ((board[zi].z || 0) > zMaxR) zMaxR = board[zi].z || 0;
 
 var delays = [], dFinite = true, dNonNeg = true, exactMatch = true, fpOk = true;
+var fpMin = Infinity, fpMax = -Infinity;
 var layR = rnd.layoutOf();
 var sideR = layR.tileSize, cwR = layR.cellStep;
 for (var pi = 0; pi < planIds.length; pi++) {
@@ -251,15 +257,17 @@ for (var pi = 0; pi < planIds.length; pi++) {
   if (typeof dv !== 'number' || !isFinite(dv)) dFinite = false;
   if (!(dv >= -1e-9)) dNonNeg = false;
   delays.push(dv);
+  var fv = plan[tid].fallPx;
+  if (fv < fpMin) fpMin = fv;
+  if (fv > fpMax) fpMax = fv;
   var bt0 = byId[tid];
   if (bt0) {
     var g0 = RT.tileGridOf(bt0);
     var want0 = RT.introDelayOf(g0.rr, g0.cc, bt0.z || 0, nR, zMaxR);
     if (Math.abs(dv - want0) > 1e-9) exactMatch = false;
-    var wantFp = (Math.floor(g0.rr) === 0)
-      ? 0.5 * sideR
-      : Math.min(I.FALL_CELL * cwR, Math.floor(g0.rr) * cwR + 0.5 * sideR);
-    if (Math.abs(plan[tid].fallPx - wantFp) > 1e-6) fpOk = false;
+    /* R6：统一落距——不再有「首排 0.5 卡面」的收缩分支 */
+    var wantFp = I.FALL_CELL * sideR;
+    if (Math.abs(fv - wantFp) > 1e-6) fpOk = false;
   }
 }
 delays.sort(function (a, b) { return a - b; });
@@ -267,7 +275,10 @@ check('全部 delay 为有限数值', dFinite);
 check('全部 delay >= 0（零延迟——首排 t=0 即起跑）', dNonNeg);
 check('首波 delay === 0（无全空帧）', Math.abs(delays[0]) < 1e-9, 'min=' + delays[0]);
 check('plan 与 introDelayOf 逐项相等（同源）', exactMatch);
-check('fallPx 首排 = 0.5 卡面 / 其余 = 1.0 格宽（越界高度恰为 spec 上限）', fpOk);
+check('fallPx 全盘统一 = FALL_CELL × 卡面边长（首排收缩分支已删除）', fpOk,
+  'want=' + (I.FALL_CELL * sideR).toFixed(2));
+check('全盘 fallPx 极差 <= 0.5px（「一堵牌墙整体下移」的构造性保证）',
+  (fpMax - fpMin) <= 0.5, 'min=' + fpMin.toFixed(2) + ' max=' + fpMax.toFixed(2));
 check('计划条目含 delay / z / fallPx 三个字段（无位移/缓动/遮罩字段）', (function () {
   for (var k in plan) {
     if (!Object.prototype.hasOwnProperty.call(plan, k)) continue;
@@ -347,9 +358,111 @@ check('第 2 个已绘制帧把当前 rAF 时间戳写入 startTime',
 check('闸门开启当帧相位恰为 0（不吞 0~5% 的起落）',
   !!st2 && (clockNow - st2.startTime) === 0);
 check('draw() 抛异常那帧不计入闸门（drawnOk 守卫）',
-  /if \(drawnOk && introAnim && introAnim\.armed\)/.test(brSrcD));
+  /\} else if \(drawnOk\) \{/.test(brSrcD));
+check('闸门四条件：可见性前置 + 遮挡复位（t0 一并作废）',
+  /if \(introAnim && introAnim\.armed\) \{[\s\S]{0,160}if \(!dealVisible\(\)\) \{[\s\S]{0,120}introGateFrames = 0;/.test(brSrcD) &&
+  /if \(!dealVisible\(\)\) \{[\s\S]{0,200}introAnim\.startTime = null;/.test(brSrcD));
 check('闸门期间每帧强制重绘（dirty = true，杜绝第 2 帧空帧）',
-  /dirty = true; \/\* 闸门期间每帧都必须重绘/.test(brSrcD));
+  /if \(introAnim && introAnim\.armed\) \{[\s\S]{0,700}?dirty = true;/.test(brSrcD));
+
+/* ---------- ⑤b R6: 可见性前置 / 复位 / 看门狗 / 统一落距 ----------
+ * 「偷跑」根因链（plan.md §R6-2 A）：遮罩仍 100% 时后台建局 → loadLevel 末尾
+ * 同步 startDeal → 旧闸门只数「画完的帧」不验遮挡 → 400ms 落子整段藏在遮罩背后。
+ * 这四条断言直接钉住「闸门四条件」，缺一条就会重新打开偷跑通道。 */
+console.log('\n⑤b R6 闸门四条件（可见性前置 / 复位 / 看门狗 / 统一落距）');
+var visFlag = false;
+var cvV = makeCanvas();
+var rndV = STM.createBoardRenderer(cvV, session, {
+  dealVisibleProbe: function () { return visFlag; }
+});
+rndV.refresh();
+rndV.startDeal();
+var v0 = rndV.dealStateOf();
+check('R6 探针缺省时行为不变（本关 rnd 未注入探针，闸门 2 帧即开）', true);
+check('R6 startDeal 记 armedAt 并挂起看门狗', !!v0 && v0.watchdog === true &&
+  typeof v0.armedAt === 'number' && isFinite(v0.armedAt));
+var framesAllZero = true, startAllNull = true, vLoopErr = null;
+try {
+  for (var fi = 0; fi < 6; fi++) {
+    pumpFrames(1);
+    var vs = rndV.dealStateOf();
+    if (!vs) { framesAllZero = false; break; }
+    if (vs.gateFrames !== 0) framesAllZero = false;
+    if (vs.startTime !== null) startAllNull = false;
+  }
+} catch (eV) { vLoopErr = eV.message; }
+check('① 探针 false 期间 introGateFrames 恒 0（遮挡期一帧都不计）',
+  framesAllZero && !vLoopErr, vLoopErr);
+check('① 探针 false 期间 startTime 恒 null（t0 不作数）', startAllNull);
+check('① 遮挡 6 帧后仍未开闸（MUST NOT 因「画完了」就放行）',
+  !!rndV.dealStateOf() && rndV.dealStateOf().armed === true);
+visFlag = true;
+pumpFrames(1);
+var vA = rndV.dealStateOf();
+check('② false→true 后第 1 帧仍不开闸（闸门复位后重新数 2 帧）',
+  !!vA && vA.startTime === null && vA.gateFrames === 1, vA ? 'g=' + vA.gateFrames : '-');
+pumpFrames(1);
+var vB = rndV.dealStateOf();
+check('② 第 2 个可见帧才写 t0（四条件齐备）',
+  !!vB && vB.startTime !== null && vB.armed === false);
+check('② 开闸当帧看门狗已清除（不会有第二次开闸）', !!vB && vB.watchdog === false);
+rndV.skipDeal();
+check('skipDeal 后看门狗同步清除（不留悬挂定时器）',
+  !!rndV.dealStateOf() && rndV.dealStateOf().watchdog === false);
+
+/* ⑤ 首排起始牌心 y <= #dock 上沿 +1px
+ * 桩几何取 390×844 视口（CSS clamp 实测）：#hud 70 → #dock 上沿 71（margin 1px）
+ * → #dock 高 76 → #board-wrap padding 8 → 棋盘上沿 ≈158，棋盘边长 ≈356。
+ * 统一落距 3.0 卡面（≈120px）会把首排推到 y ≈57，即**落在 HUD 与 #dock 之间**——
+ * 这正是必须给 drawIntroOutside 加 HUD 安全线的原因，也是本条断言的存在理由。
+ * ⚠ MUST 用 356 宽的桩：320 宽的测试画布 tileSide 只有 ≈30，3 卡面 ≈90px
+ * 不足 87px 的「dock 上沿 → 棋盘上沿」间距，会把「真机成立」误判成红灯。 */
+var STUB_DOCK_TOP = 71, STUB_BOARD_TOP = 158, STUB_BOARD_SIDE = 356;
+var cvG = {
+  clientWidth: STUB_BOARD_SIDE, parentElement: { clientWidth: STUB_BOARD_SIDE },
+  width: 0, height: 0, getContext: function () { return makeCtx(); },
+  getBoundingClientRect: function () {
+    return { left: 0, top: STUB_BOARD_TOP, width: STUB_BOARD_SIDE, height: STUB_BOARD_SIDE };
+  }
+};
+var rndG = STM.createBoardRenderer(cvG, session, {});
+rndG.refresh();
+rndG.startDeal();
+pumpFrames(3);
+var planG = rndG.dealPlanOf();
+var layG = rndG.layoutOf();
+/* 分两组统计：
+ *   · intRow0 —— 整数坐标的第 0 排（spec 几何表的参照行）；
+ *   · any      —— 全部「首排」（含奇数层 `rr = 0.5` 的半格偏移牌）。
+ * 奇数层卡牌的视觉坐标带 +0.5 格（`tileGridOf` 的既定口径），其起始牌心
+ * 天然比整数行低半格——这是渲染常量，不是落距不足，故两条断言分开写。 */
+var intRow0Max = -Infinity, intRow0Count = 0;
+var anyMax = -Infinity, anyCount = 0;
+for (var gi2 = 0; gi2 < board.length; gi2++) {
+  var bt3 = board[gi2];
+  if (!planG || !planG[bt3.id]) continue;
+  var g3 = RT.tileGridOf(bt3);
+  if (Math.floor(g3.rr) !== 0) continue;
+  var r3 = RT.getTileCssRect(bt3, layG);
+  var yStart = STUB_BOARD_TOP + (r3.y + r3.h / 2) - planG[bt3.id].fallPx;
+  if (yStart > anyMax) anyMax = yStart;
+  anyCount++;
+  if (Math.abs(g3.rr - Math.round(g3.rr)) < 1e-9 && Math.round(g3.rr) === 0) {
+    if (yStart > intRow0Max) intRow0Max = yStart;
+    intRow0Count++;
+  }
+}
+check('⑤ 整数首排样本非空（断言有实际样本）', intRow0Count > 0, 'n=' + intRow0Count);
+check('⑤ 整数首排起始牌心 y <= #dock 上沿 +1px（牌从 HUD 下沿钻出，不压导航按钮）',
+  isFinite(intRow0Max) && intRow0Max <= STUB_DOCK_TOP + 1,
+  'y=' + (isFinite(intRow0Max) ? intRow0Max.toFixed(1) : 'n/a') + ' dockTop=' + STUB_DOCK_TOP);
+check('⑤ 首排起始点全部在棋盘上边界之上（高落差的直接后果，非 0 位移）',
+  isFinite(anyMax) && anyMax < STUB_BOARD_TOP - 1,
+  'yMax=' + (isFinite(anyMax) ? anyMax.toFixed(1) : 'n/a'));
+check('⑤ 奇数层半格偏移容差 <= 0.5 格宽（+0.5 是渲染常量，不是落距不足）',
+  isFinite(anyMax) && anyMax <= STUB_DOCK_TOP + 1 + 0.5 * layG.cellStep + 0.5,
+  'yMax=' + (isFinite(anyMax) ? anyMax.toFixed(1) : 'n/a') + ' limit=' + (STUB_DOCK_TOP + 1 + 0.5 * layG.cellStep).toFixed(1));
+rndG.skipDeal();
 
 dealTicks = [];
 var noErr = true, settled = true, tickOk = true;
@@ -478,10 +591,75 @@ for (var ri2 = 0; ri2 < board.length; ri2++) {
 }
 check('编舞落定后每张牌的静态坐标与遮挡矩形 100% 还原', rectSame);
 
-console.log('');
-if (fails.length) {
-  console.log('deal-smoke: FAILED — ' + fails.length + ' 失败项: ' + fails.join('; '));
-  process.exit(1);
-} else {
-  console.log('deal-smoke: all green（400ms 垂直雨幕 / 帧闸门 / 层序锁 / 落子音 / 快进 / 降级 / 纯表现层）');
+/* ---------- ⑪ R6 看门狗收口（真实定时器，必须等 1200ms） ----------
+ * 闸门可能因「遮罩/弹窗一直不消失」永远开不了。看门狗是唯一兜底。
+ * **R6 实测修正**：单次 1200ms 到期即 `skipDeal()` 是错的——深链 `?level=N`
+ * 的 `#splash-screen` 实测要到 ≈4.6s 才移除，而 `startDeal()` 在 ≈0.6s 就触发，
+ * 到期时遮罩仍在 → 静置会把整段雨幕吞掉（真机探针实测 `act=false`）。
+ * 现口径 = 「复查 + 重挂」：
+ *   · 到期仍遮挡 → 重新挂起（`watchdogRearms++`、`armed` 保持 true、`startTime` 仍 null）
+ *   · 到期且已可见 → 立即开闸（`startTime` 非 null、看门狗清零）
+ *   · 累计超 `GATE_WATCHDOG_MAX_MS` → `skipDeal()` 静置（开局 MUST NOT 卡死）
+ * 判据：遮挡期**绝不**静置；总预算到期才收口。 */
+console.log('\n⑪ R6 看门狗复查 / 重挂 / 总预算收口（真实定时器 1200ms）');
+var wdFlag = false;
+var cvW = makeCanvas();
+var rndW = STM.createBoardRenderer(cvW, session, {
+  dealVisibleProbe: function () { return wdFlag; }
+});
+rndW.refresh();
+rndW.startDeal();
+check('③ 看门狗启动后处于挂起态', !!rndW.dealStateOf() && rndW.dealStateOf().watchdog === true);
+check('③ 总预算常量 8000ms（>= 深链 splash 实测 4.6s，留足余量）',
+  I.GATE_WATCHDOG_MAX_MS === 8000, String(I.GATE_WATCHDOG_MAX_MS));
+
+function finish() {
+  console.log('');
+  if (fails.length) {
+    console.log('deal-smoke: FAILED — ' + fails.length + ' 失败项: ' + fails.join('; '));
+    process.exit(1);
+  } else {
+    console.log('deal-smoke: all green（400ms 垂直雨幕 / 帧闸门四条件 / 看门狗复查重挂 / 层序锁 / 落子音 / 快进 / 降级 / 纯表现层）');
+  }
 }
+
+/* 第 1 拍：1400ms（> 1200ms 复查间隔）后仍遮挡 → MUST 重挂，不得静置 */
+setTimeout(function () {
+  var stW = rndW.dealStateOf();
+  check('③ 遮挡期到期 MUST NOT 静置（isDealing 仍真、armed 仍真）',
+    rndW.isDealing() === true && !!stW && stW.armed === true);
+  check('③ 遮挡期到期后重新挂起（watchdog 仍挂、rearms >= 1）',
+    !!stW && stW.watchdog === true && stW.watchdogRearms >= 1,
+    stW ? 'rearms=' + stW.watchdogRearms : 'null');
+  check('③ 遮挡期 startTime 恒 null（绝不偷记 t0）', !!stW && stW.startTime === null);
+  check('③ 遮挡期 gateFrames 恒 0（闸门未开）', !!stW && stW.gateFrames === 0);
+
+  /* 第 2 拍：解除遮挡 → 下一次复查（<= 1200ms）必须立即开闸 */
+  wdFlag = true;
+  setTimeout(function () {
+    var stV = rndW.dealStateOf();
+    check('③ 解除遮挡后复查即开闸（startTime 非 null、armed 变假）',
+      !!stV && stV.startTime !== null && stV.armed === false,
+      stV ? JSON.stringify({ st: stV.startTime, armed: stV.armed }) : 'null');
+    check('③ 开闸当帧看门狗已清除（不会有第三次挂起）',
+      !!stV && stV.watchdog === false);
+
+    /* 第 3 拍：总预算收口——把假时钟推过 8000ms 且保持遮挡，下一次复查 MUST 静置 */
+    var cvX = makeCanvas();
+    var rndX = STM.createBoardRenderer(cvX, session, {
+      dealVisibleProbe: function () { return false; }
+    });
+    rndX.refresh();
+    rndX.startDeal();
+    clockNow += 8500; /* 假时钟越过总预算；真实定时器仍在 1200ms 后触发 */
+    setTimeout(function () {
+      var stX = rndX.dealStateOf();
+      check('③ 累计超总预算才收口（isDealing 变假，开局不卡死）', rndX.isDealing() === false);
+      check('③ 收口走 skipDeal（startTime 仍 null，棋盘停在静态精确坐标而非起始态）',
+        !!stX && stX.startTime === null && stX.armed === false && stX.watchdog === false);
+      check('③ 收口后 plan 已清空（零悬挂动画状态）', rndX.dealPlanOf() === null);
+      finish();
+    }, 1400);
+  }, 1400);
+}, 1400);
+

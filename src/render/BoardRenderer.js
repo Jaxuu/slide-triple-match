@@ -1002,7 +1002,15 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
    * ========================================================= */
   var INTRO_TILE_MS = 200;          /* 单卡下落 + 挤压全程（180~220 窗口） */
   var INTRO_IMPACT_AT = 0.78;       /* 挤压起点（0.75~0.82 窗口，落牌涟漪同源） */
-  var INTRO_FALL_CELL = 1.0;        /* 基准落距（卡面边长的 0.7~1.4 倍） */
+  /* R6 / FR-028：**统一落距** 3.0 卡面边长（窗口 2.6~3.4）。
+   * 旧口径 1.0 的观感是「原地凭空出现」（玩家反馈），且首排还要单独收缩到
+   * 0.5 卡面 → 前排几乎不动、后排动 1 格，读作「参差不齐地长出来」。
+   * 现在全盘同一起始高度：整盘像一堵牌墙整体下移 3 个卡面，前排先落、后排紧随。
+   * 代价是首排（部分盘面还有第 2~3 排）起始点落在 HUD 之后甚至视口之上——
+   * 由 `drawIntroOutside()` 的 HUD 安全线裁剪接住（见该函数注释）。 */
+  var INTRO_FALL_CELL = 3.0;        /* 基准落距（卡面边长的 2.6~3.4 倍） */
+  var INTRO_FALL_CELL_MIN = 2.6;    /* 窗口下限（门禁断言用） */
+  var INTRO_FALL_CELL_MAX = 3.4;    /* 窗口上限（门禁断言用） */
   var INTRO_SQUASH_PX = 5;          /* 触底纵向挤压峰值（4~6 窗口） */
   var INTRO_DAMP = 4;               /* 挤压衰减系数（单半周期，零二次弹跳） */
   var INTRO_COL_STEP = 4;           /* 同排内相邻列起跑差（<= 8ms，只做轻微对角） */
@@ -1011,6 +1019,18 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
   var INTRO_ROW_STEP_MAX = 64;      /* ROW_STEP 上限 */
   var INTRO_TARGET_MS = 400;        /* 预算目标（380~420 窗口中心） */
   var INTRO_GATE_FRAMES = 2;        /* 首帧帧闸门：先数 2 个已绘制帧再记 t0 */
+  /* R6：看门狗——闸门若因「一直不可见」永远开不了，MUST NOT 让开局卡死。
+   * 每 INTRO_GATE_WATCHDOG_MS 复查一次：可见 → 立即开闸；
+   * **仍不可见 → 重新挂起**（不静置）；累计超过总预算才 skipDeal() 强制静置。
+   *
+   * 为什么必须「复查 + 重挂」而不是单次到期即静置（R6 实测修正）：
+   * 深链 `?level=N` 的 `#splash-screen` 实测要到 **≈4.6s** 才移除，而
+   * `startDeal()` 在 ≈0.6s 就被 `tryPrepareLobby()` 触发——单次 1200ms 到期
+   * 时遮罩仍在，静置会把整段雨幕吞掉（探针实测 `act=false`、`tot=400` 却
+   * 从未渲染一帧）。遮挡期玩家看不到棋盘，继续等是零感知成本；
+   * 真正需要兜底的是「遮罩/弹窗**永不**消失」，故用总预算封顶。 */
+  var INTRO_GATE_WATCHDOG_MS = 1200;
+  var INTRO_GATE_WATCHDOG_MAX_MS = 8000;
   /* 预算冲突回退（spec FR-028「预算冲突优先级」）：n=8/zMax=4 是唯一触发档 */
   var INTRO_ROW_SPAN_MIN = 150;     /* 首末排起跑差下限 */
   var INTRO_COL_STEP_FLOOR = 3;       /* COL_STEP 窗口下限（冲突时才用） */
@@ -1302,11 +1322,13 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     var dockSlotGeo = null;
     var dockSlotGeoLen = 0;
 
-    /* ---------- Δ22c/T111 → Δ31b: 开局进场编舞运行态 ---------- */
-    var introAnim = null;        /* { armed, startTime, active, totalMs, maxDelay, zMax } */
-    var introPlan = null;        /* tileId → { delay, z }（唯一信息量：起跑时刻 + 层高） */
+    /* ---------- Δ22c/T111 → Δ31b → R6: 开局进场编舞运行态 ---------- */
+    var introAnim = null;        /* { armed, armedAt, startTime, active, totalMs, maxDelay, zMax } */
+    var introPlan = null;        /* tileId → { delay, z, fallPx } */
     var introTicked = {};        /* tileId → true（落牌涟漪音只响一次） */
     var introGateFrames = 0;     /* Δ31b §15：已绘制帧计数（帧闸门的唯一状态） */
+    var introWatchdog = null;    /* R6：闸门看门狗句柄（startDeal / 开闸 / skipDeal 三处必清） */
+    var introWatchdogRearms = 0; /* R6：看门狗「重新挂起」次数——门禁据此断言「遮挡期不静置」 */
     var reducedMotion = false;
     try {
       if (typeof global.matchMedia === 'function') {
@@ -1314,10 +1336,53 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       }
     } catch (eRM) { reducedMotion = false; }
 
+    /* R6 / FR-028 §R6-2 B：可见性探针。
+     * `main.js` 注入 `dealVisibleNow()`；**缺省返回 true**——Node 桩与
+     * `render-selftest` 的假 DOM 环境行为与 R5 完全一致（零影响）。
+     * 探针抛异常一律按「可见」处理：宁可偷跑，也不能让开局永久卡在起始态。 */
+    function dealVisible() {
+      var probe = opts && opts.dealVisibleProbe;
+      if (typeof probe !== 'function') return true;
+      try { return probe() !== false; } catch (eVis) { return true; }
+    }
+
+    function clearIntroWatchdog() {
+      if (introWatchdog != null) {
+        try { clearTimeout(introWatchdog); } catch (eWd) { /* 环境无定时器 */ }
+        introWatchdog = null;
+      }
+    }
+
     function nowMs() {
       return global.performance ? global.performance.now() : Date.now();
     }
 
+    /* R6：看门狗「复查 + 重挂」——见 INTRO_GATE_WATCHDOG_MS 处的实测依据。
+     * 三处 MUST 清：开闸（clearIntroWatchdog）/ skipDeal / 下一次 startDeal。 */
+    function armIntroWatchdog() {
+      clearIntroWatchdog();
+      introWatchdog = setTimeout(function () {
+        introWatchdog = null;
+        if (!introAnim || !introAnim.armed) return;
+        if (dealVisible()) {
+          /* 到期且已可见 → 立即开闸（不必再等 2 帧：遮罩已撤，玩家已在看） */
+          introAnim.startTime = nowMs();
+          introAnim.armed = false;
+          introGateFrames = INTRO_GATE_FRAMES;
+          markDirty();
+          return;
+        }
+        /* 仍被遮挡：先看总预算，未超预算就重新挂起（绝不静置——静置会把
+         * 整段雨幕吞掉，玩家解遮挡后看到的是一盘已经落定的牌）。 */
+        if (introAnim.armedAt != null &&
+            (nowMs() - introAnim.armedAt) >= INTRO_GATE_WATCHDOG_MAX_MS) {
+          skipDeal();
+          return;
+        }
+        armIntroWatchdog();
+        introWatchdogRearms += 1;
+      }, INTRO_GATE_WATCHDOG_MS);
+    }
     /* Δ15b3e（Bug B 修复）: 消除纵向拉伸
      * 实测原实现 #board 的 CSS 盒为 484×569（aspect-ratio:1/1 与
      * max-height:100% 冲突后被压成非正方形），而位图恒为 482×482 正方形
@@ -1423,17 +1488,31 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         } finally {
           dirty = false;
         }
-        /* Δ31b / FR-052 §15：首帧帧闸门——只在**真正画完**的帧上计数
-         * （draw() 抛异常那帧 MUST NOT 计入，否则「数了 2 帧但用户只看到 1 帧」）。
-         * 数满 INTRO_GATE_FRAMES 后把**当前帧的 rAF 时间戳**写入 startTime：
-         * 数据构建 / DOM 切换 / 离屏贴图预热吃掉的头 1~2 帧不再从动画 0~5% 里扣。 */
-        if (drawnOk && introAnim && introAnim.armed) {
-          introGateFrames += 1;
-          if (introGateFrames >= INTRO_GATE_FRAMES) {
-            introAnim.startTime = now;
-            introAnim.armed = false;
+        /* Δ31b / FR-052 §15 → R6 / FR-028 §R6-2 B：首帧帧闸门（四条件）
+         *   ① 只在**真正画完**的帧上计数（draw() 抛异常那帧 MUST NOT 计入，
+         *      否则「数了 2 帧但用户只看到 1 帧」）；
+         *   ② 前置 `dealVisible()`——遮罩 / 弹窗 / 大厅 / 结算页任一可见（含淡出中）
+         *      或页面不可见或棋盘 rect 为 0 时，**整段不计帧并复位** `introGateFrames`，
+         *      已写的 `t0` 一并作废（`startTime` 恒 null）。这是「弹窗/遮罩淡出期间
+         *      偷跑」的正解：问题不在「给某个弹窗加延时」，而在闸门看不见遮挡；
+         *   ③ 数满 INTRO_GATE_FRAMES 后把**当前帧的 rAF 时间戳**写入 startTime：
+         *      数据构建 / DOM 切换 / 离屏贴图预热吃掉的头 1~2 帧不再从 0~5% 里扣；
+         *   ④ 闸门期每帧 `dirty = true`（否则第 2 帧可能是空帧）。
+         * 判据：探针 false 期间 `introGateFrames` 恒 0、`startTime` 恒 null；
+         *      false→true 后必须**再过 2 帧**才记 t0（不是「同帧立即开闸」）。 */
+        if (introAnim && introAnim.armed) {
+          if (!dealVisible()) {
+            introGateFrames = 0;
+            introAnim.startTime = null;
+          } else if (drawnOk) {
+            introGateFrames += 1;
+            if (introGateFrames >= INTRO_GATE_FRAMES) {
+              introAnim.startTime = now;
+              introAnim.armed = false;
+              clearIntroWatchdog();
+            }
           }
-          dirty = true; /* 闸门期间每帧都必须重绘（否则第 2 帧可能是空帧） */
+          dirty = true;
         }
       }
       if (needMore) start();
@@ -1443,23 +1522,33 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
      * Δ22c/T111 → Δ31b: 开局进场编舞——启动 / 计划 / 逐帧变换 / 落子音
      * ========================================================= */
 
-    /* 启动进场动画（唯一模式「原位对角波浪层叠弹入」）
+    /* 启动进场动画（唯一模式「垂直雨幕下落 + 微弹定格」）
      * 只置 armed + 请求重绘，**不记时间戳**——t0 由 frame() 的帧闸门在
-     * 「已绘制满 INTRO_GATE_FRAMES 帧」后写入。返回 true 供调用方判断。 */
+     * 「可见且已绘制满 INTRO_GATE_FRAMES 帧」后写入。返回 true 供调用方判断。
+     *
+     * R6：同时起 1200ms 看门狗。闸门可能因「遮罩一直不消失」永远开不了，
+     * 看门狗是**唯一兜底**：到期仍 armed → 可见则立即开闸，仍不可见则
+     * **重新挂起**（累计超 INTRO_GATE_WATCHDOG_MAX_MS 才 skipDeal() 静置）。
+     * 静置 = 棋盘停在精确静态坐标，绝不是起始姿态；开局 MUST NOT 卡死。 */
     function startDeal() {
-      introAnim = { armed: true, startTime: null, active: true, totalMs: 0 };
+      clearIntroWatchdog();
+      introAnim = { armed: true, armedAt: nowMs(), startTime: null, active: true, totalMs: 0 };
       introPlan = null;
       introTicked = {};
       introGateFrames = 0;
+      introWatchdogRearms = 0;
+      armIntroWatchdog();
       markDirty();
       return true;
     }
 
     /* 点击快进：立刻归位（introTransformOf 随即返回 null → 静态精确坐标）
      * Δ31b §15 ⑥：`armed` 期间调用也 MUST 有效——直接把 active/armed 一起清掉，
-     * MUST NOT 让「闸门未开就快进」留下悬挂状态（否则 rAF 会空转到天荒地老）。 */
+     * MUST NOT 让「闸门未开就快进」留下悬挂状态（否则 rAF 会空转到天荒地老）。
+     * R6：MUST 一并清看门狗（否则 1200ms 后会对一个已结束的编舞补一次开闸）。 */
     function skipDeal() {
       var wasActive = !!(introAnim && introAnim.active);
+      clearIntroWatchdog();
       if (introAnim) {
         introAnim.active = false;
         introAnim.armed = false;
@@ -1501,10 +1590,12 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
 
     /* 构建逐牌计划（每张牌一条记录：`{ delay, z, fallPx }`）
      *
-     * `fallPx` 是 FR-028「画布边界」的落距收缩口径：
-     *   r = 0 → 0.5 × 卡面边长（越界高度恰为 spec 上限，不得压住 IQ 条与待消槽）
-     *   r ≥ 1 → min(FALL_CELL × 格宽, r × 格宽 + 0.5 × 卡面边长) = FALL_CELL × 格宽
-     * 即**只有首排**需要 #vfx-canvas 接缝（见 drawIntroOutside）。 */
+     * R6 / FR-028：`fallPx = INTRO_FALL_CELL × 卡面边长`——**全盘统一**。
+     * 旧口径的分支（`r = 0 → 0.5 卡面`；`r ≥ 1 → min(FALL_CELL·格宽, r·格宽 + 0.5 卡面)`）
+     * 整段删除：它让首排几乎不动、后排动一格，观感是「参差不齐地长出来」。
+     * 统一落距的代价是起始点会越出棋盘上边界（首排 3 个卡面 ≈ 150px），
+     * 由 `drawIntroOutside()` 的 even-odd 接缝 + HUD 安全线接住——
+     * 越界高度上限因此从 0.5 放宽到 3.4 卡面边长（SC-018 ⑧）。 */
     function buildIntroPlan() {
       if (!introAnim || !lastProbe) return null;
       var n = layout.n || lastProbe.n || 0;
@@ -1517,17 +1608,14 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       for (i = 0; i < list.length; i++) if ((list[i].z || 0) > zMax) zMax = list[i].z || 0;
 
       var tileSide = layout.tileSize > 0 ? layout.tileSize : Math.max(1, cell - 1);
+      var fallPx = INTRO_FALL_CELL * tileSide;
       var plan = {};
       var maxDelay = 0;
       for (i = 0; i < list.length; i++) {
         var t = list[i];
         var g = tileGridOf(t);
-        var rr = Math.floor(g.rr);
         var delay = introDelayOf(g.rr, g.cc, t.z || 0, n, zMax);
         if (delay > maxDelay) maxDelay = delay;
-        var fallPx = (rr === 0)
-          ? 0.5 * tileSide
-          : Math.min(INTRO_FALL_CELL * cell, rr * cell + 0.5 * tileSide);
         plan[t.id] = { delay: delay, z: t.z || 0, fallPx: fallPx };
       }
       /* 时长与纯函数同源（maxDelay + TILE 恰等于公式值——不一致即公式被改坏） */
@@ -1853,12 +1941,23 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       try { drawIntroOutside(vfxCtx, w, h, vnow); } catch (eIn) { /* 进场接缝异常不杀帧 */ }
     }
 
-    /* 把**进场期首排**卡牌画到全屏 VFX 画布：仅在「棋盘矩形之上」可见
+    /* 把**进场期越界牌**画到全屏 VFX 画布：仅在「棋盘矩形之上」可见
      * （矩形内部分已由棋盘画布按 (z,r,c) 序画过）。
      *
      * 与 drawFlightsOutside 共用同一 br/scale 映射与 even-odd 互补裁剪——
      * 两条接缝的几何口径必须完全一致，否则边界处会露 1px 缝或叠影。
-     * 判据：牌心 − 半高 < 0（有像素越过棋盘上边界）才绘制；否则跳过。 */
+     * 判据：牌心 − 半高 < 0（有像素越过棋盘上边界）才绘制；否则跳过。
+     *
+     * R6：裁剪路径由「视口 − 棋盘矩形」改为「(视口 ∩ y ≥ hudBottom) − 棋盘矩形」。
+     * 统一落距 3.0 卡面（≈150px）必然把首排推到 `#hud` 之后（390×844 视口实测
+     * 首排起始牌心 y ≈ 33px，而 HUD 高 70px）——这是「高落差」与「HUD 可读」的
+     * 物理冲突。解法不是缩小落距（缩到不压 HUD 只剩 ≈1.1 卡面，等于没改），
+     * 而是给接缝加一条 **HUD 安全线**：牌「从 HUD 下沿钻出」，
+     * 导航按钮与 IQ 读数永不被盖住。`#dock` 面板可被牌短暂压过——
+     * 开局时待消槽是空的，属预期效果（「从待消区上方落下」）。
+     *
+     * 视口硬裁剪是结构性的：`#vfx-canvas` 为 `position: fixed; inset: 0`，
+     * 画布本身画不出视口外 → spec 的「MUST NOT 画出视口外」自动成立。 */
     function drawIntroOutside(v, viewW, viewH, now) {
       if (!v || !introAnim || !introAnim.active) return;
       if (reducedMotion) return;                     /* 降级：零位移，无需接缝 */
@@ -1867,6 +1966,19 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       var br = canvas.getBoundingClientRect();
       if (!br || !(br.width > 0) || !(cssSize > 0)) return;
       var k = br.width / cssSize;
+      /* HUD 安全线（视口 CSS px）。取不到节点时退化为 0 → 与 R5 完全一致，
+       * Node 桩 / 无 HUD 的嵌入场景零影响。 */
+      var hudBottom = 0;
+      if (typeof document !== 'undefined' && document.getElementById) {
+        var hudEl = document.getElementById('hud');
+        if (hudEl && typeof hudEl.getBoundingClientRect === 'function') {
+          try {
+            var hr = hudEl.getBoundingClientRect();
+            if (hr && isFinite(hr.bottom)) hudBottom = hr.bottom;
+          } catch (eHud) { hudBottom = 0; }
+        }
+      }
+      var hudY = (hudBottom - br.top) / k;            /* 换算到棋盘画布坐标系 */
       var tiles = (lastProbe && lastProbe.tiles) ? lastProbe.tiles : [];
       var tileSide = layout.tileSize > 0 ? layout.tileSize : Math.max(1, cell - 1);
       for (var i = 0; i < tiles.length; i++) {
@@ -1883,7 +1995,10 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         v.translate(br.left, br.top);
         if (k !== 1) v.scale(k, k);
         v.beginPath();
-        v.rect(-br.left / k - cell, -br.top / k - cell, (viewW + 2 * cell) / k, (viewH + 2 * cell) / k);
+        /* 外框 = 视口 ∩ (y ≥ HUD 下沿)；内框 = 棋盘矩形 → even-odd 挖空棋盘部分。
+         * 左右与下侧仍留 `cell` 余量（避免边界 1px 缝），**上沿不留**——
+         * 留了就会画进 HUD，等于安全线失效。 */
+        v.rect(-br.left / k - cell, hudY, (viewW + 2 * cell) / k, (viewH + 2 * cell) / k);
         v.rect(0, 0, cssSize, cssSize);
         v.clip('evenodd');
         drawTileBody(v, cell, px, py, t, 1, itr.alpha, now, itr.sx, itr.sy);
@@ -2401,13 +2516,21 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       setReducedMotion: function (v) { reducedMotion = !!v; },
       isReducedMotion: function () { return reducedMotion; },
       dealPlanOf: function () { return introPlan; }, /* 自测只读 */
-      /* Δ31b §15：编舞运行态只读快照——门禁断言帧闸门（armed → startTime）用 */
+      /* Δ31b §15 → R6：编舞运行态只读快照——门禁断言帧闸门（armed → startTime）用。
+       * `gateFrames` / `armedAt` / `watchdog` / `watchdogRearms` 是 R6 新增的四项：
+       * 探针 false 期间 `gateFrames` MUST 恒 0、`startTime` MUST 恒 null（复位可观测）；
+       * `watchdogRearms` 记录「遮挡期重新挂起」的次数——深链首屏实测 splash 要到
+       * ≈4.6s 才移除，看门狗 MUST 重挂而非静置（单次到期即 skipDeal 会吞掉整段雨幕）。 */
       dealStateOf: function () {
         if (!introAnim) return null;
         return {
           armed: !!introAnim.armed,
+          armedAt: (introAnim.armedAt == null) ? null : introAnim.armedAt,
           startTime: introAnim.startTime,
           active: !!introAnim.active,
+          gateFrames: introGateFrames,
+          watchdog: introWatchdog != null,
+          watchdogRearms: introWatchdogRearms,
           totalMs: introAnim.totalMs || 0,
           maxDelay: introAnim.maxDelay || 0
         };
@@ -2982,7 +3105,42 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     return '';
   }
 
+  /* =========================================================
+   * R6 / T225（解 O-11）：Dock FLIP 补位位移表（**纯函数**，渲染侧几何唯一出口）
+   *
+   * 入参两张表都以 **tile id** 为键：
+   *   oldLeftById —— 重建前 `.slot` 的 offsetLeft
+   *   newLeftById —— 重建后的 offsetLeft
+   * 返回 `{ tileId: dx }`，`|dx| <= 0.5` 的项剔除（亚像素位移写了只会打断过渡）。
+   *
+   * 为什么按 id 而非下标配对：`renderDock()` 重建前后 `.slot` 的数量与顺序都会变
+   * （被消除的槽消失、其后的牌整体左移）。旧实现 `oldLeft[dockArr[i].id] = nodes[i].left`
+   * 里 `dockArr` 是**移除后**的新数组、`nodes` 是**移除前**的旧 DOM——只要被消除的
+   * 槽不在末尾（如第 1/3/6 格），下标立刻错位，补位起点会算成「已被消除的那一格」。
+   *
+   * 为什么用 offsetLeft 而非 rect.left：重建后的 `.slot` 正跑 `dock-seat`
+   * （`scale(.72) → 1.08 → 1`，260ms），`getBoundingClientRect().left` 会被缩放拉偏
+   * （Δ30 已在 `--suck-dx` 上踩过同一个坑）；FLIP 要的是**布局位移**，不是视觉位移。
+   * ========================================================= */
+  function dockFlipDxOf(oldLeftById, newLeftById) {
+    var out = {};
+    if (!oldLeftById || !newLeftById) return out;
+    for (var id in newLeftById) {
+      if (!Object.prototype.hasOwnProperty.call(newLeftById, id)) continue;
+      var oldL = oldLeftById[id];
+      var newL = newLeftById[id];
+      if (oldL == null || newL == null) continue;
+      if (typeof oldL !== 'number' || typeof newL !== 'number') continue;
+      var dx = oldL - newL;
+      if (!isFinite(dx)) continue;
+      if (!(Math.abs(dx) > 0.5)) continue;
+      out[id] = dx;
+    }
+    return out;
+  }
+
   STM.createBoardRenderer = createBoardRenderer;
+  STM.dockFlipDxOf = dockFlipDxOf; /* R6/T225: FLIP 起点纯函数（门禁离线断言） */
   STM.SUITS = SUITS;
   STM.chipSVG = chipSVG;
   STM.petAvatarHTML = petAvatarHTML; /* Δ17: 萌宠头像统一出口 */
@@ -2996,7 +3154,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
   /* ingame-hud-render-defects: 几何唯一出口外露（纯函数——Node/N 层/rect 任意组合可测） */
   STM.rendererTest.getTileCssRect = getTileCssRect;
   STM.rendererTest.tileGridOf = tileGridOf;
-  /* FR-028 / SC-018：编舞常量表（**垂直雨幕口径**）
+  /* FR-028 / SC-018：编舞常量表（**垂直雨幕口径 · R6 高落差**）
    * ⚠ 本表 MUST 与实现**同源同步**——不同步会让门禁常量断言读到旧值、
    * 实现已改 → 「假绿」（Δ29/Δ30 各踩过一次）。
    * 旧「对角波浪」的对角步长常量 / 起始缩放 / 超调峰值 / 微落位移 / 落定阈值
@@ -3005,6 +3163,8 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     TILE_MS: INTRO_TILE_MS,
     IMPACT_AT: INTRO_IMPACT_AT,
     FALL_CELL: INTRO_FALL_CELL,
+    FALL_CELL_MIN: INTRO_FALL_CELL_MIN,
+    FALL_CELL_MAX: INTRO_FALL_CELL_MAX,
     SQUASH_PX: INTRO_SQUASH_PX,
     DAMP: INTRO_DAMP,
     COL_STEP: INTRO_COL_STEP,
@@ -3013,6 +3173,8 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     ROW_STEP_MAX: INTRO_ROW_STEP_MAX,
     TARGET_MS: INTRO_TARGET_MS,
     GATE_FRAMES: INTRO_GATE_FRAMES,
+    GATE_WATCHDOG_MS: INTRO_GATE_WATCHDOG_MS,
+    GATE_WATCHDOG_MAX_MS: INTRO_GATE_WATCHDOG_MAX_MS,
     ROW_SPAN_MIN: INTRO_ROW_SPAN_MIN,
     COL_STEP_FLOOR: INTRO_COL_STEP_FLOOR,
     Z_STEP_FLOOR: INTRO_Z_STEP_FLOOR

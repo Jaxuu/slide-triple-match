@@ -1601,11 +1601,29 @@ function scenarioDelta22Intro() {
   console.log('\n[FR-028] 开局垂直雨幕下落 + 微弹定格（公式 / 帧闸门 / 曲线 / 删除彻底性）');
   var RT = STM.rendererTest;
   var I = RT.INTRO;
+  /* 注释剥离版渲染器源码——「重挂语义」是**实现**行为断言，只看真实声明，
+   * 否则注释里写了「重挂」而实现仍是静置也会假绿。 */
+  var rsrc = require('fs').readFileSync(__dirname + '/../src/render/BoardRenderer.js', 'utf8');
+  var rendererCode = rsrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
   /* ① 常量表 */
-  check('FR-028: 常量表 TILE 200 / IMPACT_AT 0.78 / FALL_CELL 1.0 / SQUASH 5 / DAMP 4',
-    !!I && I.TILE_MS === 200 && I.IMPACT_AT === 0.78 && I.FALL_CELL === 1.0 &&
+  check('FR-028: 常量表 TILE 200 / IMPACT_AT 0.78 / FALL_CELL 3.0 / SQUASH 5 / DAMP 4',
+    !!I && I.TILE_MS === 200 && I.IMPACT_AT === 0.78 && I.FALL_CELL === 3.0 &&
     I.SQUASH_PX === 5 && I.DAMP === 4);
+  check('FR-028: R6 高落差 FALL_CELL ∈ [2.6, 3.4]（导出窗口常量与实现同源）',
+    I.FALL_CELL >= I.FALL_CELL_MIN && I.FALL_CELL <= I.FALL_CELL_MAX &&
+    I.FALL_CELL_MIN === 2.6 && I.FALL_CELL_MAX === 3.4);
+  check('FR-028: R6 看门狗 1200ms 复查 / 8000ms 总预算（遮挡期重挂，超预算才静置）',
+    I.GATE_WATCHDOG_MS === 1200 && I.GATE_WATCHDOG_MAX_MS === 8000);
+  /* 重挂语义必须是**实现**行为，不是注释——源码里 MUST 出现「重挂」分支
+   * （`introWatchdogRearms += 1` 与 `armIntroWatchdog()` 自调用），
+   * 且 MUST NOT 保留「到期即 skipDeal」的单次旧口径。 */
+  var rearmCode = rendererCode.replace(/\s+/g, ' ');
+  check('FR-028: 看门狗走「复查 + 重挂」实现（遮挡期 MUST NOT 静置）',
+    /introWatchdogRearms \+= 1/.test(rearmCode) &&
+    /if \(introAnim\.armedAt != null && \(nowMs\(\) - introAnim\.armedAt\) >= INTRO_GATE_WATCHDOG_MAX_MS\)/.test(rearmCode));
+  check('FR-028: 看门狗旧口径零残留（单次到期即 skipDeal 的 else 分支已删）',
+    !/introWatchdog = setTimeout\([\s\S]{0,900}?\} else \{\s*skipDeal\(\);/.test(rendererCode));
   check('FR-028: TILE ∈ [180,220] / IMPACT_AT ∈ [0.75,0.82]（硬边界）',
     I.TILE_MS >= 180 && I.TILE_MS <= 220 && I.IMPACT_AT >= 0.75 && I.IMPACT_AT <= 0.82);
   check('FR-028: COL_STEP 4 ∈ [3,8] / Z_STEP 6 ∈ [4,8] / ROW_STEP 窗口 [16,64]',
@@ -1857,24 +1875,30 @@ function scenarioDelta22Intro() {
     }
     return true;
   })());
-  check('FR-028: 首排 fallPx = 0.5 卡面 / 非首排 = 1.0 格宽（越界高度恰为上限）', (function () {
+  check('FR-028: fallPx 全盘统一 = FALL_CELL × 卡面边长（首排收缩分支已删除）', (function () {
     if (!pl) return false;
     var tiles2 = sess.engineState().tiles || [];
     var lay = rnd.layoutOf();
-    var side = lay.tileSize, cw = lay.cellStep;
+    var side = lay.tileSize;
     var seen = 0;
     for (var i2 = 0; i2 < tiles2.length; i2++) {
       var tt = tiles2[i2];
       var rec2 = pl[tt.id];
       if (!rec2) continue;
       seen++;
-      var g2 = RT.tileGridOf(tt);
-      var wantFp = (Math.floor(g2.rr) === 0)
-        ? 0.5 * side
-        : Math.min(I.FALL_CELL * cw, Math.floor(g2.rr) * cw + 0.5 * side);
-      if (Math.abs(rec2.fallPx - wantFp) > 1e-6) return false;
+      if (Math.abs(rec2.fallPx - I.FALL_CELL * side) > 1e-6) return false;
     }
-    return true;
+    return seen > 0;
+  })());
+  check('FR-028: 全盘 fallPx 极差 <= 0.5px（「一堵牌墙整体下移」的构造性保证）', (function () {
+    if (!pl) return false;
+    var lo = Infinity, hi = -Infinity;
+    for (var k2 in pl) {
+      if (!Object.prototype.hasOwnProperty.call(pl, k2)) continue;
+      if (pl[k2].fallPx < lo) lo = pl[k2].fallPx;
+      if (pl[k2].fallPx > hi) hi = pl[k2].fallPx;
+    }
+    return isFinite(lo) && (hi - lo) <= 0.5;
   })());
   check('FR-028: 计划延迟与纯函数逐项相等（buildIntroPlan 与 introDelayOf 同源）', (function () {
     if (!pl) return false;
@@ -2084,71 +2108,94 @@ function scenarioDelta29Banner() {
   check('T154: 同一开局会话不重复弹出（bannerShownForLevel 去重）',
     /bannerShownForLevel === currentId/.test(mainSrc));
 
-  /* Δ31a / FR-049 §19: 纯卡牌力学演出的静态断言组（SC-027 ①~⑫）
+  /* R6 / FR-030: 三消「原位微跃 + 柔光升华」静态断言组（SC-020 ①~⑫）
    * 时序常量一律取 main.js 源码，避免「导出不同步 → 门禁假绿」（Δ29/Δ30 的坑）。 */
   var colTotal = mainSrc.match(/var COLLAPSE_TOTAL_MS = (\d+);/);
   var colShudder = mainSrc.match(/var COLLAPSE_SHUDDER_AT_MS = (\d+);/);
   var colHit = mainSrc.match(/var DOCK_HIT_MS = (\d+);/);
   var colFlip = mainSrc.match(/var DOCK_FLIP_MS = (\d+);/);
   var colFreeze = mainSrc.match(/var DOCK_FREEZE_MS = (\w+);/);
-  check('Δ31a: 演出总时长 210ms / 受击微震 130ms（坍缩段起跑）',
-    !!colTotal && +colTotal[1] === 210 && !!colShudder && +colShudder[1] === 130,
+  check('R6: 演出总时长 200ms / 受击微震 100ms（与柔光起亮同帧）',
+    !!colTotal && +colTotal[1] === 200 && !!colShudder && +colShudder[1] === 100,
     (colTotal ? colTotal[1] : 'null') + '/' + (colShudder ? colShudder[1] : 'null'));
-  check('Δ31a: 冻结窗口 === 演出总时长（DOCK_FREEZE_MS 由 COLLAPSE_TOTAL_MS 派生）',
+  check('R6: 冻结窗口 === 演出总时长（DOCK_FREEZE_MS 由 COLLAPSE_TOTAL_MS 派生）',
     !!colFreeze && colFreeze[1] === 'COLLAPSE_TOTAL_MS');
-  check('Δ31a: 弹簧补位 200ms（180~240 窗口）',
-    !!colFlip && +colFlip[1] >= 180 && +colFlip[1] <= 240, colFlip ? colFlip[1] : 'null');
-  check('Δ31a: 微震总时长 <= 90ms', !!colHit && +colHit[1] <= 90, colHit ? colHit[1] : 'null');
-  check('Δ31a: 旧 key 已移除（preshakeMs / ringAtMs 不再导出）',
+  check('R6: 弹簧补位 60ms（落 200~260ms 窗口内，起跑点 = 冻结解除时刻）',
+    !!colFlip && +colFlip[1] === 60, colFlip ? colFlip[1] : 'null');
+  check('R6: 微震总时长 <= 90ms', !!colHit && +colHit[1] <= 90, colHit ? colHit[1] : 'null');
+  check('R6: 旧 key 已移除（preshakeMs / ringAtMs 不再导出）',
     !/preshakeMs\s*:/.test(mainCode) && !/ringAtMs\s*:/.test(mainCode) &&
     /shudderAtMs:\s*COLLAPSE_SHUDDER_AT_MS/.test(mainCode) &&
     /collapseMs:\s*COLLAPSE_TOTAL_MS/.test(mainCode) &&
     /flipMs:\s*DOCK_FLIP_MS/.test(mainCode) &&
     /freezeMs:\s*DOCK_FREEZE_MS/.test(mainCode));
   var brSrc = fs.readFileSync(root + '/src/render/BoardRenderer.js', 'utf8');
-  check('Δ31a: 三套关键帧齐备（chip-rush / chip-impact / dock-hit）且 slot-shatter 关键帧已不存在',
-    /@keyframes chip-rush \{/.test(cssSrc) &&
-    /@keyframes chip-impact \{/.test(cssSrc) &&
+  check('R6: 关键帧齐备（chip-hop / chip-flash / chip-solo / dock-hit）且 slot-shatter 关键帧已不存在',
+    /@keyframes chip-hop \{/.test(cssSrc) &&
+    /@keyframes chip-flash \{/.test(cssSrc) &&
+    /@keyframes chip-solo \{/.test(cssSrc) &&
     /@keyframes dock-hit \{/.test(cssSrc) &&
     !/@keyframes slot-shatter/.test(cssSrc) &&
     !/animation: slot-shatter/.test(cssSrc));
-  check('Δ31a: 角色属性选择器特异性 >= 1,3,0（压得住 dock-seat 的 0,2,0）',
-    /#dock \.slot\.slot-shattering\[data-collapse-role="center"\] \.dock-chip/.test(cssSrc) &&
-    /#dock \.slot\.slot-shattering\[data-collapse-role="side"\] \.dock-chip/.test(cssSrc) &&
-    /#dock \.slot\.slot-shattering\[data-collapse-role="solo"\] \.dock-chip/.test(cssSrc));
-  check('Δ31a: 中心牌非等比挤压 scale(.92, 1.08) + brightness(2.1) 落 45.2%',
-    /@keyframes chip-impact \{[\s\S]{0,1400}45\.2% \{[\s\S]{0,200}scale\(\.92, 1\.08\)/.test(cssSrc) &&
-    /@keyframes chip-impact \{[\s\S]{0,1400}45\.2% \{[\s\S]{0,200}brightness\(2\.1\)/.test(cssSrc));
-  check('Δ31a: 回弹峰值 scale(1.32) 落 54.8% 且 <= 1.40',
-    /@keyframes chip-impact \{[\s\S]{0,1800}54\.8% \{[\s\S]{0,200}scale\(1\.32\)/.test(cssSrc) &&
-    !/@keyframes chip-impact \{[\s\S]{0,2000}scale\(1\.4[1-9]/.test(cssSrc));
-  check('Δ31a: 峰值保持 61.9% → 加速坍缩 100% scale(0)',
-    /@keyframes chip-impact \{[\s\S]{0,2400}61\.9% \{[\s\S]{0,200}scale\(1\.32\)/.test(cssSrc) &&
-    /@keyframes chip-impact \{[\s\S]{0,3000}100% \{[\s\S]{0,200}scale\(0\)/.test(cssSrc));
-  check('Δ31a: 左右滑行用强初速曲线 cubic-bezier(.12,.72,.22,1)（MUST NOT .42,0,.9,.6）',
-    /@keyframes chip-rush \{[\s\S]{0,400}cubic-bezier\(\.12, \.72, \.22, 1\)/.test(cssSrc) &&
-    cssSrc.indexOf('cubic-bezier(.42, 0, .9, .6)') === -1);
-  check('Δ31a: 滑行 33.3%（70ms）到位 + 39% 前 opacity 归零（1 帧内收束）',
-    /@keyframes chip-rush \{[\s\S]{0,600}33\.3% \{[\s\S]{0,200}translate3d\(var\(--suck-dx\)/.test(cssSrc) &&
-    /@keyframes chip-rush \{[\s\S]{0,900}39% \{[\s\S]{0,220}opacity: 0/.test(cssSrc));
-  check('Δ31a: 纯白覆盖层用 .dock-chip::after + opacity 关键帧（不只用 brightness）',
-    /#dock \.slot\.slot-shattering\[data-collapse-role="center"\] \.dock-chip::after \{[\s\S]{0,300}background: #FFFFFF/.test(cssSrc) &&
-    /@keyframes chip-flash \{[\s\S]{0,400}45\.2% \{[\s\S]{0,80}opacity: \.70/.test(cssSrc) &&
-    /@keyframes chip-flash \{[\s\S]{0,700}61\.9% \{[\s\S]{0,80}opacity: \.15/.test(cssSrc));
-  check('Δ31a: overflow: visible 四联选择器保留（否则 1.32× 与横向猛撞会被裁）',
+  check('R6: 横向通道彻底下线（chip-rush / chip-impact / --suck-dx / side|center 角色全零命中）',
+    !/@keyframes chip-rush/.test(cssSrc) &&
+    !/@keyframes chip-impact/.test(cssSrc) &&
+    cssCode.indexOf('--suck-dx') === -1 &&
+    cssCode.indexOf('data-collapse-role="side"') === -1 &&
+    cssCode.indexOf('data-collapse-role="center"') === -1 &&
+    mainCode.indexOf('--suck-dx') === -1 &&
+    !/midRect/.test(mainCode) &&
+    !/data-collapse-role', role\)/.test(mainCode));
+  check('R6: 三张牌共用一条选择器（同角色同关键帧 → 零错峰，无 center/side 分派）',
+    /#dock \.slot\.slot-shattering \.dock-chip \{[\s\S]{0,200}animation: chip-hop 200ms linear forwards/.test(cssSrc) &&
+    /#dock \.slot\.slot-shattering \.dock-chip::after \{[\s\S]{0,400}animation: chip-flash 200ms linear forwards/.test(cssSrc));
+  /* ★ 反向验证锚点：临时恢复 chip-rush（含 translate3d(var(--suck-dx), …)）必须红灯。
+   * 判据：`.dock-chip` 相关 @keyframes 内**零 translateX / 零横向 translate3d 分量**。 */
+  check('R6: chip-hop 关键帧内零横向分量（零 translateX / 零横向 translate3d）', (function () {
+    var i = cssSrc.indexOf('@keyframes chip-hop');
+    if (i < 0) return false;
+    var j = cssSrc.indexOf('@keyframes chip-flash', i);
+    var block = cssSrc.slice(i, j > 0 ? j : i + 900);
+    if (block.indexOf('translateX') >= 0) return false;
+    /* translate3d(x, …) 里 x 非 0 即横向分量（translateY / translate3d(0, y, 0) 合法） */
+    if (/translate3d\(\s*-?[1-9][\d.]*px/.test(block)) return false;
+    if (/translate3d\(\s*var\(/.test(block)) return false;
+    return true;
+  })());
+  check('R6: chip-hop 五段关键帧（0 / 10 / 22 / 40 / 100）与峰值 translateY(-6px) scale(1.06)',
+    /@keyframes chip-hop \{[\s\S]{0,300}0% \{[\s\S]{0,160}translateY\(0\) scale\(1, 1\)/.test(cssSrc) &&
+    /@keyframes chip-hop \{[\s\S]{0,600}10% \{[\s\S]{0,160}scale\(1\.03, \.94\)/.test(cssSrc) &&
+    /@keyframes chip-hop \{[\s\S]{0,1000}22% \{[\s\S]{0,160}translateY\(-6px\) scale\(1\.06, 1\.06\)/.test(cssSrc) &&
+    /@keyframes chip-hop \{[\s\S]{0,1500}40% \{[\s\S]{0,160}translateY\(-1px\) scale\(1, 1\)/.test(cssSrc) &&
+    /@keyframes chip-hop \{[\s\S]{0,2100}100% \{[\s\S]{0,200}scale\(0, 0\)/.test(cssSrc));
+  check('R6: 跳跃峰值落 20~55ms 窗口 / 缩放 1.04~1.08 / 预压 0.94~0.97（FR-030 ①）',
+    200 * 0.22 >= 40 && 200 * 0.22 <= 55 &&
+    1.06 >= 1.04 && 1.06 <= 1.08 && 0.94 >= 0.94 && 0.94 <= 0.97);
+  check('R6: 80ms（40%）回到 1.00±0.02 后原地缩小淡出（升华段 80~200ms）',
+    200 * 0.40 === 80 &&
+    /@keyframes chip-hop \{[\s\S]{0,2100}100% \{[\s\S]{0,200}opacity: 0/.test(cssSrc));
+  check('R6: 柔光覆盖层用 .dock-chip::after + opacity（40% 起亮 → 55% .70 → 80% .15 → 0）',
+    /#dock \.slot\.slot-shattering \.dock-chip::after \{[\s\S]{0,320}background: #FFFFFF/.test(cssSrc) &&
+    /@keyframes chip-flash \{[\s\S]{0,200}55% \{[\s\S]{0,80}opacity: \.70/.test(cssSrc) &&
+    /@keyframes chip-flash \{[\s\S]{0,400}80% \{[\s\S]{0,80}opacity: \.15/.test(cssSrc) &&
+    /@keyframes chip-flash \{[\s\S]{0,600}100% \{[\s\S]{0,60}opacity: 0/.test(cssSrc));
+  check('R6: 落座弹入在待消槽上被抑制（否则跳跃缩放被槽框 scale(.72)→1.08 二次放大）',
+    /#dock \.slot\.slot-pre-collapse \{[\s\S]{0,80}animation: none;/.test(cssSrc) &&
+    /slot-pre-collapse/.test(mainSrc));
+  check('R6: overflow: visible 四联选择器保留（否则跳跃与柔光被裁在槽框内）',
     /#dock \.slot\.slot-shattering\.has-tile/.test(cssSrc) &&
     /#dock \.slot\.slot-shattering\.is-filled/.test(cssSrc) &&
     /#dock \.slot\.slot-shattering:not\(:empty\)/.test(cssSrc));
-  check('Δ31a: 位移只作用于 .dock-chip——.slot 槽框零 transform / 零 animation',
+  check('R6: 位移只作用于 .dock-chip——.slot 槽框零 transform / 零 scale',
     (function () {
       var i = cssSrc.indexOf('#dock .slot.slot-shattering,');
       if (i < 0) return false;
       var j = cssSrc.indexOf('}', i);
       var block = cssSrc.slice(i, j);
-      return block.indexOf('transform') === -1 && block.indexOf('animation') === -1 &&
-        block.indexOf('scale') === -1 && /overflow: visible/.test(block);
+      return block.indexOf('transform') === -1 && block.indexOf('scale') === -1 &&
+        /overflow: visible/.test(block);
     })());
-  check('Δ31a: 槽框 border/padding/background/border-radius 一字未改', (function () {
+  check('R6: 槽框 border/padding/background/border-radius 一字未改', (function () {
     /* 只看「overflow 四联选择器」这一条规则块本体——`.dock-chip::after` 的
      * `border-radius: inherit` 是**覆盖层**的声明，不属于槽框冻结项。 */
     var i = cssCode.indexOf('#dock .slot.slot-shattering:not(:empty) {');
@@ -2158,37 +2205,52 @@ function scenarioDelta29Banner() {
     var baseOk = /#dock \.slot \{\s*padding: 0 !important;\s*overflow: hidden;\s*border-radius: 10px;\s*\}/.test(cssCode.replace(/\r/g, ''));
     return baseOk && !/(border|padding|background)/.test(block);
   })());
-  check('Δ31a: reduced-motion 降级仍为 210ms（零滑行 / 零挤压 / 零回弹）',
+  check('R6: reduced-motion 降级仍为 200ms（零跳跃 / 零预压 / 零微震）',
     /@keyframes chip-static \{[\s\S]{0,400}100%/.test(cssSrc) &&
-    /animation: chip-static 210ms/.test(cssSrc) &&
+    /animation: chip-static 200ms/.test(cssSrc) &&
     /#dock\.dock-hit \{\s*animation: none/.test(cssSrc.replace(/\r/g, '')));
-  check('Δ31a: dock-hit 仅纵向（translate3d(0, -2px, 0) 且无横向非零分量）',
+  check('R6: dock-hit 仅纵向（translate3d(0, -2px, 0) 且无横向非零分量）',
     /@keyframes dock-hit \{[\s\S]{0,400}translate3d\(0, -2px, 0\)/.test(cssSrc) &&
     !/translate3d\(-?[1-9][\d.]*px,/.test(cssSrc.slice(cssSrc.indexOf('@keyframes dock-hit'))));
-  check('Δ31a: 微震摘类走 animationend（定时器会残留类）',
+  check('R6: 微震摘类走 animationend（定时器会残留类）',
     /addEventListener\('animationend'[\s\S]{0,220}animationName === 'dock-hit'/.test(mainSrc));
-  check('Δ31a: 微震 MUST NOT 复用 shakeBoard（受阻反弹语义）',
+  check('R6: 微震 MUST NOT 复用 shakeBoard（受阻反弹语义）',
     !/dock-hit[\s\S]{0,200}shakeBoard/.test(mainSrc));
-  check('Δ31a: 中心槽 z-index 3 / 左右 1，收尾清零（data-collapse-role 按槽位记录）',
-    /nd\.setAttribute\('data-collapse-role', role\)/.test(mainSrc) &&
-    /nd\.style\.zIndex = \(role === 'center'\) \? '3' : '1'/.test(mainSrc) &&
+  check('R6: 原位演出不再写 z-index / center-side 角色（仅 solo 保留 data-collapse-role）',
+    /if \(solo && nd\.setAttribute\) nd\.setAttribute\('data-collapse-role', 'solo'\)/.test(mainSrc) &&
+    !/style\.zIndex = \(role === 'center'\)/.test(mainSrc) &&
     /function clearCollapseRoles/.test(mainSrc) &&
     /clearCollapseRoles\(\)/.test(mainSrc));
-  check('Δ31a: 弹簧补位用欠阻尼曲线 cubic-bezier(.34,1.28,.64,1)',
+  check('R6: clearCollapseRoles 仍能清掉历史遗留的 z-index（换关 / 重置 / Undo 后零残留）',
+    /nd\.style\.zIndex = '';/.test(mainSrc));
+  check('R6: 弹簧补位用欠阻尼曲线 cubic-bezier(.34,1.28,.64,1)',
     /cubic-bezier\(\.34,\s*1\.28,\s*\.64,\s*1\)/.test(mainCode) &&
     /transition = 'transform ' \+ DOCK_FLIP_MS \+ 'ms/.test(mainCode));
-  check('Δ31a: 补位两段式保留（transition:none + 位移 → 强制重排 → 归零）',
+  check('R6: 补位两段式保留（transition:none + 位移 → 强制重排 → 归零）',
     /chip\.style\.transition = 'none'/.test(mainSrc) &&
     /chip\.offsetWidth >= 0/.test(mainSrc));
-  check('Δ31a: 冻结窗口内并发两组互不覆盖（dockGhost 按槽位映射 + groupEndAt）',
+  check('R6: 冻结窗口内并发两组互不覆盖（dockGhost 按槽位映射 + groupEndAt）',
     /groupEndAt\[gid\] = now \+ COLLAPSE_TOTAL_MS/.test(mainSrc) &&
-    /map\[idx\] = \{ suit: suits\[k\], gid: gid, dx: dx \}/.test(mainSrc) &&
+    /map\[idx\] = \{ suit: suits\[k\], gid: gid \}/.test(mainSrc) &&
     /function finishCollapseGroup/.test(mainSrc));
-  check('Δ31a: 可用槽位不足 3 个时退化为 solo（原位闪白 + 缩至 0，不抛错）',
+  check('R6: 可用槽位不足 3 个时退化为 solo（原位闪白 + 缩至 0，不抛错）',
     /var solo = order\.length < 3/.test(mainSrc) &&
-    /var role = solo \? 'solo' : \(idx === midIdx \? 'center' : 'side'\)/.test(mainSrc));
-  check('Δ31a: 每次演出重新采集 --suck-dx（不跨尺寸缓存）',
-    /var dx = 0;\s*\n\s*if \(midRect && rects\[k\] && !reduced\) dx = midRect\.left - rects\[k\]\.left;/.test(mainSrc.replace(/\r/g, '')));
+    /if \(solo && nd\.setAttribute\)/.test(mainSrc));
+  check('R6: 演出期零几何采集（无 rects / midRect / offsetWidth 反推 —— 横向通道已删）',
+    !/midRect/.test(mainCode) && !/var rects = \[\]/.test(mainCode) &&
+    !/nd\.offsetWidth > 0/.test(mainCode));
+  /* T225 / 解 O-11：FLIP 配对键从**下标**改成 data-tile-id（起点正确性） */
+  check('R6: FLIP 按 data-tile-id 配对（下标配对在消除槽非末尾时必然错位）',
+    /data-tile-id/.test(mainCode) &&
+    /oldLeftById\[tid\] = nodes\[i\]\.offsetLeft/.test(mainCode) &&
+    /newLeftById\[tid\] = nodes2\[i\]\.offsetLeft/.test(mainCode) &&
+    /STM\.dockFlipDxOf\(oldLeftById, newLeftById\)/.test(mainCode) &&
+    !/oldLeft\[dockArr\[i\]\.id\]/.test(mainCode));
+  check('R6: FLIP 几何取 offsetLeft（布局位置，不含 dock-seat 的 scale 干扰）',
+    /offsetLeft/.test(mainSrc) &&
+    !/getBoundingClientRect\(\)\.left/.test(mainSrc.slice(mainSrc.indexOf('function renderDockWithFlip'), mainSrc.indexOf('function fireDockShatter'))));
+  check('R6: FLIP 位移表纯函数已导出（门禁可离线断言起点）',
+    typeof STM.dockFlipDxOf === 'function');
   check('Δ31a: 清屏守卫改键 flights.length（两个特效池删空后不得恒 false）',
     /var vfxLive = \(flights\.length > 0\)/.test(brSrc) &&
     /else if \(vfxWasLive\) \{ vfxWasLive = false; dirty = true; \}/.test(brSrc));

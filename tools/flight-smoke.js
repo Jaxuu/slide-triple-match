@@ -427,10 +427,59 @@ if (tR) {
 }
 rnd.setReducedMotion(false);
 
+/* ---------- F R6/T225：FLIP 补位**起点**（不只终态） ----------
+ * 受控槽序：7 槽，消除槽 = 1 / 3 / 6 → 剩余 4 张牌各左移一格。
+ * 判据：每张剩余牌的 dx 起点 = 该牌「旧槽 left − 新槽 left」（±0.5px）。
+ * ⚠ 旧实现按下标配对，此时第 1 项拿到的是「旧第 1 格（已被消除）」的 left
+ *   → 起点整体错位。下面同时断言「旧口径会算错」，证明本条断言有判别力
+ *   （T235 的反向验证部分）。 */
+console.log('\nF R6/T225：FLIP 补位起点（按 tile id 配对）');
+var PITCH = 50, IDS = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+var oldLeftById = {}, newLeftById = {};
+for (var fi = 0; fi < 7; fi++) oldLeftById[IDS[fi]] = fi * PITCH;
+var keep = [0, 2, 4, 5];             /* 消除 1 / 3 / 6 后剩下的槽序 */
+for (var ki = 0; ki < keep.length; ki++) newLeftById[IDS[keep[ki]]] = ki * PITCH;
+var dxOf = STM.dockFlipDxOf(oldLeftById, newLeftById);
+var dxOk = true, dxDetail = [], movedCount = 0;
+for (var ki2 = 0; ki2 < keep.length; ki2++) {
+  var id2 = IDS[keep[ki2]];
+  var want = keep[ki2] * PITCH - ki2 * PITCH;   /* 旧 left − 新 left */
+  var got = dxOf[id2];
+  dxDetail.push(id2 + ':' + (got == null ? 'null' : got.toFixed(1)) + '/' + want.toFixed(1));
+  if (want === 0) {
+    /* 未移动的牌（第 0 格）不产生位移项——写了反而会打断它正在跑的过渡 */
+    if (got != null) dxOk = false;
+    continue;
+  }
+  movedCount++;
+  if (got == null || Math.abs(got - want) > 0.5) dxOk = false;
+}
+check('F①: 受控槽序（消除 1/3/6）下每张剩余牌 dx 起点 = 旧 left − 新 left（±0.5px）',
+  dxOk, dxDetail.join(' '));
+check('F②: 被消除的槽不产生位移项（不在 newLeftById 里 → 无条目）',
+  dxOf[IDS[1]] === undefined && dxOf[IDS[3]] === undefined && dxOf[IDS[6]] === undefined);
+check('F③: 位移项数量 = 实际移动的牌数（未移动的第 0 格不产出条目）',
+  Object.keys(dxOf).length === movedCount, Object.keys(dxOf).length + '/' + movedCount);
+/* 反向证据：旧「按下标配对」在本槽序下必然错位 —— 第 1 项拿到的是旧第 1 格 */
+var legacyDx = [];
+for (var li = 0; li < keep.length; li++) {
+  var oldArr = [0, 1, 2, 3];           /* 旧数组前 4 项的下标 → 旧槽 0/1/2/3 的 left */
+  legacyDx.push(oldArr[li] * PITCH - li * PITCH);
+}
+check('F④: 旧「按下标配对」在本槽序下确实算错（证明 F① 有判别力）',
+  Math.abs(legacyDx[1] - (keep[1] * PITCH - 1 * PITCH)) > 0.5,
+  'legacy=' + legacyDx.join(',') + ' want=' + keep.map(function (s, i2) { return s * PITCH - i2 * PITCH; }).join(','));
+check('F⑤: 亚像素位移被剔除（|dx| <= 0.5 不产生条目）',
+  Object.keys(STM.dockFlipDxOf({ x: 10 }, { x: 10.4 })).length === 0);
+check('F⑥: 缺项 / 非数值一律跳过（不产出 NaN 位移）', (function () {
+  var o = STM.dockFlipDxOf({ x: 10 }, { x: 20, y: 5 });
+  return o.x === -10 && o.y === undefined;
+})());
+
 console.log('');
 if (fails.length) {
   console.log('flight-smoke: FAILED — ' + fails.length + ' 失败项: ' + fails.join('; '));
   process.exit(1);
 } else {
-  console.log('flight-smoke: all green（U/L/R/D 运动学 / z 序不置顶 / 槽位门控 / 兜底降级）');
+  console.log('flight-smoke: all green（U/L/R/D 运动学 / z 序不置顶 / 槽位门控 / FLIP 起点 / 兜底降级）');
 }
