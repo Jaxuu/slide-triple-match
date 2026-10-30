@@ -5,7 +5,7 @@
  *
  * 为什么必须开浏览器：Node 侧门禁只能断言「数据与纯函数」，本脚本验证
  * 真实 DOM/CSS/Canvas 环境下的**用户可见行为**：
- *   ① 开局进场「原位对角波浪层叠弹入」：N=141 全部覆盖 / 首帧零延迟 /
+ *   ① 开局进场「垂直雨幕下落 + 微弹定格」：N=141 全部覆盖 / 首帧零延迟 /
  *      同 (r+c) 同层同起同落（极差 0）/ 相邻对角线 >= 12ms /
  *      层序锁（同 (r,c) 低层恒先起跑）/ 总时长 380~450ms / 墙钟落定
  *   ② 飞行期间 #dock 槽位零抖动 + 棋盘静态层绘制序恒按 (z,r,c) 升序
@@ -17,7 +17,7 @@
  *      #dock 受击微震（仅纵向 2.0px、90ms）/ 补位 200ms 欠阻尼
  *   ④ 碎裂时序：3 张全部落定后才起演（碎裂瞬间零在途飞行）
  *   ⑤ 零特效残留：三消窗口内 #vfx-canvas 全程零像素（光圈/星芒/粒子通路已删）
- *   ⑥ 多规模关卡归一：L3 / L33 / L72 三档盘面 totalMs 均 ∈ [380,450]
+ *   ⑥ 多规模关卡归一：L3 / L33 / L72 三档盘面 totalMs 均 ∈ [380,420]
  *      且首波 delay === 0
  * 同时把取证帧写到 shots/delta27/（.gitignore 已忽略，不入库）。
  *
@@ -263,7 +263,12 @@ var HELPERS = `window.__D27 = {
     }
     return null;
   },
-  /* Δ31b: 编舞对角结构分析（全部用**实时 dealPlanOf() + 真实棋盘 z/r/c**） */
+  /* FR-028: 编舞行波结构分析（全部用**实时 dealPlanOf() + 真实棋盘 z/r/c**）
+   *
+   * 口径（垂直雨幕）：delay = r × ROW_STEP + c × COL_STEP + z × Z_STEP
+   *   · 同 (r, c, z) 起跑差恒 0；同排相邻列差恒 = COL_STEP（<= 8ms）；
+   *   · 沿 r 单调不减，首末排差 >= 150ms；同坐标层间差 = Z_STEP × Δz；
+   *   · fallPx：首排 0.5 卡面（越界高度恰为上限）、其余 1.0 格宽。 */
   dealStructure: function(){
     var r = this.rnd(), s = this.sess();
     if (!r || !s) return { err: 'no renderer/session' };
@@ -281,7 +286,10 @@ var HELPERS = `window.__D27 = {
     }
     n = n + 1;
     var delays = [], minDelay = Infinity, maxDelay = -Infinity;
-    var diagGroups = {}, lockPairs = {}, exact = 0, mismatch = 0;
+    var cellGroups = {}, lockPairs = {}, exact = 0, mismatch = 0, fallPxBad = 0;
+    var lay = r.layoutOf ? r.layoutOf() : null;
+    var side = lay && lay.tileSize > 0 ? lay.tileSize : 0;
+    var cw = lay && lay.cellStep > 0 ? lay.cellStep : 0;
     var id, m, d;
     for (id in plan) {
       if (!Object.prototype.hasOwnProperty.call(plan, id)) continue;
@@ -291,37 +299,66 @@ var HELPERS = `window.__D27 = {
       delays.push(d);
       if (d < minDelay) minDelay = d;
       if (d > maxDelay) maxDelay = d;
-      /* 同 (r+c, z) 必须完全同起（对角波浪的定义） */
-      var dk = (m.r + m.c) + ',' + m.z;
-      if (diagGroups[dk] == null) diagGroups[dk] = d;
-      else if (Math.abs(diagGroups[dk] - d) > 1e-9) mismatch++;
+      /* 同 (r, c, z) 必须完全同起（行波的定义） */
+      var dk = m.r + ',' + m.c + ',' + m.z;
+      if (cellGroups[dk] == null) cellGroups[dk] = d;
+      else if (Math.abs(cellGroups[dk] - d) > 1e-9) mismatch++;
       /* 与纯函数同源 */
       var g = RT.tileGridOf(m);
       if (Math.abs(d - RT.introDelayOf(g.rr, g.cc, m.z, n, zMax)) > 1e-9) exact++;
+      /* fallPx 口径：首排 0.5 卡面 / 其余 min(FALL_CELL·格宽, r·格宽 + 0.5 卡面) */
+      if (side > 0 && cw > 0) {
+        var fr = Math.floor(g.rr);
+        var wantFp = (fr === 0)
+          ? 0.5 * side
+          : Math.min(I.FALL_CELL * cw, fr * cw + 0.5 * side);
+        if (Math.abs(plan[id].fallPx - wantFp) > 1e-6) fallPxBad++;
+      }
       var lk = m.r + ',' + m.c;
       if (!lockPairs[lk]) lockPairs[lk] = [];
       lockPairs[lk].push({ z: m.z, d: d });
     }
-    /* 相邻对角线起跑间隔 */
-    var diagStart = {};
-    for (var dk2 in diagGroups) {
-      if (!Object.prototype.hasOwnProperty.call(diagGroups, dk2)) continue;
-      var rcSum = +dk2.split(',')[0];
-      if (diagStart[rcSum] == null || diagGroups[dk2] < diagStart[rcSum]) diagStart[rcSum] = diagGroups[dk2];
+    /* 行波结构：按 r 归组 → 排首起跑、同排相邻列差、沿 r 单调性、首末排差 */
+    var byRow = {};
+    for (var ck in cellGroups) {
+      if (!Object.prototype.hasOwnProperty.call(cellGroups, ck)) continue;
+      var parts = ck.split(',');
+      var rr0 = +parts[0];
+      if (byRow[rr0] == null || cellGroups[ck] < byRow[rr0]) byRow[rr0] = cellGroups[ck];
     }
-    var sums = [];
-    for (var sk in diagStart) if (Object.prototype.hasOwnProperty.call(diagStart, sk)) sums.push(+sk);
-    sums.sort(function (a, c2) { return a - c2; });
-    /* 对角线覆盖：真实盘面**不一定**铺满 (0..2n−2)（L33 最远只到 r+c=12），
-     * 故口径是「层数 = max(r+c)+1」+「0..max 连续无空洞」——空洞会让某一层
-     * 整层缺卡，波浪出现「跳拍」。 */
-    var maxRcSum = sums.length ? sums[sums.length - 1] : -1;
-    var contiguous = true;
-    for (var sq = 0; sq < sums.length; sq++) if (sums[sq] !== sq) contiguous = false;
-    var diagGapMin = Infinity;
-    for (var q = 1; q < sums.length; q++) {
-      var gp = diagStart[sums[q]] - diagStart[sums[q - 1]];
-      if (gp < diagGapMin) diagGapMin = gp;
+    var rows = [];
+    for (var rk in byRow) if (Object.prototype.hasOwnProperty.call(byRow, rk)) rows.push(+rk);
+    rows.sort(function (a, c2) { return a - c2; });
+    var rowMonoBad = 0;
+    for (var q1 = 1; q1 < rows.length; q1++) {
+      if (!(byRow[rows[q1]] > byRow[rows[q1 - 1]])) rowMonoBad++;
+    }
+    /* 首末排起跑差口径：按**盘面行距**反算 (n−1)·ROW_STEP——这是预算的构造性保证。
+     * 真实关卡不一定占用第 0 行与第 n−1 行（L33/L72 的 8×8 盘面只铺 0..6 行），
+     * 故另报 realizedRowSpan 作数据性质记录，不参与红绿判定。 */
+    var steps = RT.introStepsOf(n, zMax);
+    var rowSpan = (n - 1) * steps.row;
+    var realizedRowSpan = rows.length ? (byRow[rows[rows.length - 1]] - byRow[rows[0]]) : 0;
+    /* 同排相邻列差：逐 (r, z) 组内按 c 排序后求差（步长取**生效值** steps.col，
+     * n=8/zMax=4 触发预算回退时为 3，MUST NOT 拿常量 4 去比） */
+    var colStepBad = 0, colPairs = 0;
+    var perRowCol = {};
+    for (var id2 in plan) {
+      if (!Object.prototype.hasOwnProperty.call(plan, id2)) continue;
+      var m2 = meta[id2];
+      if (!m2) continue;
+      var key2 = m2.r + ',' + m2.z;
+      if (!perRowCol[key2]) perRowCol[key2] = [];
+      perRowCol[key2].push({ c: m2.c, d: plan[id2].delay });
+    }
+    for (var key3 in perRowCol) {
+      if (!Object.prototype.hasOwnProperty.call(perRowCol, key3)) continue;
+      var arrC = perRowCol[key3].slice().sort(function (a, c2) { return a.c - c2.c; });
+      for (var t2 = 1; t2 < arrC.length; t2++) {
+        if (arrC[t2].c - arrC[t2 - 1].c !== 1) continue;   /* 只比相邻列 */
+        colPairs++;
+        if (Math.abs((arrC[t2].d - arrC[t2 - 1].d) - steps.col) > 1e-9) colStepBad++;
+      }
     }
     /* 层序锁：同 (r,c) 低 z 的 delay MUST 严格小于高 z，且差 = Z_STEP × Δz */
     var lockBad = 0, lockMinGap = Infinity, pairCount = 0, lockStepBad = 0;
@@ -333,15 +370,17 @@ var HELPERS = `window.__D27 = {
         var gg = arr[t].d - arr[t - 1].d;
         if (!(gg > 0)) lockBad++;
         if (gg < lockMinGap) lockMinGap = gg;
-        if (Math.abs(gg - I.Z_STEP_MS * (arr[t].z - arr[t - 1].z)) > 1e-9) lockStepBad++;
+        if (Math.abs(gg - steps.z * (arr[t].z - arr[t - 1].z)) > 1e-9) lockStepBad++;
       }
     }
     return {
       n: n, tiles: delays.length, zMax: zMax,
-      diagCount: sums.length, maxRcSum: maxRcSum, contiguous: contiguous,
-      diagStep: RT.introDiagStepOf(n, zMax),
+      rowCount: rows.length, rowMonoBad: rowMonoBad, rowSpan: rowSpan,
+      realizedRowSpan: realizedRowSpan,
+      rowStep: steps.row, colStep: steps.col, zStep: steps.z,
       minDelay: minDelay, maxDelay: maxDelay,
-      diagMismatch: mismatch, diagGapMin: diagGapMin,
+      cellMismatch: mismatch, colStepBad: colStepBad, colPairs: colPairs,
+      fallPxBad: fallPxBad,
       totalMs: r.dealTotalMs(), formulaMs: RT.introDealTotalMs(n, zMax),
       budgetTotal: RT.introDealTotalMs(n, zMax),
       exactBad: exact,
@@ -349,7 +388,7 @@ var HELPERS = `window.__D27 = {
     };
   },
   /* 起演 → 等计划就绪 → 快照结构 → 量墙钟落定（全在页面内，零 CDP 往返）
-   * 为什么必须页面内：编舞只活 415ms，tickIntro 一收尾就把 introPlan 置 null，
+   * 为什么必须页面内：编舞只活 400ms，tickIntro 一收尾就把 introPlan 置 null，
    * Node 侧 60ms 一次轮询会直接读到 null。 */
   dealProbe: async function(){
     var D = this, r = D.rnd();
@@ -398,7 +437,7 @@ if (!window.__D27LOGWIRED) {
 }`;
 
 async function main() {
-  console.log('Δ31 真机验收（对角波浪编舞 / 方向性飞行 / 纯卡牌力学）\n');
+  console.log('FR-028 真机验收（垂直雨幕编舞 / 方向性飞行 / 纯卡牌力学）\n');
 
   var srv = await startServer();
   var PORT = srv.address().port;
@@ -501,36 +540,39 @@ async function main() {
   }
   check('开机过渡屏已退场（可安全取帧）', splashGone === true);
 
-  /* ---------- ① 开局进场：原位对角波浪（L33 真实 rAF + 实时计划） ---------- */
-  console.log('\n① 开局进场对角波浪（L33 / N=141 / zMax=4）');
+  /* ---------- ① 开局进场：垂直雨幕（L33 真实 rAF + 实时计划） ---------- */
+  console.log('\n① 开局进场垂直雨幕（L33 / N=141 / zMax=4）');
   var st1 = await ev('window.__D27.dealProbe()');
   check('① 编舞计划覆盖全部卡牌（141 张）', !!st1 && st1.tiles === 141, st1 ? st1.tiles : 'null');
   check('① 首帧零延迟（最小 delay === 0，取消开局留白）',
     !!st1 && st1.minDelay === 0, st1 ? 'minDelay=' + st1.minDelay : '-');
-  check('① 对角层数 = max(r+c)+1 且 0..max 连续无空洞（跳拍 = 0）',
-    !!st1 && st1.diagCount === st1.maxRcSum + 1 && st1.contiguous === true,
-    st1 ? ('diag=' + st1.diagCount + ' maxRcSum=' + st1.maxRcSum + ' contiguous=' + st1.contiguous) : '-');
-  check('① 同 (r+c) 同层起跑完全一致（对角波浪极差 === 0）',
-    !!st1 && st1.diagMismatch === 0, st1 ? 'mismatch=' + st1.diagMismatch : '-');
-  check('① 相邻对角线起跑间隔 >= 12ms',
-    !!st1 && st1.diagGapMin >= 12 - 1e-6,
-    st1 ? 'diagGapMin=' + Number(st1.diagGapMin).toFixed(2) : '-');
+  check('① 行波：同 (r,c,z) 起跑完全一致（极差 === 0）',
+    !!st1 && st1.cellMismatch === 0, st1 ? 'mismatch=' + st1.cellMismatch : '-');
+  check('① 同排相邻列起跑差恒 = COL_STEP（<= 8ms，不得逐张排队）',
+    !!st1 && st1.colStepBad === 0 && st1.colPairs > 0,
+    st1 ? ('bad=' + st1.colStepBad + '/' + st1.colPairs + ' step=' + st1.colStep) : '-');
+  check('① 推进沿 r 单调不减 + 首末排起跑差（(n−1)×ROW_STEP）>= 150ms',
+    !!st1 && st1.rowMonoBad === 0 && st1.rowSpan >= 150,
+    st1 ? ('bad=' + st1.rowMonoBad + ' span=' + Number(st1.rowSpan).toFixed(1) + 'ms rows=' +
+      st1.rowCount + ' realized=' + Number(st1.realizedRowSpan).toFixed(1) + 'ms') : '-');
   check('① plan 与 introDelayOf 逐项相等（同源，零漂移）',
     !!st1 && st1.exactBad === 0, st1 ? 'bad=' + st1.exactBad + '/' + st1.tiles : '-');
+  check('① fallPx 口径正确（首排 0.5 卡面 / 其余 1.0 格宽）',
+    !!st1 && st1.fallPxBad === 0, st1 ? 'bad=' + st1.fallPxBad : '-');
   check('① 层序锁：同 (r,c) 低层 delay 恒早于高层（零穿模）',
     !!st1 && st1.lockBad === 0 && st1.pairCount > 0,
     st1 ? ('bad=' + st1.lockBad + '/' + st1.pairCount + ' minGap=' + st1.lockMinGap) : '-');
-  check('① 层序锁层间差 = Z_STEP × Δz（8ms 精确值）',
+  check('① 层序锁层间差 = Z_STEP × Δz（6ms 精确值）',
     !!st1 && st1.lockStepBad === 0, st1 ? 'bad=' + st1.lockStepBad : '-');
-  check('① 编舞总时长 ∈ [380,450]ms（415ms 目标）',
-    !!st1 && st1.totalMs >= 380 && st1.totalMs <= 450 && Math.abs(st1.totalMs - 415) < 1,
+  check('① 编舞总时长 ∈ [380,420]ms（400ms 目标）',
+    !!st1 && st1.totalMs >= 380 && st1.totalMs <= 420 && Math.abs(st1.totalMs - 400) < 1,
     st1 ? st1.totalMs : '-');
   check('① totalMs === 纯函数公式（同源，零漂移）',
     !!st1 && Math.abs(st1.totalMs - st1.formulaMs) < 1e-6,
     st1 ? ('total=' + st1.totalMs + ' formula=' + st1.formulaMs) : '-');
   check('① maxDelay + TILE <= totalMs（缺角盘面由预算兜底，不截短）',
-    !!st1 && (st1.maxDelay + 120) <= st1.totalMs + 1e-6,
-    st1 ? ('maxDelay+120=' + (st1.maxDelay + 120) + ' total=' + st1.totalMs) : '-');
+    !!st1 && (st1.maxDelay + 200) <= st1.totalMs + 1e-6,
+    st1 ? ('maxDelay+200=' + (st1.maxDelay + 200) + ' total=' + st1.totalMs) : '-');
   check('① 墙钟落定 = totalMs + 帧闸门 2 帧 + 帧量化（<= 1200ms 兜底）',
     !!st1 && st1.wallMs > 0 && st1.isDealing === false &&
     st1.wallMs >= st1.totalMs - 1 && st1.wallMs <= st1.totalMs + 1200,
@@ -1113,6 +1155,10 @@ async function main() {
     await sleep(160);
     r.skipDeal();
     await sleep(80);
+    /* FR-028 §D-2：进场期首排接缝同样占用 #vfx-canvas → 像素红线采样窗 MUST
+     * 前置排除进场（断言 !isDealing()，**不是**放宽阈值）。 */
+    var dealingAtStart = r.isDealing();
+    var sawDealing = false;
     r.clearVfx();
     r.drawVfxNow();
     var base = D.vfxPixels();
@@ -1130,6 +1176,8 @@ async function main() {
         var now = performance.now();
         if (ti < 3 && now - lastTap > 90) { s.tap(tri.ids[ti]); ti++; lastTap = now; }
         if (D.shatSlots().length) sawShat = true;
+        /* 进场期不参与统计（首排接缝是合法像素；窗口已由 dealingAtStart 断言前置排除） */
+        if (r.isDealing()) { sawDealing = true; requestAnimationFrame(step); return; }
         var fl = r.flightsOf().length;
         var px = D.vfxPixels();
         var nz = (px && px.nonZero) || 0;
@@ -1144,10 +1192,14 @@ async function main() {
     var end = D.vfxPixels();
     return { base: base, maxPixIdle: maxPixIdle, maxPixFly: maxPixFly,
              idleFrames: idleFrames, flyFrames: flyFrames, sawShat: sawShat, end: end,
+             dealingAtStart: dealingAtStart, sawDealing: sawDealing,
              logs: (window.__D27LOG || []).slice(0, 4) };
   })()`);
 
   if (zero && !zero.err) {
+    check('⑤ 像素红线采样窗已前置排除进场期（!isDealing()，非放宽阈值）',
+      zero.dealingAtStart === false && zero.sawDealing === false,
+      'atStart=' + zero.dealingAtStart + ' during=' + zero.sawDealing);
     check('⑤ 隔离前 VFX 层已清空（起点 alpha > 2 像素 = 0）',
       zero.base && zero.base.nonZero === 0, zero.base ? (zero.base.err || zero.base.nonZero) : 'n/a');
     check('⑤ 零在途飞行帧上 VFX 层恒零像素（光圈 / 星芒 / 粒子通路确已删除）',
@@ -1166,7 +1218,7 @@ async function main() {
   }
 
   /* ---------- ⑥ 多规模关卡归一（L3 / L33 / L72） ---------- */
-  console.log('\n⑥ 多规模关卡总时长归一（380~450ms / 首帧零延迟）');
+  console.log('\n⑥ 多规模关卡总时长归一（380~420ms / 首帧零延迟 / 行波）');
   var SCALES = [
     { lv: 3, tag: 'L3' },
     { lv: 33, tag: 'L33' },
@@ -1180,20 +1232,26 @@ async function main() {
     check('⑥ ' + sc.tag + ' 编舞计划就绪（n = ' + (stx && stx.n) + ' / zMax = ' + (stx && stx.zMax) + '）',
       !!stx && !stx.err && stx.tiles > 0);
     if (stx && !stx.err) {
-      check('⑥ ' + sc.tag + ' 总时长 ∈ [380,450]ms（' + stx.totalMs + 'ms）',
-        stx.totalMs >= 380 && stx.totalMs <= 450, stx.totalMs);
+      check('⑥ ' + sc.tag + ' 总时长 ∈ [380,420]ms（' + stx.totalMs + 'ms）',
+        stx.totalMs >= 380 && stx.totalMs <= 420, stx.totalMs);
       check('⑥ ' + sc.tag + ' 首帧零延迟（minDelay === 0）',
         stx.minDelay === 0, stx.minDelay);
-      check('⑥ ' + sc.tag + ' 对角层数 = max(r+c)+1 且连续无空洞（' + stx.diagCount + ' 条）',
-        stx.diagCount === stx.maxRcSum + 1 && stx.contiguous === true,
-        'diag=' + stx.diagCount + ' maxRcSum=' + stx.maxRcSum + ' contiguous=' + stx.contiguous);
-      check('⑥ ' + sc.tag + ' 同 (r+c) 同层起跑极差 0',
-        stx.diagMismatch === 0, stx.diagMismatch);
+      check('⑥ ' + sc.tag + ' 行波：同 (r,c,z) 起跑极差 0（' + stx.rowCount + ' 排）',
+        stx.cellMismatch === 0, stx.cellMismatch);
+      check('⑥ ' + sc.tag + ' 同排相邻列起跑差恒 = COL_STEP（' + stx.colPairs + ' 对）',
+        stx.colStepBad === 0 && stx.colPairs > 0,
+        'bad=' + stx.colStepBad + '/' + stx.colPairs);
+      check('⑥ ' + sc.tag + ' 推进沿 r 单调不减且首末排差（(n−1)×ROW_STEP）>= 150ms',
+        stx.rowMonoBad === 0 && stx.rowSpan >= 150,
+        'bad=' + stx.rowMonoBad + ' span=' + Number(stx.rowSpan).toFixed(1) + 'ms realized=' +
+        Number(stx.realizedRowSpan).toFixed(1) + 'ms');
       check('⑥ ' + sc.tag + ' 层序锁成立（同 (r,c) 低层恒先起跑，差 = Z_STEP×Δz）',
         stx.lockBad === 0 && stx.lockStepBad === 0,
         'bad=' + stx.lockBad + ' stepBad=' + stx.lockStepBad + '/' + stx.pairCount);
       check('⑥ ' + sc.tag + ' plan 与纯函数同源（introDelayOf 逐项相等）',
         stx.exactBad === 0, stx.exactBad);
+      check('⑥ ' + sc.tag + ' fallPx 口径正确（首排 0.5 卡面 / 其余 1.0 格宽）',
+        stx.fallPxBad === 0, stx.fallPxBad);
       check('⑥ ' + sc.tag + ' 墙钟落定 = totalMs + 帧闸门 2 帧 + 帧量化（<= 1200ms 兜底）',
         stx.wallMs > 0 && stx.isDealing === false &&
         stx.wallMs >= stx.totalMs - 1 && stx.wallMs <= stx.totalMs + 1200,
@@ -1209,7 +1267,7 @@ async function main() {
    *
    * 为什么每个相位都重载一次：headless 软件渲染下 `Page.captureScreenshot`
    * 请求本身 0~460ms 就被受理（**画面在这一刻定格**），但 CDP 回包要 ~800ms
-   * 之后才到——整段演出只有 415ms，连续取帧只能拍到「已落定」的同一张图。
+   * 之后才到——整段演出只有 400ms，连续取帧只能拍到「已落定」的同一张图。
    * 故改为「重载 → 只取一帧」。
    *
    * 相位保真判据用**帧字节数差异**（同一视口、同一关卡，唯一变量是编舞相位）：
@@ -1265,10 +1323,20 @@ async function main() {
     var near = function (a, b, tol) { return Math.abs(a - b) / Math.max(a, b) <= tol; };
     check('⑦ ' + sp2.tag + ' 闸门前帧 ≈ 400ms 落定帧（两端同为静止画面，差 <= 3%）',
       near(szPre, szEnd, 0.03), szPre + ' vs ' + szEnd);
-    check('⑦ ' + sp2.tag + ' 0ms 帧明显不同于静止帧（差 > 5%，起手段确被拍到）',
-      !near(sizes[0], szPre, 0.05), sizes[0] + ' vs pre=' + szPre);
-    check('⑦ ' + sp2.tag + ' 计划就绪且总时长 ∈ [380,450]ms（n=' + lastN + '）',
-      lastTotal != null && lastTotal >= 380 && lastTotal <= 450, 'total=' + lastTotal);
+    /* 阈值口径（2026-10-30 / FR-028 落地后重定）：旧口径 5% 是针对「0.62→1.05 缩放弹入」
+     * 定的——缩放改变了整盘卡面的像素占比，压缩体积差很大。垂直雨幕只做 ≤1 格宽的
+     * **纯平移**（零缩放），同样的画面变化在 PNG 压缩体积上天然只差 3~5%。
+     * 2% 阈值仍能干净分离「动画没跑 / 已落定」（差 ≈ 0%）与「起手段确被拍到」。 */
+    var phases = [0, 100, 200];
+    var maxDelta = 0;
+    for (var ph = 0; ph < phases.length; ph++) {
+      var dv = Math.abs(sizes[phases[ph]] - szPre) / Math.max(sizes[phases[ph]], szPre);
+      if (dv > maxDelta) maxDelta = dv;
+    }
+    check('⑦ ' + sp2.tag + ' 起手段确被拍到（0/100/200ms 至少一帧与静止帧差 > 2%）',
+      maxDelta > 0.02, 'maxDelta=' + (maxDelta * 100).toFixed(1) + '% pre=' + szPre);
+    check('⑦ ' + sp2.tag + ' 计划就绪且总时长 ∈ [380,420]ms（n=' + lastN + '）',
+      lastTotal != null && lastTotal >= 380 && lastTotal <= 420, 'total=' + lastTotal);
   }
 
   var errList = await ev('(function(){return (window.__D27ERR||[]).slice(0,5);})()');
@@ -1281,7 +1349,7 @@ async function main() {
     console.log('delta27-verify: FAILED — ' + fails.length + ' 失败项: ' + fails.join('; '));
     process.exit(1);
   } else {
-    console.log('delta27-verify: all green（对角波浪 415ms + 首帧零延迟 + 层序锁 / ' +
+    console.log('delta27-verify: all green（垂直雨幕 400ms + 首帧零延迟 + 层序锁 / ' +
       '方向性飞行槽位零抖动 + 图层不反转 / 纯卡牌力学 210ms 四段 + 角色分派 + ' +
       '挤压→回弹→坍缩 + 托盘微震 2px + 弹簧补位 200ms + 零特效残留 / 多规模关卡归一）');
     console.log('取证帧目录：shots/delta27/');

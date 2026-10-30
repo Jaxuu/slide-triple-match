@@ -1586,135 +1586,194 @@ function scenarioAnimLayerZOrder() {
 }
 
 /* =========================================================
- * Δ31b / FR-052 §14~§15: 开局「原位对角波浪层叠弹入」
+ * FR-028 / SC-018: 开局「垂直雨幕下落 + 微弹定格」
  *
- * 与 Δ30b 的差别：15 种模式 / 波次预算 / 逐模式位移表全部删除，只剩一条公式
- *   delay = (floor(rr) + floor(cc)) × DIAG_STEP + z × Z_STEP
+ * 与 Δ31b「原位对角波浪」的差别：缩放弹入 / 对角波前 / 12px 微落整体下线，只剩
+ *   delay = r × ROW_STEP + c × COL_STEP + z × Z_STEP
+ *   f(p)  = 6p² − 8p³ + 3p⁴            （下落；f'(p) = 12p(1−p)²，峰在 p = 1/3）
+ *   sq(τ) = SQ · e^(−4τ) · cos(πτ)     （触底挤压 + 单次微回弹，τ=1 归零锁死）
  * 且 startDeal 只置 armed —— t0 由 frame() 的帧闸门在「已绘制满 2 帧」后写入。
  *
- * 本组覆盖：常量同源 / 四档时长 / 对角时序 / 半格归一 / 层序锁 / 原位（|dx| = 0）/
- * 姿态曲线 / 帧闸门 / 首帧不留白 / 落子音 / 快进 / 降级。
+ * 本组覆盖：常量同源 / 四档时长 / 行波时序 / 半格归一 / 层序锁 / 纯垂直（|dx| = 0）/
+ * 速度剖面 / 挤压与底边锚定 / 零缩放弹入 / 帧闸门 / 首帧不留白 / 落子音 / 快进 / 降级。
  * ========================================================= */
 function scenarioDelta22Intro() {
-  console.log('\n[Δ31b] 开局原位对角波浪层叠弹入（公式 / 帧闸门 / 姿态曲线 / 删除彻底性）');
+  console.log('\n[FR-028] 开局垂直雨幕下落 + 微弹定格（公式 / 帧闸门 / 曲线 / 删除彻底性）');
   var RT = STM.rendererTest;
   var I = RT.INTRO;
 
-  /* ① 常量表（四个 + 曲线参数） */
-  check('Δ31b: 常量表只剩 TILE 120 / Z_STEP 8 / TARGET 415 / DIAG_STEP [14,48]',
-    !!I && I.TILE_MS === 120 && I.Z_STEP_MS === 8 && I.TARGET_MS === 415 &&
-    I.DIAG_STEP_MIN === 14 && I.DIAG_STEP_MAX === 48);
-  check('Δ31b: TILE ∈ [110,140] / Z_STEP ∈ [6,12]（硬边界）',
-    I.TILE_MS >= 110 && I.TILE_MS <= 140 && I.Z_STEP_MS >= 6 && I.Z_STEP_MS <= 12);
-  check('Δ31b: 落子音阈值 0.85 保留（§13 未废除）', I.TICK_AT === 0.85);
-  check('Δ31b: 帧闸门 2 帧 / S0 0.62 / 峰值 1.05 / 峰值进度 0.72 / dy0 12px',
-    I.GATE_FRAMES === 2 && I.S0 >= 0.55 && I.S0 <= 0.70 &&
-    I.OVERSHOOT >= 1.04 && I.OVERSHOOT <= 1.06 && I.PEAK_AT > 0 && I.PEAK_AT < 1 &&
-    I.DY0 >= 10 && I.DY0 <= 14);
+  /* ① 常量表 */
+  check('FR-028: 常量表 TILE 200 / IMPACT_AT 0.78 / FALL_CELL 1.0 / SQUASH 5 / DAMP 4',
+    !!I && I.TILE_MS === 200 && I.IMPACT_AT === 0.78 && I.FALL_CELL === 1.0 &&
+    I.SQUASH_PX === 5 && I.DAMP === 4);
+  check('FR-028: TILE ∈ [180,220] / IMPACT_AT ∈ [0.75,0.82]（硬边界）',
+    I.TILE_MS >= 180 && I.TILE_MS <= 220 && I.IMPACT_AT >= 0.75 && I.IMPACT_AT <= 0.82);
+  check('FR-028: COL_STEP 4 ∈ [3,8] / Z_STEP 6 ∈ [4,8] / ROW_STEP 窗口 [16,64]',
+    I.COL_STEP >= 3 && I.COL_STEP <= 8 && I.Z_STEP_MS >= 4 && I.Z_STEP_MS <= 8 &&
+    I.ROW_STEP_MIN === 16 && I.ROW_STEP_MAX === 64);
+  check('FR-028: 帧闸门 2 帧 / TARGET 400ms', I.GATE_FRAMES === 2 && I.TARGET_MS === 400);
 
-  /* ② 四档时长（n / zMax）落 380~450ms 且极差 <= 40ms */
-  var tiers = [[8, 4], [7, 3], [6, 2], [4, 0]];
+  /* ② 四档时长（n = 5~8 / zMax = 0~4） */
+  var tiers = [[5, 0], [6, 1], [7, 2], [8, 4]];
   var tots = [];
   for (var ti = 0; ti < tiers.length; ti++) tots.push(RT.introDealTotalMs(tiers[ti][0], tiers[ti][1]));
   var tLo = Math.min.apply(null, tots), tHi = Math.max.apply(null, tots);
-  check('Δ31b: 四档总时长落 380~450ms 且极差 <= 40ms',
-    tLo >= 380 && tHi <= 450 && (tHi - tLo) <= 40,
+  check('FR-028 ③: 四档总时长落 380~420ms 且极差 <= 25ms',
+    tLo >= 380 && tHi <= 420 && (tHi - tLo) <= 25,
     tots.map(function (v) { return v.toFixed(0); }).join('/'));
-  check('Δ31b: 8/4 → 415ms、7/3 → 415ms、6/2 → 415ms、4/0 → 408ms',
-    Math.abs(tots[0] - 415) < 1 && Math.abs(tots[1] - 415) < 1 &&
-    Math.abs(tots[2] - 415) < 1 && Math.abs(tots[3] - 408) < 1);
+  check('FR-028 ③: 四档总时长恒 = TARGET 400ms（与牌数解耦，30 张与 141 张同档）',
+    tots.every(function (v) { return Math.abs(v - I.TARGET_MS) < 1e-6; }),
+    tots.map(function (v) { return v.toFixed(2); }).join('/'));
 
-  /* ③ DIAG_STEP 反算 + 与公式同源 */
-  var diagOk = true;
-  var sameSource = true;
+  /* ③ ROW_STEP 反算 + 与公式同源 */
+  var rowOk = true, sameSource = true;
   for (var dj = 0; dj < tiers.length; dj++) {
     var nn = tiers[dj][0], zz2 = tiers[dj][1];
-    var dstep = RT.introDiagStepOf(nn, zz2);
-    if (!(dstep >= I.DIAG_STEP_MIN - 1e-9 && dstep <= I.DIAG_STEP_MAX + 1e-9)) diagOk = false;
-    var expect = 2 * (nn - 1) * dstep + zz2 * I.Z_STEP_MS + I.TILE_MS;
+    var st = RT.introStepsOf(nn, zz2);
+    if (!(st.row >= I.ROW_STEP_MIN - 1e-9 && st.row <= I.ROW_STEP_MAX + 1e-9)) rowOk = false;
+    var expect = (nn - 1) * st.row + (nn - 1) * st.col + zz2 * st.z + I.TILE_MS;
     if (Math.abs(expect - RT.introDealTotalMs(nn, zz2)) > 1e-6) sameSource = false;
   }
-  check('Δ31b: DIAG_STEP 恒落 [14,48]', diagOk);
-  check('Δ31b: 时长公式 === (rMax+cMax)×DIAG_STEP + zMax×Z_STEP + TILE（同源）', sameSource);
+  check('FR-028: ROW_STEP 恒落 [16,64]', rowOk);
+  check('FR-028: 时长公式 === (n−1)·ROW + (n−1)·COL + zMax·Z + TILE（同源）', sameSource);
+  check('FR-028: n=8/zMax=4 触发预算回退（COL 4→3 / Z 6→4，ROW 21.1→23.3）',
+    Math.abs(RT.introStepsOf(8, 4).col - 3) < 1e-9 &&
+    Math.abs(RT.introStepsOf(8, 4).z - 4) < 1e-9 &&
+    Math.abs(RT.introRowStepOf(8, 4) - 163 / 7) < 1e-9);
+  check('FR-028: 未冲突档保留默认 COL 4 / Z 6（MUST NOT 一律回退）',
+    RT.introStepsOf(5, 0).col === 4 && RT.introStepsOf(5, 0).z === 6 &&
+    RT.introStepsOf(7, 2).col === 4 && RT.introStepsOf(7, 2).z === 6);
+  check('FR-028: ROW_STEP 随盘面变大而变小（反算口径正确）',
+    RT.introRowStepOf(5, 0) > RT.introRowStepOf(6, 1) &&
+    RT.introRowStepOf(6, 1) > RT.introRowStepOf(7, 2) &&
+    RT.introRowStepOf(7, 2) > RT.introRowStepOf(8, 4));
 
-  /* ④ 对角时序：同 r+c 同起跑 / 相邻对角线差 === DIAG_STEP / 首末 >= 200ms / 单调不减 */
+  /* ④ 行波时序（8×8 全坐标纯函数） */
   var nI = 8, zMaxI = 4;
-  var dStep8 = RT.introDiagStepOf(nI, zMaxI);
-  var diagEqOk = true;
+  var st8 = RT.introStepsOf(nI, zMaxI);
+  var rowEq = true, colStepOk = true;
   for (var rr = 0; rr < nI; rr++) {
     for (var cc = 0; cc < nI; cc++) {
-      if (Math.abs(RT.introDelayOf(rr, cc, 0, nI, zMaxI) - (rr + cc) * dStep8) > 1e-9) diagEqOk = false;
+      var want = rr * st8.row + cc * st8.col;
+      if (Math.abs(RT.introDelayOf(rr, cc, 0, nI, zMaxI) - want) > 1e-9) rowEq = false;
+      if (cc > 0) {
+        var dCol = RT.introDelayOf(rr, cc, 0, nI, zMaxI) - RT.introDelayOf(rr, cc - 1, 0, nI, zMaxI);
+        if (!(dCol > 0 && dCol <= 8 + 1e-9)) colStepOk = false;
+      }
     }
   }
-  check('Δ31b: 同 (r+c) 起跑差 = 0ms（对角波浪的构造性保证）', diagEqOk);
-  var stepMinOk = true;
-  var monotoneOk = true;
-  var prevDelay = -1;
-  var dsum, dPrev;
-  for (dsum = 0; dsum <= 2 * (nI - 1); dsum++) {
-    var pr = dsum <= nI - 1 ? 0 : dsum - (nI - 1);
-    var pc = dsum - pr;
-    var cur = RT.introDelayOf(pr, pc, 0, nI, zMaxI);
-    if (dsum > 0 && cur - dPrev < 12 - 1e-9) stepMinOk = false;
-    if (cur < prevDelay - 1e-9) monotoneOk = false;
-    prevDelay = cur;
-    dPrev = cur;
-  }
-  check('Δ31b: 相邻对角线起跑间隔 >= 12ms', stepMinOk);
-  check('Δ31b: r+c 推进单调不减（空间回跳帧 = 0）', monotoneOk);
-  var span8 = RT.introDelayOf(nI - 1, nI - 1, 0, nI, zMaxI) - RT.introDelayOf(0, 0, 0, nI, zMaxI);
-  check('Δ31b: 首末对角线起跑跨度 >= 200ms', span8 >= 200, span8.toFixed(1) + 'ms');
+  check('FR-028 ③: 同排相邻列起跑差恒 = COL_STEP（>0 且 <= 8ms）', rowEq && colStepOk,
+    'col=' + st8.col);
+  check('FR-028 ③: 推进沿 r 单调递增（同列上下排差 = ROW_STEP）', (function () {
+    for (var rr2 = 1; rr2 < nI; rr2++) {
+      var d = RT.introDelayOf(rr2, 3, 0, nI, zMaxI) - RT.introDelayOf(rr2 - 1, 3, 0, nI, zMaxI);
+      if (Math.abs(d - st8.row) > 1e-9) return false;
+    }
+    return true;
+  })());
+  var span8 = RT.introDelayOf(nI - 1, 0, 0, nI, zMaxI) - RT.introDelayOf(0, 0, 0, nI, zMaxI);
+  check('FR-028 ③: 首末排起跑差 >= 150ms（不得读作「整盘同时砸下」）', span8 >= 150 - 1e-9,
+    span8.toFixed(1) + 'ms');
 
-  /* ⑤ 半格错位归一（奇数层视觉坐标带 +0.5，MUST 先 floor 再相加） */
-  check('Δ31b: 半格错位归一（introDelayOf(3.5,3.5) === introDelayOf(3,3)）',
+  /* ⑤ 半格错位归一 + 层序锁 */
+  check('FR-028: 半格错位归一（introDelayOf(3.5,3.5) === introDelayOf(3,3)）',
     Math.abs(RT.introDelayOf(3.5, 3.5, 1, nI, zMaxI) - RT.introDelayOf(3, 3, 1, nI, zMaxI)) < 1e-9);
-  check('Δ31b: 同 (r,c) 层间差恒 = +Z_STEP（层序锁，恒正）', (function () {
+  check('FR-028: 同 (r,c) 层间差恒 = +Z_STEP（层序锁，恒正）', (function () {
     for (var zz3 = 0; zz3 < 4; zz3++) {
       var lo = RT.introDelayOf(2, 3, zz3, nI, zMaxI);
       var hi = RT.introDelayOf(2, 3, zz3 + 1, nI, zMaxI);
-      if (Math.abs((hi - lo) - I.Z_STEP_MS) > 1e-9) return false;
+      if (Math.abs((hi - lo) - st8.z) > 1e-9) return false;
     }
     return true;
   })());
 
-  /* ⑥ 姿态曲线：原位 / 中心锚点 / 浮点 / 无淡入（introPoseOf 与运行时同源） */
-  var pose0 = RT.introPoseOf(0);
-  check('Δ31b: 起点 S0 ∈ [0.55,0.70] / dy ∈ [10,14] / dx = 0 / alpha = 1',
-    pose0.sx >= 0.55 && pose0.sx <= 0.70 && pose0.dy >= 10 && pose0.dy <= 14 &&
+  /* ⑥ 下落曲线：单峰速度 / 峰位 / 触底前速度 / 末段位移占比 */
+  var f = RT.introFallEase;
+  check('FR-028 ⑤: f(0) = 0 / f(1) = 1 / 全程单调不减', (function () {
+    if (Math.abs(f(0)) > 1e-12 || Math.abs(f(1) - 1) > 1e-12) return false;
+    var prev = -1;
+    for (var i = 0; i <= 400; i++) {
+      var v = f(i / 400);
+      if (v < prev - 1e-12) return false;
+      prev = v;
+    }
+    return true;
+  })());
+  var vPeak = 0, pPeak = -1, vSum = 0, vN = 0;
+  for (var pi = 1; pi < 400; pi++) {
+    var pp = pi / 400;
+    var vv = (f(pp + 0.0005) - f(pp - 0.0005)) / 0.001;
+    if (vv > vPeak) { vPeak = vv; pPeak = pp; }
+    vSum += vv;
+    vN++;
+  }
+  var vAvg = vSum / vN;
+  check('FR-028 ⑤: 速度峰落 25%~45%（实测 ' + (pPeak * 100).toFixed(1) + '%）',
+    pPeak >= 0.25 && pPeak <= 0.45);
+  check('FR-028 ⑤: 峰值 >= 平均速度 1.3×（实测 ' + (vPeak / vAvg).toFixed(2) + '×）',
+    vPeak / vAvg >= 1.3);
+  var vPre = (f(0.9205) - f(0.9195)) / 0.001;
+  check('FR-028 ⑤: 触底前（p=0.92）速度 <= 峰值 15%（实测 ' +
+    (vPre / vPeak * 100).toFixed(1) + '%）', vPre / vPeak <= 0.15);
+  check('FR-028 ⑤: 末段 10% 位移占比 <= 3%（实测 ' + ((1 - f(0.9)) * 100).toFixed(2) + '%）',
+    (1 - f(0.9)) <= 0.03);
+
+  /* ⑦ 挤压曲线：单半周期 / 峰值 5px / τ=1 归零 */
+  var sq = RT.introSquashOf;
+  check('FR-028 ⑤: 挤压峰值 = SQUASH_PX（τ=0 压到底）', Math.abs(sq(0) - I.SQUASH_PX) < 1e-9);
+  var crossings = 0, prevS = sq(0.0001);
+  for (var si = 1; si < 500; si++) {
+    var sv = sq(si / 500);
+    if ((prevS > 0 && sv <= 0) || (prevS < 0 && sv >= 0)) crossings++;
+    prevS = sv;
+  }
+  check('FR-028 ⑤: sq(τ) 在 [0,1] 内只有一个过零点（单半周期，零二次弹跳）', crossings === 1, crossings);
+  check('FR-028 ⑤: τ=1 强制归零（锁死，零残留形变）', sq(1) === 0);
+  check('FR-028 ⑤: 回弹段超调 <= 1.5% 卡面（τ=2/3 处 ' + (-sq(2 / 3)).toFixed(3) + 'px）',
+    Math.abs(sq(2 / 3)) <= I.SQUASH_PX * 0.05);
+
+  /* ⑧ 姿态曲线：纯垂直 / 零缩放弹入 / 底边锚定 */
+  var TS = 40, FP = 40;
+  var pose0 = RT.introPoseOf(0, FP, TS);
+  check('FR-028 ④: 起始 dy = −fallPx（正上方）、sx = sy = 1.00、dx = 0、alpha = 1',
+    Math.abs(pose0.dy + FP) < 1e-9 && pose0.sx === 1 && pose0.sy === 1 &&
     pose0.dx === 0 && pose0.alpha === 1);
-  var dxZero = true;
-  var alphaOne = true;
-  var dyMono = true;
-  var sxPeak = 0;
-  var prevDy = Infinity;
-  var peakAt = -1;
-  var secondBounce = false;
-  var pSteps = 200;
-  var prevSx = -1;
-  var prevSlope = null;
-  for (var pi = 0; pi <= pSteps; pi++) {
-    var pp = pi / pSteps;
-    var po = RT.introPoseOf(pp);
+  var dxZero = true, alphaOne = true, noScaleIn = true, dyMono = true, prevDy = null;
+  for (var qi = 0; qi <= 400; qi++) {
+    var uu = qi / 400;
+    var po = RT.introPoseOf(uu, FP, TS);
     if (po.dx !== 0) dxZero = false;
     if (po.alpha !== 1) alphaOne = false;
-    if (po.dy > prevDy + 1e-9) dyMono = false;
-    prevDy = po.dy;
-    if (po.sx > sxPeak) { sxPeak = po.sx; peakAt = pp; }
-    if (prevSx >= 0 && pp > I.PEAK_AT + 1e-9 && po.sx > prevSx + 1e-9) secondBounce = true;
-    prevSx = po.sx;
+    if (uu < I.IMPACT_AT && (Math.abs(po.sx - 1) > 1e-12 || Math.abs(po.sy - 1) > 1e-12)) noScaleIn = false;
+    if (uu < I.IMPACT_AT && prevDy !== null && po.dy < prevDy - 1e-9) dyMono = false;
+    if (uu < I.IMPACT_AT) prevDy = po.dy;
   }
-  check('Δ31b: 全程 |dx| = 0（原位——硬断言，任何非零横向分量视为回归）', dxZero);
-  check('Δ31b: 全程 alpha = 1.0（MUST NOT 淡入——淡入会把「弹起」读成「浮现」）', alphaOne);
-  check('Δ31b: dy 单调收敛到 0（唯一位移）', dyMono && Math.abs(RT.introPoseOf(1).dy) < 1e-9);
-  check('Δ31b: 峰值 sx ∈ [1.04,1.06] 且超调 <= 6%',
-    sxPeak >= 1.04 && sxPeak <= 1.06 && (sxPeak - 1) <= 0.06,
-    'peak=' + sxPeak.toFixed(4) + ' @p=' + peakAt.toFixed(2));
-  check('Δ31b: 峰值后单调回落至 1.00（零二次回弹）',
-    !secondBounce && Math.abs(RT.introPoseOf(1).sx - 1) < 1e-9);
+  check('FR-028 ④: 全程 |dx| = 0（纯垂直——硬断言，任何横向分量视为回归）', dxZero);
+  check('FR-028 ④: 全程 alpha = 1.0（MUST NOT 淡入——淡入会把「砸落」读成「浮现」）', alphaOne);
+  check('FR-028 ③: 下落段 sx = sy = 1.00（零缩放弹入，旧 0.62→1.05→1.00 已废）', noScaleIn);
+  check('FR-028 ④: 下落段 dy 单调上升（负值收敛到 0）', dyMono &&
+    Math.abs(RT.introPoseOf(I.IMPACT_AT - 1e-9, FP, TS).dy) < 1e-6);
+  var pImpact = RT.introPoseOf(I.IMPACT_AT, FP, TS);
+  check('FR-028 ⑤: 触底挤压 4~6px（实测 ' + ((1 - pImpact.sy) * TS).toFixed(2) + 'px）',
+    (1 - pImpact.sy) * TS >= 4 && (1 - pImpact.sy) * TS <= 6);
+  check('FR-028 ⑤: sx 反向补偿 <= +1.5%（实测 ' +
+    ((pImpact.sx - 1) * 100).toFixed(2) + '%）', pImpact.sx - 1 <= 0.015 + 1e-12 && pImpact.sx >= 1);
+  check('FR-028 ⑤: 挤压期底边贴地不动（|Δy| <= 0.5px；牌心随压缩下移 sq/2）', (function () {
+    for (var k = 0; k <= 40; k++) {
+      var uu2 = I.IMPACT_AT + (1 - I.IMPACT_AT) * (k / 40) * 0.999;
+      var p2 = RT.introPoseOf(uu2, FP, TS);
+      if (Math.abs((p2.dy + TS * p2.sy / 2) - TS / 2) > 0.5) return false;
+    }
+    return true;
+  })());
+  check('FR-028 ⑤: 落定后 sy = 1.00 ± 0.005 且零残余位移（无二次弹跳）', (function () {
+    var pe = RT.introPoseOf(1, FP, TS);
+    return Math.abs(pe.sy - 1) < 0.005 && Math.abs(pe.dy) < 1e-9 && Math.abs(pe.sx - 1) < 1e-9;
+  })());
 
-  /* ⑦ 运行时：唯一模式 + 帧闸门 + 首帧不留白 + 落定归位 */
+  /* ⑨ 运行时：帧闸门 + 首帧不留白 + 落定归位 */
   var lv = {
-    id: 1, name: 'delta31-intro', n: 4, cfg: {},
+    id: 1, name: 'fr028-intro', n: 4, cfg: {},
     tiles: [
       { r: 0, c: 0, d: 1, s: 0, z: 0 },
       { r: 0, c: 2, d: 2, s: 1, z: 0 },
@@ -1742,119 +1801,148 @@ function scenarioDelta22Intro() {
   });
   rnd.refresh();
 
-  /* ⑦a 帧闸门：startDeal 不记时间戳 */
+  /* ⑨a 帧闸门：startDeal 不记时间戳 */
   rnd.startDeal();
   var st0 = rnd.dealStateOf();
-  check('Δ31b §15: startDeal 后 armed=true / startTime=null（不记时间戳）',
+  check('FR-028: startDeal 后 armed=true / startTime=null（不记时间戳）',
     !!st0 && st0.armed === true && st0.startTime === null && st0.active === true);
   fillCount = 0;
   pumpFrames(1);
   var st1 = rnd.dealStateOf();
-  check('Δ31b §15: 第 1 个已绘制帧后 startTime 仍为 null（闸门未开）',
+  check('FR-028: 第 1 个已绘制帧后 startTime 仍为 null（闸门未开）',
     !!st1 && st1.startTime === null && st1.armed === true);
-  check('Δ31b §15: 首帧即有卡体填充（无底图留白——alpha 恒 1 的可观测形式）',
+  check('FR-028: 首帧即有卡体填充（无底图留白——alpha 恒 1 的可观测形式）',
     fillCount > 0, 'fills=' + fillCount);
-  /* 反向护栏：闸门期 MUST 走 p = 0 的起始姿态，MUST NOT 早退 `alpha: 0`
+  /* 反向护栏：闸门期 MUST 走 u = 0 的起始姿态，MUST NOT 早退 `alpha: 0`
    * （那是 Δ22 时代「底图留白」的遗产 = 首帧空白成因）。缺了这条，把
-   * `el <= 0 ? 0 : …` 改回「返回 alpha 0」时上面的 fillCount 断言依然全绿
-   * ——fill() 照调、只是 globalAlpha 为 0。 */
+   * `el <= 0 ? 0 : …` 改回「返回 alpha 0」时上面的 fillCount 断言依然全绿。 */
   var brSrcGate = require('fs').readFileSync(__dirname + '/../src/render/BoardRenderer.js', 'utf8');
-  check('Δ31b §15: 闸门期走 p = 0 起始姿态（MUST NOT 早退 alpha: 0）',
-    /var p = el <= 0 \? 0 : \(el \/ INTRO_TILE_MS\);/.test(brSrcGate) &&
+  check('FR-028: 闸门期走 u = 0 起始姿态（MUST NOT 早退 alpha: 0）',
+    /var u = el <= 0 \? 0 : \(el \/ INTRO_TILE_MS\);/.test(brSrcGate) &&
     !/el <= 0\)\s*return\s*\{[\s\S]{0,200}?alpha:\s*0/.test(brSrcGate));
   pumpFrames(1);
   var st2 = rnd.dealStateOf();
-  check('Δ31b §15: 第 2 个已绘制帧把当前 rAF 时间戳写入 startTime',
+  check('FR-028: 第 2 个已绘制帧把当前 rAF 时间戳写入 startTime',
     !!st2 && st2.startTime !== null && st2.armed === false &&
     Math.abs(st2.startTime - clockNow) < 1e-6);
-  check('Δ31b §15: 首帧相位 0% 容差 <= 1%（startTime 即第 2 帧时刻）',
+  check('FR-028: 首帧相位 0% 容差 <= 1%（startTime 即第 2 帧时刻）',
     !!st2 && st2.startTime === clockNow);
 
-  /* ⑦b 落定归位 + 落子音 */
+  /* ⑨b 落定归位 + 落子音 */
   dealTicks = [];
-  try { pumpFrames(40); check('Δ31b: 进场渲染零异常', true); }
-  catch (e1) { check('Δ31b: 进场渲染零异常 [' + e1.message + ']', false); }
-  check('Δ31b: 进场结束后完全归位（active=false / introPlan 清空）',
+  try { pumpFrames(40); check('FR-028: 进场渲染零异常', true); }
+  catch (e1) { check('FR-028: 进场渲染零异常 [' + e1.message + ']', false); }
+  check('FR-028: 进场结束后完全归位（active=false / introPlan 清空）',
     rnd.isDealing() === false && rnd.dealPlanOf() === null);
-  check('Δ31b: 逐牌落定各触发一次落子涟漪音（5 张）', dealTicks.length === 5,
+  check('FR-028: 逐牌落定各触发一次落子涟漪音（5 张）', dealTicks.length === 5,
     'ticks=' + dealTicks.length);
-  check('Δ31b: 落子音 progress 单调不减（落牌时间轴顺序）', (function () {
+  check('FR-028: 落子音 progress 单调不减（落牌时间轴顺序）', (function () {
     for (var i = 1; i < dealTicks.length; i++) if (dealTicks[i] < dealTicks[i - 1]) return false;
     return true;
   })());
-  check('Δ31b: 落子音 progress 恒落 [0,1]',
+  check('FR-028: 落子音 progress 恒落 [0,1]',
     dealTicks.every(function (v) { return v >= 0 && v <= 1; }));
 
-  /* ⑦c 计划形态：只有 { delay, z }，无任何位移/缓动/遮罩字段 */
+  /* ⑨c 计划形态：{ delay, z, fallPx } —— fallPx 首排半卡面、其余一卡面 */
   rnd.startDeal();
   pumpFrames(3);
   var pl = rnd.dealPlanOf();
-  check('Δ31b: 计划条目只含 delay / z（MUST NOT 携带位移/缓动/遮罩字段）', (function () {
+  check('FR-028: 计划条目含 delay / z / fallPx（无位移/缓动/遮罩字段）', (function () {
     if (!pl) return false;
-    for (var k in pl) {
-      if (!Object.prototype.hasOwnProperty.call(pl, k)) continue;
-      var keys = Object.keys(pl[k]);
-      if (keys.length !== 2 || keys.indexOf('delay') < 0 || keys.indexOf('z') < 0) return false;
+    for (var k2 in pl) {
+      if (!Object.prototype.hasOwnProperty.call(pl, k2)) continue;
+      var keys = Object.keys(pl[k2]);
+      if (keys.length !== 3) return false;
+      if (keys.indexOf('delay') < 0 || keys.indexOf('z') < 0 || keys.indexOf('fallPx') < 0) return false;
     }
     return true;
   })());
-  check('Δ31b: 计划延迟与纯函数逐项相等（buildIntroPlan 与 introDelayOf 同源）', (function () {
+  check('FR-028: 首排 fallPx = 0.5 卡面 / 非首排 = 1.0 格宽（越界高度恰为上限）', (function () {
     if (!pl) return false;
-    var tiles = sess.engineState().tiles || [];
-    var zMax = 0;
-    for (var i2 = 0; i2 < tiles.length; i2++) if ((tiles[i2].z || 0) > zMax) zMax = tiles[i2].z || 0;
+    var tiles2 = sess.engineState().tiles || [];
+    var lay = rnd.layoutOf();
+    var side = lay.tileSize, cw = lay.cellStep;
     var seen = 0;
-    for (var i3 = 0; i3 < tiles.length; i3++) {
-      var tt = tiles[i3];
-      var rec = pl[tt.id];
-      if (!rec) continue;
+    for (var i2 = 0; i2 < tiles2.length; i2++) {
+      var tt = tiles2[i2];
+      var rec2 = pl[tt.id];
+      if (!rec2) continue;
       seen++;
-      var g = RT.tileGridOf(tt);
-      var want = RT.introDelayOf(g.rr, g.cc, tt.z || 0, 4, zMax);
-      if (Math.abs(rec.delay - want) > 1e-9) return false;
+      var g2 = RT.tileGridOf(tt);
+      var wantFp = (Math.floor(g2.rr) === 0)
+        ? 0.5 * side
+        : Math.min(I.FALL_CELL * cw, Math.floor(g2.rr) * cw + 0.5 * side);
+      if (Math.abs(rec2.fallPx - wantFp) > 1e-6) return false;
     }
-    return seen === tiles.length;
+    return true;
+  })());
+  check('FR-028: 计划延迟与纯函数逐项相等（buildIntroPlan 与 introDelayOf 同源）', (function () {
+    if (!pl) return false;
+    var tiles3 = sess.engineState().tiles || [];
+    var zMax3 = 0;
+    for (var i3 = 0; i3 < tiles3.length; i3++) if ((tiles3[i3].z || 0) > zMax3) zMax3 = tiles3[i3].z || 0;
+    var seen2 = 0;
+    for (var i4 = 0; i4 < tiles3.length; i4++) {
+      var t4 = tiles3[i4];
+      var rec4 = pl[t4.id];
+      if (!rec4) continue;
+      seen2++;
+      var g4 = RT.tileGridOf(t4);
+      if (Math.abs(rec4.delay - RT.introDelayOf(g4.rr, g4.cc, t4.z || 0, 4, zMax3)) > 1e-9) return false;
+    }
+    return seen2 === tiles3.length;
   })());
   rnd.skipDeal();
 
-  /* ⑦d 快进：动画中途 + armed 期间都有效 */
+  /* ⑨d 首排接缝：drawIntroOutside 存在且并入 vfxWasLive 判据 */
+  var brSrcSeam = require('fs').readFileSync(__dirname + '/../src/render/BoardRenderer.js', 'utf8');
+  check('FR-028 ⑧: 首排越界接缝走 drawIntroOutside（复用 #vfx-canvas，零新增画布）',
+    /function drawIntroOutside/.test(brSrcSeam) &&
+    /try \{ drawIntroOutside\(vfxCtx/.test(brSrcSeam) &&
+    (require('fs').readFileSync(__dirname + '/../index.html', 'utf8').match(/<canvas/g) || []).length === 2);
+  check('FR-028 ⑧: vfxWasLive 判据已并入进场占用（否则末帧残影永久冻结）',
+    /var vfxLive = \(flights\.length > 0\) \|\| !!\(introAnim && introAnim\.active\);/.test(brSrcSeam));
+  check('FR-028 ⑧: 接缝与飞行共用同一 even-odd 互补裁剪（同 br/scale 映射）',
+    (brSrcSeam.match(/v\.clip\('evenodd'\)/g) || []).length >= 2);
+
+  /* ⑨e 快进：动画中途 + armed 期间都有效 */
   rnd.startDeal();
   pumpFrames(6);
-  check('Δ31b: 动画进行中（约 96ms）intro 仍 active', rnd.isDealing());
+  check('FR-028: 动画进行中（约 96ms）intro 仍 active', rnd.isDealing());
   var fast = rnd.skipDeal();
-  check('Δ31b: skipDeal 返回「此前确实在动画中」', fast === true);
-  check('Δ31b: 快进后 intro 立刻失活且计划清空',
+  check('FR-028: skipDeal 返回「此前确实在动画中」', fast === true);
+  check('FR-028: 快进后 intro 立刻失活且计划清空',
     rnd.isDealing() === false && rnd.dealPlanOf() === null);
   var hitId = rnd.hitTest(160, 160);
-  check('Δ31b: 快进后同帧命中判定可用（不吞点击）', hitId >= 0);
+  check('FR-028: 快进后同帧命中判定可用（不吞点击）', hitId >= 0);
   var tapRes = sess.tap(hitId);
-  check('Δ31b: 快进后该次点击被正常处理（非 undefined）', !!tapRes);
+  check('FR-028: 快进后该次点击被正常处理（非 undefined）', !!tapRes);
 
   rnd.startDeal();
   var armedSt = rnd.dealStateOf();
   var was2 = rnd.skipDeal();
   var afterSkip = rnd.dealStateOf();
-  check('Δ31b §15 ⑥: armed 期间 skipDeal 有效（不留悬挂状态）',
+  check('FR-028: armed 期间 skipDeal 有效（不留悬挂状态）',
     !!armedSt && armedSt.armed === true && was2 === true &&
     afterSkip.armed === false && afterSkip.startTime === null && afterSkip.active === false);
-  check('Δ31b: 重复 skipDeal 幂等返回 false', rnd.skipDeal() === false);
+  check('FR-028: 重复 skipDeal 幂等返回 false', rnd.skipDeal() === false);
 
-  /* ⑦e reduced-motion 降级：零动效、时长不变、照常归位 */
+  /* ⑨f reduced-motion 降级：零动效、时长不变、照常归位 */
   rnd.setReducedMotion(true);
   rnd.startDeal();
-  try { pumpFrames(40); check('Δ31b: reduced-motion 降级路径零异常', true); }
-  catch (e2) { check('Δ31b: reduced-motion 降级路径零异常 [' + e2.message + ']', false); }
-  check('Δ31b: reduced-motion 下同样完全归位', rnd.isDealing() === false);
-  check('Δ31b: reduced-motion 下总时长口径不变（415ms 档）',
-    Math.abs(RT.introDealTotalMs(4, 0) - 408) < 1);
+  try { pumpFrames(40); check('FR-028: reduced-motion 降级路径零异常', true); }
+  catch (e2) { check('FR-028: reduced-motion 降级路径零异常 [' + e2.message + ']', false); }
+  check('FR-028: reduced-motion 下同样完全归位', rnd.isDealing() === false);
+  check('FR-028: reduced-motion 下总时长口径不变（400ms 档）',
+    Math.abs(RT.introDealTotalMs(4, 0) - 400) < 1e-6);
   rnd.setReducedMotion(false);
 
-  /* ⑦f 纯表现层：编舞前后 tiles 数据逐字段一致 */
+  /* ⑨g 纯表现层：编舞前后 tiles 数据逐字段一致 */
   var before = JSON.stringify(sess.engineState().tiles);
   rnd.startDeal();
   pumpFrames(30);
   var after = JSON.stringify(sess.engineState().tiles);
-  check('Δ31b: 编舞不改关卡数据（纯表现层）', before === after);
+  check('FR-028: 编舞不改关卡数据（纯表现层）', before === after);
 }
 
 /* =========================================================
@@ -2102,7 +2190,7 @@ function scenarioDelta29Banner() {
   check('Δ31a: 每次演出重新采集 --suck-dx（不跨尺寸缓存）',
     /var dx = 0;\s*\n\s*if \(midRect && rects\[k\] && !reduced\) dx = midRect\.left - rects\[k\]\.left;/.test(mainSrc.replace(/\r/g, '')));
   check('Δ31a: 清屏守卫改键 flights.length（两个特效池删空后不得恒 false）',
-    /var vfxLive = \(flights\.length > 0\);/.test(brSrc) &&
+    /var vfxLive = \(flights\.length > 0\)/.test(brSrc) &&
     /else if \(vfxWasLive\) \{ vfxWasLive = false; dirty = true; \}/.test(brSrc));
   check('Δ31a: 旧震颤裂纹伪元素已删除（.slot-shattering::before/::after 零命中）',
     cssSrc.indexOf('.slot-shattering::before') === -1 &&

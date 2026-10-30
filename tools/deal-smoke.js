@@ -1,18 +1,19 @@
 /* =========================================================
- * Slide & Triple — deal-smoke（Δ31b / FR-052 开局编舞冒烟）
+ * Slide & Triple — deal-smoke（FR-028 / SC-018 开局编舞冒烟）
  *
  *   node tools/deal-smoke.js
  *
  * 零依赖（宪章 II）——Node 内置能力 + 浏览器契约级 canvas 桩。
- * 覆盖 quickstart Q10-B 的自动化部分（Δ31b「原位对角波浪层叠弹入」口径）：
- *   ① 常量收口：TILE 120 / Z_STEP 8 / TARGET 415 / DIAG_STEP 14~48，
- *      15 种模式的常量与导出接口全部退役
- *   ② 时长公式：(rMax+cMax)×DIAG_STEP + zMax×Z_STEP + TILE，四档落 380~450ms
- *   ③ 对角波浪时序：同 (r+c) 起跑差 0ms、半格先 floor、层序锁恒 +Z_STEP
- *   ④ 运行时 plan：覆盖全部卡牌、首波 delay=0、与纯函数同源、末卡落定=公式
+ * 覆盖 quickstart Q10-B 的自动化部分（FR-028「垂直雨幕下落 + 微弹定格」口径）：
+ *   ① 常量收口：TILE 200 / IMPACT_AT 0.78 / FALL_CELL 1.0 / SQUASH 5 / DAMP 4 /
+ *      COL_STEP 4 / Z_STEP 6 / ROW_STEP [16,64] / TARGET 400，对角步长常量全部退役
+ *   ② 时长公式：(n−1)·ROW + (n−1)·COL + zMax·Z + TILE，四档恒 400ms（极差 0）
+ *   ③ 行波时序：同排相邻列差 = COL_STEP（<= 8ms）、沿 r 单调、半格先 floor、
+ *      层序锁恒 +Z_STEP、首末排差 >= 150ms、n=8/zMax=4 触发预算回退
+ *   ④ 运行时 plan：覆盖全部卡牌、首波 delay=0、含 fallPx（首排半卡面）、与纯函数同源
  *   ⑤ 帧闸门：startDeal 只置 armed，第 2 个**已绘制**帧才写 startTime，
  *      draw() 抛异常那帧不计数（drawnOk 守卫）
- *   ⑥ 逐牌落子涟漪音（progress 单调不减 + 45ms 节流口径）
+ *   ⑥ 逐牌落子涟漪音（progress 单调不减 + 45ms 节流口径 + IMPACT_AT 同源）
  *   ⑦ 点击快进：闸门期与动画期两条路径均零悬挂，快进后同帧可命中
  *   ⑧ 单模式确定性：无随机抽取、无模式号、无模式锁定接口
  *   ⑨ prefers-reduced-motion 降级：计划照建、总时长不变、零异常
@@ -110,15 +111,23 @@ var rootD = __dirname + '/..';
 var brSrcD = fsD.readFileSync(rootD + '/src/render/BoardRenderer.js', 'utf8');
 var mainSrcD = fsD.readFileSync(rootD + '/src/main.js', 'utf8');
 
-console.log('Δ31b 开局编舞冒烟（原位对角波浪层叠弹入 / 帧闸门 / SC-028）\n');
+console.log('FR-028 开局编舞冒烟（垂直雨幕下落 + 微弹定格 / 帧闸门 / SC-018）\n');
 
 /* ---------- ① 常量与公式 ---------- */
-console.log('① 常量与公式（四个常量收口）');
-check('常量表只剩 TILE / Z_STEP / TARGET / DIAG_STEP（+ 曲线参数）',
-  !!I && I.TILE_MS === 120 && I.Z_STEP_MS === 8 && I.TARGET_MS === 415 &&
-  I.DIAG_STEP_MIN === 14 && I.DIAG_STEP_MAX === 48);
-check('TILE ∈ [110,140] / Z_STEP ∈ [6,12]（硬边界）',
-  I.TILE_MS >= 110 && I.TILE_MS <= 140 && I.Z_STEP_MS >= 6 && I.Z_STEP_MS <= 12);
+console.log('① 常量与公式（垂直雨幕口径）');
+check('常量表 TILE 200 / IMPACT_AT 0.78 / FALL_CELL 1.0 / SQUASH 5 / DAMP 4',
+  !!I && I.TILE_MS === 200 && I.IMPACT_AT === 0.78 && I.FALL_CELL === 1.0 &&
+  I.SQUASH_PX === 5 && I.DAMP === 4);
+check('TILE ∈ [180,220] / IMPACT_AT ∈ [0.75,0.82] / SQUASH ∈ [4,6]（硬边界）',
+  I.TILE_MS >= 180 && I.TILE_MS <= 220 && I.IMPACT_AT >= 0.75 && I.IMPACT_AT <= 0.82 &&
+  I.SQUASH_PX >= 4 && I.SQUASH_PX <= 6);
+check('COL_STEP ∈ [3,8] / Z_STEP ∈ [4,8] / ROW_STEP 窗口 [16,64] / TARGET 400',
+  I.COL_STEP >= 3 && I.COL_STEP <= 8 && I.Z_STEP_MS >= 4 && I.Z_STEP_MS <= 8 &&
+  I.ROW_STEP_MIN === 16 && I.ROW_STEP_MAX === 64 && I.TARGET_MS === 400);
+check('对角波浪口径的常量已全部退役（无 DIAG_STEP / S0 / OVERSHOOT / PEAK_AT / DY0 / TICK_AT）',
+  I.DIAG_STEP_MIN === undefined && I.DIAG_STEP_MAX === undefined &&
+  I.S0 === undefined && I.OVERSHOOT === undefined && I.PEAK_AT === undefined &&
+  I.DY0 === undefined && I.TICK_AT === undefined);
 check('15 种模式的常量已全部退役（无 MODES / LEAD / WAVE / DISP / ALPHA0）',
   I.MODES === undefined && I.LEAD_MS === undefined && I.WAVE_MIN === undefined &&
   I.WAVE_MAX === undefined && I.WAVE_TILES === undefined && I.WAVE_STEP_MIN === undefined &&
@@ -126,76 +135,87 @@ check('15 种模式的常量已全部退役（无 MODES / LEAD / WAVE / DISP / A
   I.DISP_MAX_CELL === undefined && I.DISP_MIN_CELL === undefined &&
   I.ALPHA0 === undefined && I.ALPHA_MIN_SAFE === undefined && I.ALPHA_FULL_AT === undefined &&
   I.SCALE_MAX === undefined && I.SCALE_MIN === undefined && I.NONUNI_MIN === undefined);
-check('rendererTest 不再导出 introSpecOf / introBudgetOf / introSchedule / INTRO_MODES',
-  RT.introSpecOf === undefined && RT.introBudgetOf === undefined &&
-  RT.introSchedule === undefined && RT.INTRO_MODES === undefined);
-check('帧闸门 2 帧 / 落子音阈值 0.85 保留', I.GATE_FRAMES === 2 && I.TICK_AT === 0.85);
-check('姿态曲线常量齐全（S0 0.62 / 峰值 1.05 @0.72 / dy 12）',
-  I.S0 === 0.62 && I.OVERSHOOT === 1.05 && I.PEAK_AT === 0.72 && I.DY0 === 12);
+check('rendererTest 不再导出 introDiagStepOf / introSpecOf / introBudgetOf / introSchedule',
+  RT.introDiagStepOf === undefined && RT.introSpecOf === undefined &&
+  RT.introBudgetOf === undefined && RT.introSchedule === undefined &&
+  RT.INTRO_MODES === undefined);
+check('新增纯函数齐备（introFallEase / introSquashOf / introRowStepOf / introStepsOf）',
+  typeof RT.introFallEase === 'function' && typeof RT.introSquashOf === 'function' &&
+  typeof RT.introRowStepOf === 'function' && typeof RT.introStepsOf === 'function');
+check('帧闸门 2 帧保留', I.GATE_FRAMES === 2);
 
 /* ---------- ② 时长公式（四档归一） ---------- */
-console.log('\n② 时长公式（四档 380~450ms 归一）');
+console.log('\n② 时长公式（四档 380~420ms 归一，恒 400ms）');
 var T = RT.introDealTotalMs;
-var tiers = [[8, 4], [7, 3], [6, 2], [4, 0]];
+var tiers = [[5, 0], [6, 1], [7, 2], [8, 4]];
 var tots = tiers.map(function (p) { return T(p[0], p[1]); });
-check('8/4 → 415ms、7/3 → 415ms、6/2 → 415ms、4/0 → 408ms',
-  Math.abs(tots[0] - 415) < 1 && Math.abs(tots[1] - 415) < 1 &&
-  Math.abs(tots[2] - 415) < 1 && Math.abs(tots[3] - 408) < 1,
-  tots.map(function (v) { return v.toFixed(1); }).join('/'));
-check('四档全落 380~450ms 且极差 <= 40ms',
-  Math.min.apply(null, tots) >= 380 && Math.max.apply(null, tots) <= 450 &&
-  (Math.max.apply(null, tots) - Math.min.apply(null, tots)) <= 40);
-check('公式 = (rMax+cMax)×DIAG_STEP + zMax×Z_STEP + TILE（逐档同源）', (function () {
+check('四档（5/0 · 6/1 · 7/2 · 8/4）总时长恒 = 400ms',
+  tots.every(function (v) { return Math.abs(v - 400) < 1e-6; }),
+  tots.map(function (v) { return v.toFixed(2); }).join('/'));
+check('四档全落 380~420ms 且极差 <= 25ms',
+  Math.min.apply(null, tots) >= 380 && Math.max.apply(null, tots) <= 420 &&
+  (Math.max.apply(null, tots) - Math.min.apply(null, tots)) <= 25);
+check('公式 = (n−1)·ROW + (n−1)·COL + zMax·Z + TILE（逐档同源）', (function () {
   for (var i = 0; i < tiers.length; i++) {
     var n0 = tiers[i][0], z0 = tiers[i][1];
-    var ds = RT.introDiagStepOf(n0, z0);
-    if (!(ds >= I.DIAG_STEP_MIN - 1e-9 && ds <= I.DIAG_STEP_MAX + 1e-9)) return false;
-    var expect = 2 * (n0 - 1) * ds + z0 * I.Z_STEP_MS + I.TILE_MS;
+    var st = RT.introStepsOf(n0, z0);
+    if (!(st.row >= I.ROW_STEP_MIN - 1e-9 && st.row <= I.ROW_STEP_MAX + 1e-9)) return false;
+    var expect = (n0 - 1) * st.row + (n0 - 1) * st.col + z0 * st.z + I.TILE_MS;
     if (Math.abs(expect - T(n0, z0)) > 1e-9) return false;
   }
   return true;
 })());
-check('DIAG_STEP 单调随盘面变小而变大（反算口径正确）',
-  RT.introDiagStepOf(8, 4) < RT.introDiagStepOf(7, 3) &&
-  RT.introDiagStepOf(7, 3) < RT.introDiagStepOf(6, 2) &&
-  RT.introDiagStepOf(6, 2) < RT.introDiagStepOf(4, 0));
+check('ROW_STEP 单调随盘面变小而变大（反算口径正确）',
+  RT.introRowStepOf(8, 4) < RT.introRowStepOf(7, 2) &&
+  RT.introRowStepOf(7, 2) < RT.introRowStepOf(6, 1) &&
+  RT.introRowStepOf(6, 1) < RT.introRowStepOf(5, 0));
+check('预算冲突回退只在 n=8/zMax=4 触发（COL 3 / Z 4，其余档保留 4 / 6）',
+  Math.abs(RT.introStepsOf(8, 4).col - 3) < 1e-9 &&
+  Math.abs(RT.introStepsOf(8, 4).z - 4) < 1e-9 &&
+  RT.introStepsOf(7, 2).col === 4 && RT.introStepsOf(7, 2).z === 6 &&
+  RT.introStepsOf(5, 0).col === 4 && RT.introStepsOf(5, 0).z === 6);
 
-/* ---------- ③ 对角波浪时序（8×8 全坐标纯函数） ---------- */
-console.log('\n③ 对角波浪时序（8×8 全坐标）');
+/* ---------- ③ 行波时序（8×8 全坐标纯函数） ---------- */
+console.log('\n③ 行波时序（8×8 全坐标）');
 var nD = 8, zD = 4;
-var dsD = RT.introDiagStepOf(nD, zD);
-var sameDiag = true, floorOk = true;
+var stD = RT.introStepsOf(nD, zD);
+var rowEq = true, floorOk = true, colOk = true;
 for (var r3 = 0; r3 < nD; r3++) {
   for (var c3 = 0; c3 < nD; c3++) {
-    var want = (r3 + c3) * dsD;
-    if (Math.abs(RT.introDelayOf(r3, c3, 0, nD, zD) - want) > 1e-9) sameDiag = false;
+    var want = r3 * stD.row + c3 * stD.col;
+    if (Math.abs(RT.introDelayOf(r3, c3, 0, nD, zD) - want) > 1e-9) rowEq = false;
     /* 奇数层视觉坐标带 +0.5 → MUST 先 floor 归一 */
     if (Math.abs(RT.introDelayOf(r3 + 0.5, c3 + 0.5, 0, nD, zD) - want) > 1e-9) floorOk = false;
+    if (c3 > 0) {
+      var dCol = RT.introDelayOf(r3, c3, 0, nD, zD) - RT.introDelayOf(r3, c3 - 1, 0, nD, zD);
+      if (!(dCol > 0 && dCol <= 8 + 1e-9)) colOk = false;
+    }
   }
 }
-check('同 (r+c) 起跑差 = 0ms（对角波浪）', sameDiag);
-check('半格错位归一（+0.5 先 floor，奇偶层无 DIAG_STEP/2 隐性错位）', floorOk);
-var prevD = -1, monoOk = true, gapOk = true;
-for (var ds2 = 0; ds2 <= 2 * (nD - 1); ds2++) {
-  var pr3 = ds2 <= nD - 1 ? 0 : ds2 - (nD - 1);
-  var cur = RT.introDelayOf(pr3, ds2 - pr3, 0, nD, zD);
-  if (prevD >= 0 && cur - prevD < 12 - 1e-9) gapOk = false;
+check('同排同层 delay = r×ROW + c×COL（行波公式逐格成立）', rowEq);
+check('半格错位归一（+0.5 先 floor，奇偶层无 COL_STEP/2 隐性错位）', floorOk);
+check('同排相邻列起跑差恒 = COL_STEP（>0 且 <= 8ms，不得读作「逐张排队」）', colOk,
+  'col=' + stD.col);
+var prevD = -1, monoOk = true, rowGapOk = true;
+for (var rr3 = 0; rr3 < nD; rr3++) {
+  var cur = RT.introDelayOf(rr3, 0, 0, nD, zD);
+  if (prevD >= 0 && cur - prevD < 16 - 1e-9) rowGapOk = false;
   if (cur < prevD - 1e-9) monoOk = false;
   prevD = cur;
 }
-check('相邻对角线起跑间隔 >= 12ms', gapOk);
-check('r+c 推进单调不减（空间回跳帧 = 0）', monoOk);
-check('首末对角线起跑跨度 >= 200ms',
-  RT.introDelayOf(nD - 1, nD - 1, 0, nD, zD) - RT.introDelayOf(0, 0, 0, nD, zD) >= 200);
+check('相邻排起跑间隔 >= 16ms（ROW_STEP 下限）', rowGapOk);
+check('推进沿 r 单调不减（空间回跳帧 = 0）', monoOk);
+check('首末排起跑差 >= 150ms（不得读作「整盘同时砸下」）',
+  RT.introDelayOf(nD - 1, 0, 0, nD, zD) - RT.introDelayOf(0, 0, 0, nD, zD) >= 150);
 check('同 (r,c) 层间差恒 = +Z_STEP（层序锁恒正）', (function () {
   for (var zz = 0; zz < 4; zz++) {
-    if (Math.abs((RT.introDelayOf(2, 3, zz + 1, nD, zD) - RT.introDelayOf(2, 3, zz, nD, zD)) - I.Z_STEP_MS) > 1e-9) return false;
+    if (Math.abs((RT.introDelayOf(2, 3, zz + 1, nD, zD) - RT.introDelayOf(2, 3, zz, nD, zD)) - stD.z) > 1e-9) return false;
   }
   return true;
 })());
 
-/* ---------- ④ 运行时 plan（覆盖 / 首波 0 / 对角 / 层序锁 / 总时长） ---------- */
-console.log('\n④ 运行时 plan（覆盖 / 首波 0 / 对角 / 层序锁 / 总时长）');
+/* ---------- ④ 运行时 plan（覆盖 / 首波 0 / 行波 / 层序锁 / fallPx / 总时长） ---------- */
+console.log('\n④ 运行时 plan（覆盖 / 首波 0 / 行波 / 层序锁 / fallPx / 总时长）');
 var lv = buildLevel();
 var dealTicks = [];
 var canvas = makeCanvas();
@@ -222,7 +242,9 @@ var nR = lv.n || 8;
 var zMaxR = 0;
 for (var zi = 0; zi < board.length; zi++) if ((board[zi].z || 0) > zMaxR) zMaxR = board[zi].z || 0;
 
-var delays = [], dFinite = true, dNonNeg = true, exactMatch = true;
+var delays = [], dFinite = true, dNonNeg = true, exactMatch = true, fpOk = true;
+var layR = rnd.layoutOf();
+var sideR = layR.tileSize, cwR = layR.cellStep;
 for (var pi = 0; pi < planIds.length; pi++) {
   var tid = planIds[pi];
   var dv = plan[tid].delay;
@@ -234,25 +256,39 @@ for (var pi = 0; pi < planIds.length; pi++) {
     var g0 = RT.tileGridOf(bt0);
     var want0 = RT.introDelayOf(g0.rr, g0.cc, bt0.z || 0, nR, zMaxR);
     if (Math.abs(dv - want0) > 1e-9) exactMatch = false;
+    var wantFp = (Math.floor(g0.rr) === 0)
+      ? 0.5 * sideR
+      : Math.min(I.FALL_CELL * cwR, Math.floor(g0.rr) * cwR + 0.5 * sideR);
+    if (Math.abs(plan[tid].fallPx - wantFp) > 1e-6) fpOk = false;
   }
 }
 delays.sort(function (a, b) { return a - b; });
 check('全部 delay 为有限数值', dFinite);
-check('全部 delay >= 0（零延迟——首对角线 t=0 即起跑）', dNonNeg);
+check('全部 delay >= 0（零延迟——首排 t=0 即起跑）', dNonNeg);
 check('首波 delay === 0（无全空帧）', Math.abs(delays[0]) < 1e-9, 'min=' + delays[0]);
 check('plan 与 introDelayOf 逐项相等（同源）', exactMatch);
+check('fallPx 首排 = 0.5 卡面 / 其余 = 1.0 格宽（越界高度恰为 spec 上限）', fpOk);
+check('计划条目含 delay / z / fallPx 三个字段（无位移/缓动/遮罩字段）', (function () {
+  for (var k in plan) {
+    if (!Object.prototype.hasOwnProperty.call(plan, k)) continue;
+    var keys = Object.keys(plan[k]);
+    if (keys.length !== 3 || keys.indexOf('delay') < 0 ||
+        keys.indexOf('z') < 0 || keys.indexOf('fallPx') < 0) return false;
+  }
+  return true;
+})());
 
-/* 对角结构：同 (r+c) 且同 z 的牌 delay 完全相同 */
-var diagGroups = {}, diagOk = true;
+/* 行波结构：同 (r,c,z) 的牌 delay 完全相同 */
+var rowGroups = {}, rowOk2 = true;
 for (var di = 0; di < planIds.length; di++) {
   var bt1 = byId[planIds[di]];
   if (!bt1) continue;
   var g1 = RT.tileGridOf(bt1);
   var key1 = Math.floor(g1.rr) + ',' + Math.floor(g1.cc) + ',' + (bt1.z || 0);
-  if (!diagGroups[key1]) diagGroups[key1] = plan[planIds[di]].delay;
-  else if (Math.abs(diagGroups[key1] - plan[planIds[di]].delay) > 1e-9) diagOk = false;
+  if (!rowGroups[key1]) rowGroups[key1] = plan[planIds[di]].delay;
+  else if (Math.abs(rowGroups[key1] - plan[planIds[di]].delay) > 1e-9) rowOk2 = false;
 }
-check('同对角线同层起跑完全一致（落定差 <= 16ms 的构造性保证）', diagOk);
+check('同格同层起跑完全一致（落定差 <= 16ms 的构造性保证）', rowOk2);
 
 /* 层序锁：同 (r,c) 高层恒后落 Z_STEP */
 var groups = {}, zMono = true, zExact = true, sameCoord = 0;
@@ -272,22 +308,21 @@ for (var gkey in groups) {
   arr.sort(function (a, b) { return a.z - b.z; });
   for (var ai = 1; ai < arr.length; ai++) {
     if (!(arr[ai].delay > arr[ai - 1].delay)) zMono = false;
-    if (Math.abs((arr[ai].delay - arr[ai - 1].delay) - I.Z_STEP_MS * (arr[ai].z - arr[ai - 1].z)) > 1e-9) zExact = false;
+    if (Math.abs((arr[ai].delay - arr[ai - 1].delay) - stD.z * (arr[ai].z - arr[ai - 1].z)) > 1e-9) zExact = false;
   }
 }
 check('存在同坐标层叠卡牌（零穿模断言有实际样本）', sameCoord > 0, 'groups=' + sameCoord);
 check('同坐标高层延迟严格大于低层（先落底层、后落顶层）', zMono);
 check('同坐标层间差 = Z_STEP × Δz（层序锁）', zExact);
 
-/* 末卡落定 vs 公式：本关最远对角是 r+c=12、zMax=4 的卡不同张，故 maxDelay+TILE
- * 只会**短于**公式——此时 totalMs 由公式（预算兜底）决定，MUST NOT 被截短。
- * 「满盘对角齐备」的等价性由纯函数侧单独断言（8×8 单层含 (7,7)）。 */
+/* 末卡落定 vs 公式：本关最远排/列/层不一定齐备，故 maxDelay+TILE 只会**短于**公式
+ * ——此时 totalMs 由公式（预算兜底）决定，MUST NOT 被截短。 */
 var planEnd = delays[delays.length - 1] + I.TILE_MS;
 check('plan 末卡落定 <= 公式总时长（缺角盘面由预算兜底，不截短）',
   planEnd <= T(nR, zMaxR) + 1e-6, 'planEnd=' + planEnd + ' formula=' + T(nR, zMaxR));
-check('满盘对角齐备时 planEnd === 公式（(7,7) 单层 8×8）',
-  Math.abs((2 * (nD - 1)) * RT.introDiagStepOf(nD, 0) + I.TILE_MS - T(nD, 0)) < 1e-9,
-  'fullBoard=' + ((2 * (nD - 1)) * RT.introDiagStepOf(nD, 0) + I.TILE_MS) + ' formula=' + T(nD, 0));
+check('满盘（n=8 / zMax=0）时 planEnd === 公式',
+  Math.abs(((nD - 1) * RT.introStepsOf(nD, 0).row + (nD - 1) * RT.introStepsOf(nD, 0).col + I.TILE_MS) - T(nD, 0)) < 1e-9,
+  'fullBoard=' + ((nD - 1) * RT.introStepsOf(nD, 0).row + (nD - 1) * RT.introStepsOf(nD, 0).col + I.TILE_MS) + ' formula=' + T(nD, 0));
 check('渲染器 dealTotalMs() 与公式一致', Math.abs(rnd.dealTotalMs() - T(nR, zMaxR)) < 1e-6,
   rnd.dealTotalMs());
 rnd.skipDeal();
@@ -309,7 +344,7 @@ check('第 2 个已绘制帧把当前 rAF 时间戳写入 startTime',
   !!st2 && st2.startTime !== null && st2.armed === false &&
   Math.abs(st2.startTime - clockNow) < 1e-6,
   'startTime=' + (st2 && st2.startTime) + ' now=' + clockNow);
-check('闸门开启当帧相位恰为 0（不吞 0~5% 的起跳）',
+check('闸门开启当帧相位恰为 0（不吞 0~5% 的起落）',
   !!st2 && (clockNow - st2.startTime) === 0);
 check('draw() 抛异常那帧不计入闸门（drawnOk 守卫）',
   /if \(drawnOk && introAnim && introAnim\.armed\)/.test(brSrcD));
@@ -326,7 +361,7 @@ check('单模式进场零异常', noErr);
 check('进场结束后完全归位（dealPlan 清空 / isDealing=false）', settled);
 check('进场期有落子涟漪音触发', tickOk);
 
-/* 首帧即有卡体：计划层断言（第 1 帧即已构建计划 + 首波 delay === 0） */
+/* 首帧即有卡体：计划层断言（第 1 帧即已构建计划 + 首排 delay === 0） */
 var cv2 = makeCanvas();
 var rnd2 = STM.createBoardRenderer(cv2, session, {});
 rnd2.refresh();
@@ -357,6 +392,9 @@ for (var ti = 1; ti < dealTicks.length; ti++) if (dealTicks[ti] < dealTicks[ti -
 for (var tj = 0; tj < dealTicks.length; tj++) if (!(dealTicks[tj] >= 0 && dealTicks[tj] <= 1)) tickRange = false;
 check('progress 单调不减（落牌时间轴顺序）', monoTick);
 check('progress 恒落 [0,1]', tickRange);
+check('落子音触发点与 IMPACT_AT 同源（不再用独立 0.85 阈值）',
+  /el >= INTRO_TILE_MS \* INTRO_IMPACT_AT/.test(brSrcD) &&
+  brSrcD.indexOf('INTRO_TICK_AT') === -1);
 check('SoundManager 落牌节流口径 = 45ms（Δ23 收紧声数）', (function () {
   require('../src/audio/SoundManager.js');
   STM.createSoundManager({});
@@ -410,7 +448,7 @@ pumpFrames(4);
 var rplan = rnd.dealPlanOf();
 check('降级后计划仍覆盖全部卡牌', !!rplan && Object.keys(rplan).length === lv.tiles.length,
   rplan ? Object.keys(rplan).length : 'null');
-check('降级分支在 introTransformOf 首段即返回 null（零位移 / 零缩放 / 零弹起）',
+check('降级分支在 introTransformOf 首段即返回 null（零位移 / 零缩放 / 零挤压）',
   /if \(reducedMotion\) return null;/.test(brSrcD));
 check('降级不改总时长（无特殊短路径）',
   Math.abs(rnd.dealTotalMs() - T(nR, zMaxR)) < 1e-6, rnd.dealTotalMs());
@@ -445,5 +483,5 @@ if (fails.length) {
   console.log('deal-smoke: FAILED — ' + fails.length + ' 失败项: ' + fails.join('; '));
   process.exit(1);
 } else {
-  console.log('deal-smoke: all green（415ms 对角波浪 / 帧闸门 / 层序锁 / 落子音 / 快进 / 降级 / 纯表现层）');
+  console.log('deal-smoke: all green（400ms 垂直雨幕 / 帧闸门 / 层序锁 / 落子音 / 快进 / 降级 / 纯表现层）');
 }

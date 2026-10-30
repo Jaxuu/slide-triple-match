@@ -473,6 +473,65 @@ ok(oscLog.length > mark2, '失败音效回退 Web Audio 合成音（有声音，
 var stFail = sm2.getStatus();
 ok(stFail.shatter.status === 'failed', '失败文件状态迁移为 failed');
 
+/* =========================================================
+ * ⑧ FR-049 / SC-024：点击链路唯一音源
+ * ========================================================= */
+console.log('\n[8] FR-049 点击链路唯一音源（机制音不得抢占交互音）');
+var SFX_HEAD = smSrc.indexOf('var SFX = {');
+var SFX_TAIL = smSrc.indexOf('function play(name');
+var SFX_BLOCK = (SFX_HEAD >= 0 && SFX_TAIL > SFX_HEAD) ? smSrc.slice(SFX_HEAD, SFX_TAIL) : '';
+ok(SFX_BLOCK.length > 0, '定位 SFX 音色表代码段');
+ok(!/tone\(\s*'square'/.test(SFX_BLOCK), 'SFX 表零 square 波形（方波一次性交互音）');
+ok(!/tone\(\s*'sawtooth'/.test(SFX_BLOCK), 'SFX 表零 sawtooth 波形');
+/* 保留的 4 项必须是事件级（match / victory / defeat / iceBreak） */
+var RETIRED_SFX = ['click', 'gear', 'unlock', 'prism', 'item', 'botTick', 'tick', 'undo'];
+ok(RETIRED_SFX.every(function (n) { return SFX_BLOCK.indexOf(n + ':') < 0; }),
+  '八个退役音色键全部下线（' + RETIRED_SFX.join(' / ') + '）');
+ok(['match:', 'victory:', 'defeat:', 'iceBreak:'].every(function (n) { return SFX_BLOCK.indexOf(n) >= 0; }),
+  '保留 match / victory / defeat / iceBreak 四项');
+
+var mainSrcA = fs.readFileSync(path.join(srcDir, 'main.js'), 'utf8');
+ok(!/sound\.play\(\s*['"](gear|unlock|prism|click|item|botTick|tick|undo)['"]/.test(mainSrcA),
+  'main.js 零退役音色调用点（机制音 / 电子音零残留）');
+ok(/if \(e\.e === 'gear'\) \{ renderer\.handleEvent\(e\);/.test(mainSrcA) &&
+  !/if \(e\.e === 'gear'\) \{ sound\.play/.test(mainSrcA),
+  'gear（齿轮联动）机制事件零音源——视觉走 drawAnim 角标脉冲');
+ok(/if \(e\.e === 'unlock'\) \{ renderer\.handleEvent\(e\);/.test(mainSrcA) &&
+  !/if \(e\.e === 'unlock'\) \{ sound\.play/.test(mainSrcA),
+  'unlock（锁链断开）机制事件零音源');
+ok(/if \(e\.e === 'prism'\) \{ renderer\.handleEvent\(e\);/.test(mainSrcA) &&
+  !/if \(e\.e === 'prism'\) \{ sound\.play/.test(mainSrcA),
+  'prism（棱镜折射）机制事件零音源');
+ok(/if \(e\.e === 'ice'\) \{ sound\.play\('iceBreak'\)/.test(mainSrcA),
+  'ice（破冰）保留 iceBreak——非点击派生、低域正弦无方波');
+
+/* 动态：一次合法点击（flyout）派生的音频节点组数恒 = 1 */
+sm.setSfxMute(false);
+var chainMark = oscLog.length;
+sm.play('flyout');
+var tapOscs2 = oscLog.slice(chainMark);
+ok(tapOscs2.length === 4, '一次合法点击 = 1 个音源（tap 的 4 个振荡器）', '实测 ' + tapOscs2.length);
+ok(tapOscs2.every(function (r) { return r.type === 'sine' || r.type === 'triangle'; }),
+  '点击链路振荡器只有正弦 / 三角（零方波、零锯齿）');
+/* 反向：即便机制事件被误派，退役音色也 MUST 完全静默（零新节点） */
+RETIRED_SFX.forEach(function (n) {
+  var bOsc = oscLog.length, bFil = filterLog.length, bNoise = noiseLog.length;
+  sm.play(n);
+  ok(oscLog.length === bOsc && filterLog.length === bFil && noiseLog.length === bNoise,
+    '退役音色 ' + n + ' 完全静默（零新音频节点）');
+});
+/* 点击链路「同帧 + 机制事件」总节点组数仍 = 1（gear 静默 → 不叠加第二音源） */
+var chainMark2 = oscLog.length;
+sm.play('flyout');
+sm.play('gear');
+ok(oscLog.length - chainMark2 === 4,
+  '点击 + 齿轮联动的节点组数仍 = 1（gear 不再叠加第二音源）',
+  '实测 ' + (oscLog.length - chainMark2));
+var blockMark = oscLog.length;
+sm.play('blocked');
+ok(oscLog.length - blockMark === 2, '受阻反弹 = knock 的 2 个振荡器（双叩）',
+  '实测 ' + (oscLog.length - blockMark));
+
 console.log('\n──────────── 结果 ────────────');
 console.log('通过 ' + passes + ' / 失败 ' + fails);
 if (fails > 0) process.exit(1);

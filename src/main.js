@@ -1334,7 +1334,9 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
         els.iqPill.classList.remove('level-up');
         void els.iqPill.offsetWidth;
         els.iqPill.classList.add('level-up');
-        if (sound) sound.play('unlock');
+        /* FR-049：头衔晋升不得另起音色（旧 `unlock` 700→1050Hz 滑音已下线），
+         * 改派白瓷双叩——视觉由 .level-up 动画承担，音只做「叩一下」的确认。 */
+        if (sound) sound.play('knock');
       }
     }
   }
@@ -1807,7 +1809,9 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
       return false;
     }
     if (item !== 'undo') flashItemBtn(btnId);
-    sound.play(item === 'shuffle' ? 'gear' : 'match');
+    /* FR-049：道具生效音只取白瓷口径——洗牌＝木质双叩（语义「机关重排」），
+     * 灵犀三消＝三消碎裂（该道具本就直接消除）。旧 `gear` / `prism` 方波滑音已下线。 */
+    sound.play(item === 'shuffle' ? 'knock' : 'match');
     if (item === 'shuffle') playShuffleFx();
     renderer.refresh();
     renderDock();
@@ -1865,7 +1869,8 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     if (left <= 0) { buyItemAndUse('undo'); return; }
     var r = session.useItem('undo');
     if (r && r.type === 'undo') {
-      sound.play('undo');
+      /* FR-049：撤回＝木质双叩（旧 `undo` 为 700→300Hz/300ms 长滑音，已下线） */
+      sound.play('knock');
       renderer.refresh();
       renderDock();
       renderHud();
@@ -1887,7 +1892,7 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     var r = session.useItem('magnet');
     if (r && r.type === 'magnet') {
       flashItemBtn('item-magnet');
-      sound.play('prism');
+      sound.play('match');
       renderer.refresh();
       renderDock();
       renderHud();
@@ -1911,7 +1916,7 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     if (r && r.type === 'shuffle') {
       flashItemBtn('item-shuffle');
       playShuffleFx();
-      sound.play('gear');
+      sound.play('knock');
       renderer.refresh();
       renderDock();
       renderHud();
@@ -2028,12 +2033,20 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
       renderHud();
       return;
     }
-    /* 机制事件（M2 T034/T036: gear/unlock/ice/prism 动效 + 音效映射）
-     * 引擎破冰事件名为 'ice'（含 from/to），映射音效 'iceBreak' */
-    if (e.e === 'gear') { sound.play('gear'); renderer.handleEvent(e); renderer.refresh(); return; }
-    if (e.e === 'unlock') { sound.play('unlock'); renderer.handleEvent(e); renderer.refresh(); return; }
+    /* 机制事件（M2 T034/T036: gear/unlock/ice/prism 动效）
+     * 引擎破冰事件名为 'ice'（含 from/to），映射音效 'iceBreak'。
+     *
+     * ⚠ FR-049 / I-7「点击链路唯一音源」：`gear`（齿轮联动，由**十字邻牌飞出**
+     * 触发）与 `unlock` / `prism` 三个分支 **MUST NOT 起独立音色**——它们与同一次
+     * `pointerdown` 的 `tap` 同帧起音，160ms 方波拖尾会把提牌声整段掩蔽
+     * （用户口述的「点角标牌/邻牌时有奇怪杂音」即此）。视觉反馈已在 drawAnim()
+     * 内（角标脉冲 / 金色描边 / 折线光条），无需补音。
+     * `ice` 例外保留：它是**破冰**事件（非点击派生的反馈音），低域正弦水滴
+     * 与提牌不重叠（`iceBreak` 峰值 480~620Hz，无方波、无 >1000Hz 成分）。 */
+    if (e.e === 'gear') { renderer.handleEvent(e); renderer.refresh(); return; }
+    if (e.e === 'unlock') { renderer.handleEvent(e); renderer.refresh(); return; }
     if (e.e === 'ice') { sound.play('iceBreak'); renderer.handleEvent(e); renderer.refresh(); return; }
-    if (e.e === 'prism') { sound.play('prism'); renderer.handleEvent(e); renderer.refresh(); return; }
+    if (e.e === 'prism') { renderer.handleEvent(e); renderer.refresh(); return; }
     if (e.e === 'undo') {
       /* Δ28e: Undo 会把待消槽整体回滚，镜像无法按增量重放 → 直接从真值重建 */
       resyncDockMirror();
@@ -2403,7 +2416,8 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
       return;
     }
     highlightTile(tileId, 1800);
-    sound.play('click');
+    /* FR-049：Hint 提示音改派木质双叩（旧 `click` 880Hz 方波已下线） */
+    sound.play('knock');
   }
 
   function highlightTile(tileId, ttlMs) {
@@ -2503,7 +2517,7 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
       label: 'Bot',
       timer: 0
     };
-    sound.play('botTick');
+    sound.play('tap');
     toast('🤖 自动演示中（再次点击或点棋盘停止）');
     setAutoBtnState(true);
     scheduleNextBotStep();
@@ -2546,11 +2560,11 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     if (typeof session.autoPlayStep === "function") {
       var ar = session.autoPlayStep();
       if (!ar || ar.type === "locked" || ar.type === "none") { stopAutoBot("no-solution"); return; }
-      if (ar.type === "magnet") { sound.play("botTick"); scheduleNextBotStep(); return; }
+      if (ar.type === "magnet") { sound.play('tap'); scheduleNextBotStep(); return; }
       if (ar.type === "tap" && ar.tileId != null) {
         autoBot.stepIndex++;
         currentHintIndex = autoBot.stepIndex;
-        sound.play("botTick");
+        sound.play('tap');
         try { highlightTile(ar.tileId, 220); } catch (eHl) {}
         scheduleNextBotStep();
         return;
@@ -2604,14 +2618,14 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
     if (!exists) {
       /* 该滑块已不在棋盘上——跳过到下一步 */
       autoBot.stepIndex++;
-      sound.play('botTick');
+      sound.play('tap');
       scheduleNextBotStep();
       return;
     }
     session.tap(tileId);
     autoBot.stepIndex++;
     currentHintIndex = autoBot.stepIndex;
-    sound.play('botTick');
+    sound.play('tap');
     /* 提示框高亮此滑块（短促 200ms 视觉反馈） */
     highlightTile(tileId, 220);
     scheduleNextBotStep();
