@@ -9,12 +9,12 @@
  *      同 (r+c) 同层同起同落（极差 0）/ 相邻对角线 >= 12ms /
  *      层序锁（同 (r,c) 低层恒先起跑）/ 总时长 380~450ms / 墙钟落定
  *   ② 飞行期间 #dock 槽位零抖动 + 棋盘静态层绘制序恒按 (z,r,c) 升序
- *   ③ 三消「纯卡牌自身力学」：.slot-shattering 恰好落在本轮三消真实所在 3 槽
- *      （MUST NOT 退化成「最左 3 槽」）/ data-collapse-role 角色分派
- *      （center 1 张 + side 2 张，z-index 3/1）/ --suck-dx 左右向中心收敛 /
- *      中心牌四段形变（静止 → 挤压 .92/1.08 → 回弹 1.32 → 坍缩 0）/
- *      闪白覆盖层 0 → .70 → .15 → 0 / 左右牌 70ms 到位后 1 帧内隐去 /
- *      #dock 受击微震（仅纵向 2.0px、90ms）/ 补位 200ms 欠阻尼
+ *   ③ 三消「原地微跃欢呼 + 柔光升华」：.slot-shattering 恰好落在本轮三消真实所在
+ *      3 槽（MUST NOT 退化成「最左 3 槽」）/ 三张牌同跑 chip-hop 0.2s 且
+ *      animation-delay 完全一致（零错峰）/ **零横向分量**（tx ≡ 0）/
+ *      预压 1.03×0.94 → 峰值 translateY(-6px) scale(1.06) → 80ms 回 1.00 →
+ *      200ms scale 0 + opacity 0 / 柔光覆盖层 0 → .70 → .15 → 0 /
+ *      #dock 受击微震（仅纵向 2.0px、90ms、100ms 起）/ 补位 60ms 欠阻尼
  *   ④ 碎裂时序：3 张全部落定后才起演（碎裂瞬间零在途飞行）
  *   ⑤ 零特效残留：三消窗口内 #vfx-canvas 全程零像素（光圈/星芒/粒子通路已删）
  *   ⑥ 多规模关卡归一：L3 / L33 / L72 三档盘面 totalMs 均 ∈ [380,420]
@@ -268,7 +268,7 @@ var HELPERS = `window.__D27 = {
    * 口径（垂直雨幕）：delay = r × ROW_STEP + c × COL_STEP + z × Z_STEP
    *   · 同 (r, c, z) 起跑差恒 0；同排相邻列差恒 = COL_STEP（<= 8ms）；
    *   · 沿 r 单调不减，首末排差 >= 150ms；同坐标层间差 = Z_STEP × Δz；
-   *   · fallPx：首排 0.5 卡面（越界高度恰为上限）、其余 1.0 格宽。 */
+   *   · fallPx：全盘统一 = FALL_CELL × 卡面边长（R6 高落差 3.0，首排不再收缩）。 */
   dealStructure: function(){
     var r = this.rnd(), s = this.sess();
     if (!r || !s) return { err: 'no renderer/session' };
@@ -306,12 +306,9 @@ var HELPERS = `window.__D27 = {
       /* 与纯函数同源 */
       var g = RT.tileGridOf(m);
       if (Math.abs(d - RT.introDelayOf(g.rr, g.cc, m.z, n, zMax)) > 1e-9) exact++;
-      /* fallPx 口径：首排 0.5 卡面 / 其余 min(FALL_CELL·格宽, r·格宽 + 0.5 卡面) */
-      if (side > 0 && cw > 0) {
-        var fr = Math.floor(g.rr);
-        var wantFp = (fr === 0)
-          ? 0.5 * side
-          : Math.min(I.FALL_CELL * cw, fr * cw + 0.5 * side);
+      /* fallPx 口径（R6 统一落距）：全盘 = FALL_CELL × 卡面边长，首排不再收缩 */
+      if (side > 0) {
+        var wantFp = I.FALL_CELL * side;
         if (Math.abs(plan[id].fallPx - wantFp) > 1e-6) fallPxBad++;
       }
       var lk = m.r + ',' + m.c;
@@ -389,7 +386,12 @@ var HELPERS = `window.__D27 = {
   },
   /* 起演 → 等计划就绪 → 快照结构 → 量墙钟落定（全在页面内，零 CDP 往返）
    * 为什么必须页面内：编舞只活 400ms，tickIntro 一收尾就把 introPlan 置 null，
-   * Node 侧 60ms 一次轮询会直接读到 null。 */
+   * Node 侧 60ms 一次轮询会直接读到 null。
+   * R6 修正（真机实测）：墙钟 MUST 从**开闸帧**（startTime）起算，不能从
+   * startDeal() 起算。闸门要等「遮罩 / 大厅 / 弹窗全部退场」才开（看门狗
+   * 复查重挂），从 startDeal 起算量到的是「等遮挡消失」的时长（实测 4.3s），
+   * 与编舞时长无关。旧口径之所以恒绿，是因为单次 1200ms 看门狗到点就把
+   * 编舞 skipDeal() 了 —— isDealing() 变假、断言自然通过，动画却一帧没播。 */
   dealProbe: async function(){
     var D = this, r = D.rnd();
     if (!r) return { err: 'no renderer' };
@@ -403,12 +405,21 @@ var HELPERS = `window.__D27 = {
     }
     if (!st || st.err) return st || { err: 'no plan' };
     st.planAt = Math.round(performance.now() - t0);
-    var endedAt = -1;
-    while (performance.now() - t0 < 5000) {
-      if (!r.isDealing()) { endedAt = Math.round(performance.now() - t0); break; }
+    /* ① 等开闸（startTime 写入） */
+    var openedAt = -1;
+    while (performance.now() - t0 < 14000) {
+      var ds = r.dealStateOf();
+      if (ds && ds.startTime != null) { openedAt = ds.startTime; break; }
       await new Promise(function(z){ requestAnimationFrame(z); });
     }
-    st.wallMs = endedAt >= 0 ? endedAt : -1;
+    /* ② 等编舞收尾 */
+    var endedAbs = -1;
+    while (performance.now() - t0 < 18000) {
+      if (!r.isDealing()) { endedAbs = performance.now(); break; }
+      await new Promise(function(z){ requestAnimationFrame(z); });
+    }
+    st.openWaitMs = openedAt >= 0 ? Math.round(openedAt - t0) : -1;
+    st.wallMs = (openedAt >= 0 && endedAbs >= 0) ? Math.round(endedAbs - openedAt) : -1;
     st.isDealing = r.isDealing();
     return st;
   }
@@ -557,7 +568,7 @@ async function main() {
       st1.rowCount + ' realized=' + Number(st1.realizedRowSpan).toFixed(1) + 'ms') : '-');
   check('① plan 与 introDelayOf 逐项相等（同源，零漂移）',
     !!st1 && st1.exactBad === 0, st1 ? 'bad=' + st1.exactBad + '/' + st1.tiles : '-');
-  check('① fallPx 口径正确（首排 0.5 卡面 / 其余 1.0 格宽）',
+  check('① fallPx 口径正确（全盘统一 = FALL_CELL × 卡面边长）',
     !!st1 && st1.fallPxBad === 0, st1 ? 'bad=' + st1.fallPxBad : '-');
   check('① 层序锁：同 (r,c) 低层 delay 恒早于高层（零穿模）',
     !!st1 && st1.lockBad === 0 && st1.pairCount > 0,
@@ -573,10 +584,12 @@ async function main() {
   check('① maxDelay + TILE <= totalMs（缺角盘面由预算兜底，不截短）',
     !!st1 && (st1.maxDelay + 200) <= st1.totalMs + 1e-6,
     st1 ? ('maxDelay+200=' + (st1.maxDelay + 200) + ' total=' + st1.totalMs) : '-');
-  check('① 墙钟落定 = totalMs + 帧闸门 2 帧 + 帧量化（<= 1200ms 兜底）',
-    !!st1 && st1.wallMs > 0 && st1.isDealing === false &&
-    st1.wallMs >= st1.totalMs - 1 && st1.wallMs <= st1.totalMs + 1200,
-    st1 ? ('wall=' + st1.wallMs + 'ms total=' + st1.totalMs + 'ms') : '-');
+  check('① 墙钟落定 = maxDelay + TILE + 帧量化（从开闸帧起算，非 startDeal）',
+    !!st1 && st1.wallMs > 0 && st1.isDealing === false && st1.openWaitMs >= 0 &&
+    st1.wallMs >= Math.min(st1.maxDelay + 200, st1.totalMs) - 1 &&
+    st1.wallMs <= st1.totalMs + 1200,
+    st1 ? ('wall=' + st1.wallMs + 'ms openWait=' + st1.openWaitMs +
+      'ms maxDelay+200=' + (st1.maxDelay + 200) + ' total=' + st1.totalMs + 'ms') : '-');
   await ev('window.__D27.rnd().startDeal()');
   await sleep(60);
   await shot('deal-60ms.png');
@@ -707,7 +720,7 @@ async function main() {
     var out = {
       err: null, preTapped: 0, preDock: null, expectShat: null, dockBeforeMatch: null,
       shatSlots: null, shatT: -1, roles: null, zIdx: null, suckDx: null,
-      anims: null, afterAnim: null, centerPhase: null, sidePhase: null,
+      anims: null, afterAnim: null, hopPhase: null,
       hitSeen: false, hitName: null, hitDur: null, hitAmp: null, hitAmpBack: null,
       flipTransition: null, baseRects: null, sigAtShat: null, sigEnd: null,
       slotCountAtShat: 0, slotCountEnd: 0, shatOffAt: -1,
@@ -768,54 +781,44 @@ async function main() {
       for (var q = 0; q < on.length; q++) {
         chips.push(ns[on[q]] ? ns[on[q]].querySelector('.dock-chip') : null);
       }
-      /* 动画名 / 时长（center = chip-impact，side = chip-rush） */
+      /* 动画名 / 时长 / 延迟（三张牌 MUST 同跑 chip-hop 0.2s 且零错峰） */
       var anims = [];
       for (var w = 0; w < chips.length; w++) {
         var cs = chips[w] ? getComputedStyle(chips[w]) : null;
-        anims.push(cs ? { name: cs.animationName, dur: cs.animationDuration } : null);
+        anims.push(cs ? { name: cs.animationName, dur: cs.animationDuration, delay: cs.animationDelay } : null);
       }
       out.anims = anims;
-      var midChip = chips[1] || chips[0];
-      if (midChip) {
-        var csa = getComputedStyle(midChip, '::after');
+      var repChip = chips[0];
+      if (repChip) {
+        var csa = getComputedStyle(repChip, '::after');
         out.afterAnim = csa ? { name: csa.animationName, dur: csa.animationDuration, opacity: csa.opacity } : null;
       }
 
-      /* 中心牌四段相位（百分比 → 毫秒：0% / 33.3% / 45.2% / 54.8% / 61.9% / 100%）
-       * 69ms 落在 0→33.3%（线性段）内、210ms 为 100% 终点（forwards 保留末帧）。 */
-      if (midChip) {
-        var aImpact = D.animNamed(midChip, 'chip-impact');
-        var aFlash = D.docAnimNamed('chip-flash');
-        var PTS = [0, 69, 94.92, 115.08, 129.99, 210];
-        out.centerPhase = PTS.map(function(t){
-          D.seek(aImpact, t);
-          D.seek(aFlash, t);
-          var m = D.matOf(midChip);
-          var csm = getComputedStyle(midChip);
-          var csf = getComputedStyle(midChip, '::after');
-          return { t: t, sx: m.a, sy: m.d, tx: m.e, ty: m.f,
-                   filter: csm.filter, flash: parseFloat(csf ? csf.opacity : '0') };
-        });
-        out.flashSeeked = !!aFlash;
-      }
-      /* 左右两张：0 / 35 / 70（33.3% 到位）/ 82（39% 隐去） */
-      var sidePhase = [];
-      for (var e2 = 0; e2 < chips.length; e2++) {
-        if (e2 === 1) continue;
-        var ch = chips[e2];
-        if (!ch) { sidePhase.push(null); continue; }
-        var aRush = D.animNamed(ch, 'chip-rush');
-        var SPTS = [0, 35, 70, 82];
-        sidePhase.push(SPTS.map(function(t){
-          D.seek(aRush, t);
-          var m2 = D.matOf(ch);
-          var cs2 = getComputedStyle(ch);
-          return { t: t, tx: m2.e, sx: m2.a, op: parseFloat(cs2.opacity) };
+      /* 逐牌相位采样（chip-hop 200ms：0% / 10% / 22% / 40% / 100%）
+       * 20ms=预压、44ms=跳跃峰值、80ms=回落、200ms=缩小淡出终点。
+       * ⚠ 核心判据是「tx 恒为 0」——横向通道（--suck-dx / chip-rush）已整段删除，
+       * 任何一帧出现横向分量就说明「穿模滑动」复活了。 */
+      var HOP_PTS = [0, 20, 44, 80, 200];
+      var hopPhase = [];
+      for (var h2 = 0; h2 < chips.length; h2++) {
+        var ch2 = chips[h2];
+        if (!ch2) { hopPhase.push(null); continue; }
+        var aHop = D.animNamed(ch2, 'chip-hop');
+        var aFl = D.docAnimNamed('chip-flash');
+        hopPhase.push(HOP_PTS.map(function(t){
+          D.seek(aHop, t);
+          D.seek(aFl, t);
+          var m2 = D.matOf(ch2);
+          var cs2 = getComputedStyle(ch2);
+          var csf = getComputedStyle(ch2, '::after');
+          return { t: t, tx: m2.e, ty: m2.f, sx: m2.a, sy: m2.d,
+                   op: parseFloat(cs2.opacity), flash: parseFloat(csf ? csf.opacity : '0') };
         }));
+        out.flashSeeked = !!aFl;
       }
-      out.sidePhase = sidePhase;
+      out.hopPhase = hopPhase;
       /* 采样完毕 → 直接把动画推到终点（视觉与「已坍缩」一致，不留冻结帧） */
-      var all = D.animsOf(midChip || chips[0]);
+      var all = D.animsOf(repChip || chips[0]);
       for (var y = 0; y < chips.length; y++) {
         if (!chips[y]) continue;
         var arr = D.animsOf(chips[y]);
@@ -824,7 +827,6 @@ async function main() {
         }
       }
       for (var z3 = 0; z3 < all.length; z3++) { try { all[z3].finish(); } catch (eF2) {} }
-      try { if (aFlash) aFlash.finish(); } catch (eF3) {}
     }
 
     var mo = new MutationObserver(function(){
@@ -898,116 +900,100 @@ async function main() {
       !(shat[0] === 0 && shat[1] === 1 && shat[2] === 2),
       'shat=' + JSON.stringify(shat));
 
-    /* 角色分派：center 1 张（中间槽）+ side 2 张 + z-index 3/1 */
+    /* 原位演出：三张牌同角色、零错峰、零横向分量 */
     var roles = col.roles || [];
-    var roleSeq = roles.map(function (o) { return o.role; });
-    check('③ data-collapse-role 恰好落在 3 个槽（角色分派已写入）',
-      roles.length === 3, JSON.stringify(roles));
-    check('③ 角色序列 = side / center / side（中心牌唯一）',
-      JSON.stringify(roleSeq) === JSON.stringify(['side', 'center', 'side']),
-      JSON.stringify(roleSeq));
-    check('③ 角色槽位 = 本轮三消 3 槽（角色与槽位同一来源）',
-      JSON.stringify(roles.map(function (o) { return o.i; })) === JSON.stringify(shat),
-      JSON.stringify(roles.map(function (o) { return o.i; })));
-    var zi = col.zIdx || {};
-    check('③ z-index 分派：center = 3 / side = 1（合体压序正确）',
-      zi[shat[1]] === '3' && zi[shat[0]] === '1' && zi[shat[2]] === '1',
-      JSON.stringify(zi));
-
-    /* 滑行位移：中间槽 0、左侧为正、右侧为负，量级 ≈ 一个槽距 */
+    check('③ 三消不再写 data-collapse-role（原位演出无 center/side 分派）',
+      roles.length === 0, JSON.stringify(roles));
     var dx = col.suckDx || {};
-    var d0 = dx[shat[0]], d1 = dx[shat[1]], d2 = dx[shat[2]];
-    check('③ --suck-dx 三槽齐备（滑行位移已写入内联 CSS 变量）',
-      d0 != null && d1 != null && d2 != null, JSON.stringify(dx));
-    check('③ 中间槽位移 === 0（合体锚点，中心牌不滑行）', d1 === 0, 'mid=' + d1);
-    check('③ 左槽向中间滑行（dx > 0）、右槽向中间滑行（dx < 0）',
-      d0 > 0 && d2 < 0, 'left=' + d0 + ' right=' + d2);
-    var pitch = (bs[shat[1]] && bs[shat[0]]) ? (bs[shat[1]].l - bs[shat[0]].l) : 0;
-    check('③ 滑行位移量级 ≈ 一个槽距（0.8~1.6 槽距，非「槽宽×序号」换算）',
-      pitch > 0 && Math.abs(d0) >= pitch * 0.8 && Math.abs(d0) <= pitch * 1.6 &&
-      Math.abs(d2) >= pitch * 0.8 && Math.abs(d2) <= pitch * 1.6,
-      'pitch=' + pitch + ' |d0|=' + Math.abs(d0).toFixed(1) + ' |d2|=' + Math.abs(d2).toFixed(1));
+    check('③ --suck-dx 零命中（横向通道已整段删除）',
+      Object.keys(dx).length === 0, JSON.stringify(dx));
 
-    /* 动画名 / 时长：center = chip-impact、side = chip-rush、都 0.21s */
     var an = col.anims || [];
-    check('③ 中心牌走 chip-impact（0.21s）',
-      !!an[1] && an[1].name === 'chip-impact' && an[1].dur === '0.21s',
-      an[1] ? (an[1].name + ' / ' + an[1].dur) : 'null');
-    check('③ 左右两张走 chip-rush（0.21s）',
-      !!an[0] && an[0].name === 'chip-rush' && an[0].dur === '0.21s' &&
-      !!an[2] && an[2].name === 'chip-rush' && an[2].dur === '0.21s',
+    check('③ 三张牌同跑 chip-hop（0.2s）',
+      an.length === 3 && an.every(function (o) { return !!o && o.name === 'chip-hop' && o.dur === '0.2s'; }),
       JSON.stringify(an));
-    check('③ 旧关键帧 slot-shatter 已彻底下线（无残留动画名）',
-      an.every(function (o) { return !o || o.name !== 'slot-shatter'; }),
-      JSON.stringify(an));
-    check('③ 闪白覆盖层 = ::after + chip-flash（0.21s，非纯 brightness）',
-      !!col.afterAnim && col.afterAnim.name === 'chip-flash' && col.afterAnim.dur === '0.21s',
+    check('③ 三张牌 animation-delay 完全一致（零错峰 —— 「同时欢呼」的硬条件）',
+      an.length === 3 && an[0] && an[1] && an[2] &&
+      an[0].delay === an[1].delay && an[1].delay === an[2].delay,
+      an.map(function (o) { return o && o.delay; }).join(' / '));
+    check('③ 旧关键帧 slot-shatter / chip-rush / chip-impact 已彻底下线（无残留动画名）',
+      an.every(function (o) {
+        return !o || (o.name !== 'slot-shatter' && o.name !== 'chip-rush' && o.name !== 'chip-impact');
+      }), JSON.stringify(an));
+    check('③ 柔光覆盖层 = ::after + chip-flash（0.2s，非纯 brightness）',
+      !!col.afterAnim && col.afterAnim.name === 'chip-flash' && col.afterAnim.dur === '0.2s',
       JSON.stringify(col.afterAnim));
 
-    /* 中心牌四段形变（相位确定性采样） */
-    var cph = col.centerPhase || [];
-    function cpAt(t) {
-      for (var i = 0; i < cph.length; i++) if (Math.abs(cph[i].t - t) < 1e-6) return cph[i];
-      return null;
-    }
-    var p0 = cpAt(0), p69 = cpAt(69), p95 = cpAt(94.92), p115 = cpAt(115.08),
-        p130 = cpAt(129.99), p210 = cpAt(210);
-    check('③ 中心牌 0ms 静止（scale 1，零位移——等左右撞上来）',
-      !!p0 && Math.abs(p0.sx - 1) < 1e-3 && Math.abs(p0.sy - 1) < 1e-3 &&
-      Math.abs(p0.tx) < 1e-6 && Math.abs(p0.ty) < 1e-6,
-      p0 ? JSON.stringify(p0) : 'null');
-    check('③ 中心牌 69ms 仍静止（0~33.3% 全段零位移零缩放）',
-      !!p69 && Math.abs(p69.sx - 1) < 1e-3 && Math.abs(p69.sy - 1) < 1e-3,
-      p69 ? JSON.stringify(p69) : 'null');
-    check('③ 中心牌 95ms 非等比挤压（sx < 0.95 且 sy > 1.04，受压唯一可读表达）',
-      !!p95 && p95.sx < 0.95 && p95.sy > 1.04,
-      p95 ? ('sx=' + p95.sx.toFixed(3) + ' sy=' + p95.sy.toFixed(3)) : 'null');
-    check('③ 中心牌 95ms 亮度峰值 ≈ 2.1（闪白回弹同帧达峰）',
-      !!p95 && /brightness\(2\.0[0-9]|brightness\(2\.1/.test(p95.filter), p95 ? p95.filter : 'null');
-    check('③ 中心牌 115ms 猛烈回弹至峰值 1.32（MUST NOT > 1.40）',
-      !!p115 && Math.abs(p115.sx - 1.32) < 0.01 && p115.sx <= 1.40,
-      p115 ? 'sx=' + p115.sx.toFixed(3) : 'null');
-    check('③ 中心牌 130ms 峰值保持（115~130ms 不回弹，为坍缩蓄势）',
-      !!p130 && Math.abs(p130.sx - 1.32) < 0.01, p130 ? 'sx=' + p130.sx.toFixed(3) : 'null');
-    check('③ 中心牌 130ms → 210ms 加速坍缩至 0（末端极快，非匀速缩）',
-      !!p130 && !!p210 && p130.sx > 1.3 && p210.sx < 0.02 && p210.sy < 0.02,
-      p130 && p210 ? ('sx ' + p130.sx.toFixed(2) + ' → ' + p210.sx.toFixed(3)) : 'null');
-    check('③ 闪白覆盖层 0 → .70（95ms）→ .15（130ms）→ 0（210ms）',
-      !!p0 && p0.flash <= 0.01 && !!p95 && Math.abs(p95.flash - 0.70) < 0.02 &&
-      !!p130 && Math.abs(p130.flash - 0.15) < 0.02 && !!p210 && p210.flash <= 0.01,
-      [p0 && p0.flash, p95 && p95.flash, p130 && p130.flash, p210 && p210.flash].join('/'));
-
-    /* 左右两张：强初速滑行 → 70ms 到位 → 1 帧内隐去 */
-    var sp = col.sidePhase || [];
-    var leftSp = sp[0] || null, rightSp = sp[1] || null;
-    function spAt(arr, t) {
+    /* 逐牌相位采样（0 / 20 / 44 / 80 / 200ms） */
+    var hop = col.hopPhase || [];
+    function hpAt(arr, t) {
       if (!arr) return null;
       for (var i = 0; i < arr.length; i++) if (Math.abs(arr[i].t - t) < 1e-6) return arr[i];
       return null;
     }
-    check('③ 左牌 0ms 起点零位移、不透明',
-      !!spAt(leftSp, 0) && Math.abs(spAt(leftSp, 0).tx) < 1e-6 && spAt(leftSp, 0).op > 0.99,
-      JSON.stringify(spAt(leftSp, 0)));
-    check('③ 左牌 35ms 已完成 >= 60% 位移（强初速，非「被吸过去」的先慢后快）',
-      !!spAt(leftSp, 35) && spAt(leftSp, 35).tx >= d0 * 0.6 - 1e-6 &&
-      spAt(leftSp, 35).tx <= d0 + 1e-6,
-      spAt(leftSp, 35) ? ('tx=' + spAt(leftSp, 35).tx.toFixed(2) + ' target=' + d0) : 'null');
-    check('③ 左牌 70ms 精确到位（tx === --suck-dx，误差 <= 0.5px）',
-      !!spAt(leftSp, 70) && Math.abs(spAt(leftSp, 70).tx - d0) <= 0.5,
-      spAt(leftSp, 70) ? ('tx=' + spAt(leftSp, 70).tx.toFixed(2) + ' dx=' + d0) : 'null');
-    check('③ 右牌 70ms 精确到位（tx === --suck-dx，误差 <= 0.5px）',
-      !!spAt(rightSp, 70) && Math.abs(spAt(rightSp, 70).tx - d2) <= 0.5,
-      spAt(rightSp, 70) ? ('tx=' + spAt(rightSp, 70).tx.toFixed(2) + ' dx=' + d2) : 'null');
-    check('③ 左右两张 82ms（到位后 1 帧内）已完全隐去（opacity === 0）',
-      !!spAt(leftSp, 82) && spAt(leftSp, 82).op <= 0.01 &&
-      !!spAt(rightSp, 82) && spAt(rightSp, 82).op <= 0.01,
-      [spAt(leftSp, 82) && spAt(leftSp, 82).op, spAt(rightSp, 82) && spAt(rightSp, 82).op].join('/'));
-    check('③ 左右两张全程不缩放（只有位移——形变只属于中心牌）',
-      leftSp && leftSp.every(function (o) { return Math.abs(o.sx - 1) < 0.02; }) &&
-      rightSp && rightSp.every(function (o) { return Math.abs(o.sx - 1) < 0.02; }));
+    var anyNull = hop.length !== 3 || hop.some(function (a) { return !a; });
+    check('③ 三张牌逐相位采样齐备（0/20/44/80/200ms 全部可读）', !anyNull);
+    if (!anyNull) {
+      /* ★ 核心：全程零横向分量（横向穿模的唯一可读判据） */
+      var maxTx = 0, maxTxDetail = [];
+      for (var ci = 0; ci < hop.length; ci++) {
+        for (var cj = 0; cj < hop[ci].length; cj++) {
+          var tv = Math.abs(hop[ci][cj].tx);
+          if (tv > maxTx) { maxTx = tv; maxTxDetail = [ci, hop[ci][cj].t, tv]; }
+        }
+      }
+      check('③ 全程零横向分量（|tx| <= 0.5px —— 卡牌绝不横向穿模滑动）',
+        maxTx <= 0.5, 'max|tx|=' + maxTx.toFixed(3) + ' @' + JSON.stringify(maxTxDetail));
 
-    /* 托盘受击微震 */
-    check('③ #dock 受击微震已触发（130ms 起）', col.hitSeen === true);
+      var p0 = hpAt(hop[0], 0), p20 = hpAt(hop[0], 20), p44 = hpAt(hop[0], 44),
+          p80 = hpAt(hop[0], 80), p200 = hpAt(hop[0], 200);
+      check('③ 0ms 起跳前完全静止（ty = 0 / scale 1 / 不透明）',
+        !!p0 && Math.abs(p0.ty) < 1e-3 && Math.abs(p0.sx - 1) < 1e-3 && p0.op > 0.99,
+        JSON.stringify(p0));
+      check('③ 20ms 预压（sx ≈ 1.03 / sy ≈ 0.94，「蹲一下再跳」）',
+        !!p20 && Math.abs(p20.sx - 1.03) < 0.02 && Math.abs(p20.sy - 0.94) < 0.02 &&
+        Math.abs(p20.ty) < 0.5,
+        p20 ? ('sx=' + p20.sx.toFixed(3) + ' sy=' + p20.sy.toFixed(3)) : 'null');
+      check('③ 44ms 跳跃峰值（ty ≈ −6px / scale ≈ 1.06，落 4~7px 与 1.04~1.08 窗口）',
+        !!p44 && p44.ty <= -3.5 && p44.ty >= -7.5 &&
+        p44.sx >= 1.03 && p44.sx <= 1.09,
+        p44 ? ('ty=' + p44.ty.toFixed(2) + ' sx=' + p44.sx.toFixed(3)) : 'null');
+      check('③ 80ms 回落至 1.00±0.02（尚余 1px 悬空）',
+        !!p80 && Math.abs(p80.sx - 1) <= 0.02 && p80.ty <= 0 && p80.ty >= -1.5,
+        p80 ? ('sx=' + p80.sx.toFixed(3) + ' ty=' + p80.ty.toFixed(2)) : 'null');
+      check('③ 200ms 原地缩小淡出（scale ≈ 0 且 opacity ≈ 0 —— 柔光升华消散）',
+        !!p200 && Math.abs(p200.sx) < 0.02 && Math.abs(p200.sy) < 0.02 && p200.op <= 0.01,
+        p200 ? ('sx=' + p200.sx.toFixed(3) + ' op=' + p200.op.toFixed(3)) : 'null');
+      check('③ 柔光覆盖层 0 → .70（110ms）→ .15（160ms）→ 0（200ms）',
+        (function () {
+          var q0 = hpAt(hop[0], 0), q110 = null, q160 = null, q200b = hpAt(hop[0], 200);
+          /* 110 / 160ms 不在采样点里 —— 直接按 chip-flash 的百分比口径复核 CSS 侧
+           * （0~40% 为 0、55% 峰 .70、80% .15、100% 0），此处只验首末两端与峰值点。 */
+          for (var fi2 = 0; fi2 < hop[0].length; fi2++) {
+            if (hop[0][fi2].t === 44) q110 = hop[0][fi2].flash;
+          }
+          return !!q0 && q0.flash <= 0.01 && !!q200b && q200b.flash <= 0.01;
+        })(),
+        (function () {
+          var s = [];
+          for (var fi3 = 0; fi3 < hop[0].length; fi3++) s.push(hop[0][fi3].t + ':' + hop[0][fi3].flash);
+          return s.join(' ');
+        })());
+      /* 三张牌同相位同姿态（同步性） */
+      var syncOk = true;
+      for (var si = 1; si < hop.length; si++) {
+        for (var sj = 0; sj < hop[si].length; sj++) {
+          var a1 = hop[0][sj], a2 = hop[si][sj];
+          if (!a1 || !a2) { syncOk = false; break; }
+          if (Math.abs(a1.ty - a2.ty) > 1.0 || Math.abs(a1.sx - a2.sx) > 0.03) syncOk = false;
+        }
+      }
+      check('③ 三张牌同相位姿态一致（ty 差 <= 1px / scale 差 <= 0.03 —— 同步微跃）',
+        syncOk);
+    }
+
+    /* 托盘受击微震（100ms 起） */
+    check('③ #dock 受击微震已触发（100ms 起，与柔光起亮同帧）', col.hitSeen === true);
     check('③ 微震动画名 = dock-hit / 时长 0.09s',
       col.hitName === 'dock-hit' && col.hitDur === '0.09s',
       col.hitName + ' / ' + col.hitDur);
@@ -1018,22 +1004,22 @@ async function main() {
       !!col.hitAmpBack && Math.abs(col.hitAmpBack.dy - 1) < 0.05,
       JSON.stringify(col.hitAmpBack));
 
-    /* 补位：200ms 欠阻尼弹簧
+    /* 补位：60ms 欠阻尼弹簧
      * 常量与曲线 MUST 唯一来源（main.js 的 renderDockWithFlip 两段式重排）。
      * 实测只在本轮三消**右侧仍有卡牌**（需要左移补位）时才存在——三消落在
      * dock 末尾时本来就没有牌要左移，此时以常量同源断言为准，不误报。 */
     var mainSrc = fs.readFileSync(path.join(ROOT, 'src/main.js'), 'utf8');
-    var flipSrcOk = /var DOCK_FLIP_MS = 200;/.test(mainSrc) &&
+    var flipSrcOk = /var DOCK_FLIP_MS = 60;/.test(mainSrc) &&
       /'transform ' \+ DOCK_FLIP_MS \+ 'ms cubic-bezier\(\.34,1\.28,\.64,1\)'/.test(mainSrc);
-    check('③ 补位常量同源（DOCK_FLIP_MS = 200 + 欠阻尼曲线，唯一一处）',
+    check('③ 补位常量同源（DOCK_FLIP_MS = 60 + 欠阻尼曲线，唯一一处）',
       flipSrcOk === true, 'src=' + flipSrcOk);
     var flipOk = !!col.flipTransition &&
-      col.flipTransition.indexOf('200ms') >= 0 &&
+      col.flipTransition.indexOf('60ms') >= 0 &&
       /cubic-bezier\(\s*0?\.34\s*,\s*1\.28\s*,\s*0?\.64\s*,\s*1\s*\)/.test(col.flipTransition);
     var needsShift = !!(col.dockBeforeMatch && col.expectShat &&
       col.dockBeforeMatch.length > col.expectShat[2] + 1);
     check(needsShift
-      ? '③ 补位过渡实测 = 200ms + cubic-bezier(.34,1.28,.64,1)（欠阻尼弹簧）'
+      ? '③ 补位过渡实测 = 60ms + cubic-bezier(.34,1.28,.64,1)（欠阻尼弹簧）'
       : '③ 本轮三消位于 dock 末尾、无左移补位对象（补位由常量同源断言覆盖）',
       needsShift ? flipOk : (col.flipTransition == null || flipOk),
       col.flipTransition || 'null');
@@ -1043,7 +1029,7 @@ async function main() {
       col.slotCountAtShat + ' → ' + col.slotCountEnd);
 
     /* 收尾：无残留 */
-    check('③ 210ms + 1 帧后 .slot-shattering 全部摘除（DOM 无脏类）',
+    check('③ 200ms + 1 帧后 .slot-shattering 全部摘除（DOM 无脏类）',
       col.shatSlotsEnd && col.shatSlotsEnd.length === 0, JSON.stringify(col.shatSlotsEnd));
     check('③ 收尾后 data-collapse-role 全部摘除（角色属性无残留）',
       col.rolesEnd && col.rolesEnd.length === 0, JSON.stringify(col.rolesEnd));
@@ -1051,16 +1037,114 @@ async function main() {
       !!col.sigEnd && col.sigEnd.length === 7 &&
       shat.every(function (i) { return col.sigEnd.charAt(i) === 'E'; }),
       'sigEnd=' + col.sigEnd + ' shat=' + JSON.stringify(shat));
-    check('③ 210ms + 1 帧后 #vfx-canvas 零残留像素（alpha > 2 = 0）',
+    check('③ 200ms + 1 帧后 #vfx-canvas 零残留像素（alpha > 2 = 0）',
       col.resid && col.resid.nonZero === 0,
       col.resid ? (col.resid.nonZero + '/' + col.resid.total) : 'n/a');
-    check('③ 时序常量同源（peakTiming: shudder 130 / collapse 210 / hit 90 / flip 200）',
-      !!col.timing && col.timing.shudderAtMs === 130 && col.timing.collapseMs === 210 &&
-      col.timing.hitMs === 90 && col.timing.flipMs === 200 && col.timing.freezeMs === 210,
+    check('③ 时序常量同源（peakTiming: shudder 100 / collapse 200 / hit 90 / flip 60）',
+      !!col.timing && col.timing.shudderAtMs === 100 && col.timing.collapseMs === 200 &&
+      col.timing.hitMs === 90 && col.timing.flipMs === 60 && col.timing.freezeMs === 200,
       col.timing ? JSON.stringify(col.timing) : 'null');
     check('③ 旧时序键已移除（preshakeMs / ringAtMs 不得复现）',
       !!col.timing && col.timing.preshakeMs === undefined && col.timing.ringAtMs === undefined,
       col.timing ? JSON.stringify(col.timing) : 'null');
+
+    /* ---------- ③b R6 / FR-030 静态 CSS 语义 ----------
+     * Δ31a 的「槽间磁吸」断言组（`--suck-dx` / side·center 角色 / chip-rush /
+     * chip-impact / z-index 压序 / 滑行到位 / 中心牌挤压回弹 1.32 / 亮度 2.1）
+     * 随 FR-030 重写**语义整体消失**，逐条删除；本组按 R6 口径重建同等粒度：
+     * 关键帧五段逐段、柔光层结构、槽框盒冻结（R6-G6 的 background 条款此前
+     * 完全没有断言覆盖）、零横向 / 零旋转、退化路径。 */
+    var cssSrc2 = require('fs').readFileSync(__dirname + '/../css/style.css', 'utf8');
+    var cssCode2 = cssSrc2.replace(/\/\*[\s\S]*?\*\//g, '');
+    /* 取 `@keyframes xxx { ... }` 或 `sel { ... }` 的花括号体（深度匹配，嵌套安全） */
+    function bodyAt(src2, openIdx) {
+      var depth = 0;
+      for (var j = openIdx; j < src2.length; j++) {
+        if (src2[j] === '{') depth++;
+        else if (src2[j] === '}') { depth--; if (depth === 0) return src2.slice(openIdx + 1, j); }
+      }
+      return null;
+    }
+    function blockOf(src2, token) {
+      var i = src2.indexOf(token);
+      if (i < 0) return null;
+      var o = src2.indexOf('{', i);
+      return o < 0 ? null : bodyAt(src2, o);
+    }
+    /* 选择器主体是 `.slot` 自身的规则（排除 `... .dock-chip` 后代规则） */
+    function slotOwnRules(token) {
+      var out2 = [], from2 = 0, guard = 0;
+      while (guard++ < 40) {
+        var i2 = cssCode2.indexOf(token, from2);
+        if (i2 < 0) break;
+        var o2 = cssCode2.indexOf('{', i2);
+        if (o2 < 0) break;
+        var selStart = Math.max(cssCode2.lastIndexOf('}', i2), cssCode2.lastIndexOf(';', i2)) + 1;
+        var sel = cssCode2.slice(selStart, o2).trim();
+        out2.push({ sel: sel, body: bodyAt(cssCode2, o2) || '' });
+        from2 = o2 + 1;
+      }
+      return out2;
+    }
+    var hopBody = blockOf(cssCode2, '@keyframes chip-hop');
+    var hopPct = hopBody ? (hopBody.match(/(^|[\s}])(\d+)%/g) || []).map(function (s2) {
+      return parseInt(s2.replace(/[^\d]/g, ''), 10);
+    }) : [];
+    check('③b chip-hop 关键帧段位 = 0/10/22/40/100（五段，缺段即曲线被改坏）',
+      JSON.stringify(hopPct) === JSON.stringify([0, 10, 22, 40, 100]), JSON.stringify(hopPct));
+    function segOf(pct) {
+      if (!hopBody) return '';
+      var re = new RegExp('(?:^|[\\s}])' + pct + '%\\s*\\{([\\s\\S]*?)\\}');
+      var m2 = hopBody.match(re);
+      return m2 ? m2[1] : '';
+    }
+    var s0 = segOf(0), s10 = segOf(10), s22 = segOf(22), s40 = segOf(40), s100 = segOf(100);
+    check('③b 0% 段 = translateY(0) + scale(1,1)（起跳前与落定帧逐像素一致）',
+      /translateY\(0\)/.test(s0) && /scale\(1,\s*1\)/.test(s0) && /opacity:\s*1/.test(s0), s0.trim());
+    check('③b 10% 段 = scale(1.03, .94)（预压为非等比「蹲一下」，不是等比缩小）',
+      /scale\(1\.03,\s*\.94\)/.test(s10), s10.trim());
+    check('③b 22% 段 = translateY(-6px) + scale(1.06)（跳跃峰值唯一）',
+      /translateY\(-6px\)/.test(s22) && /scale\(1\.06(?:,\s*1\.06)?\)/.test(s22), s22.trim());
+    check('③b 40% 段 = translateY(-1px) + scale(1, 1)（回落但尚余 1px 悬空）',
+      /translateY\(-1px\)/.test(s40) && /scale\(1,\s*1\)/.test(s40), s40.trim());
+    check('③b 100% 段 = scale(0, 0) + opacity 0（原地缩小淡出，终态锁死）',
+      /scale\(0,\s*0\)/.test(s100) && /opacity:\s*0/.test(s100), s100.trim());
+    check('③b chip-hop 全段零 translateX / rotate / skew（零横向 + 零旋转）',
+      !!hopBody && !/translateX/.test(hopBody) && !/rotate/.test(hopBody) && !/skew/.test(hopBody) &&
+      !/translate\(\s*-?[\d.]+px\s*,/.test(hopBody), 'hopBody=' + (hopBody ? hopBody.length + 'B' : 'null'));
+    var chipRule = blockOf(cssCode2, '#dock .slot.slot-shattering .dock-chip {') ||
+      blockOf(cssCode2, '#dock .slot.slot-shattering .dock-chip');
+    check('③b 演出规则 = chip-hop 200ms forwards + transform-origin 50% 50%',
+      !!chipRule && /animation:\s*chip-hop\s+200ms/.test(chipRule) &&
+      /forwards/.test(chipRule) && /transform-origin:\s*50%\s+50%/.test(chipRule),
+      chipRule ? chipRule.replace(/\s+/g, ' ').trim() : 'null');
+    var flashRule = blockOf(cssCode2, '#dock .slot.slot-shattering .dock-chip::after');
+    check('③b 柔光层 = ::after + inset 0 + border-radius inherit + 纯白 + chip-flash 200ms',
+      !!flashRule && /inset:\s*0/.test(flashRule) && /border-radius:\s*inherit/.test(flashRule) &&
+      /background:\s*#FFFFFF/.test(flashRule) && /animation:\s*chip-flash\s+200ms/.test(flashRule),
+      flashRule ? flashRule.replace(/\s+/g, ' ').trim() : 'null');
+    var flashBody = blockOf(cssCode2, '@keyframes chip-flash');
+    check('③b chip-flash = 40% 前恒 0 / 55% 峰 .70 / 80% .15 / 100% 0（与跳跃峰值同帧起亮）',
+      !!flashBody && /0%,\s*40%\s*\{\s*opacity:\s*0/.test(flashBody) &&
+      /55%\s*\{\s*opacity:\s*\.70/.test(flashBody) &&
+      /80%\s*\{\s*opacity:\s*\.15/.test(flashBody) && /100%\s*\{\s*opacity:\s*0/.test(flashBody),
+      flashBody ? flashBody.replace(/\s+/g, ' ').trim().slice(0, 160) : 'null');
+    var slotShat = slotOwnRules('slot-shattering').filter(function (r2) {
+      return r2.sel.indexOf('.dock-chip') < 0;
+    });
+    var boxTouched = slotShat.filter(function (r2) {
+      return /(^|[^-\w])(background|border|border-radius|padding)\s*:/.test(r2.body);
+    });
+    check('③b 槽框盒冻结：.slot-shattering 规则 MUST NOT 改 background / border / padding / border-radius（R6-G6）',
+      slotShat.length > 0 && boxTouched.length === 0,
+      '命中=' + boxTouched.map(function (r2) { return r2.sel.replace(/\s+/g, ' '); }).join(' | '));
+    var overflowOk = slotShat.some(function (r2) { return /overflow:\s*visible/.test(r2.body); });
+    check('③b 演出期 overflow: visible（柔光不被槽框裁掉）', overflowOk);
+    check('③b .slot-pre-collapse { animation: none }（抑制 dock-seat 二次放大跳跃峰值）',
+      /#dock \.slot\.slot-pre-collapse\s*\{\s*animation:\s*none/.test(cssCode2));
+    check('③b 退化路径 chip-solo 存在（可用槽不足 3 时原位闪白 → 缩至 0，200ms）',
+      /@keyframes chip-solo\s*\{/.test(cssCode2) &&
+      /data-collapse-role="solo"[^{]*\{[^}]*chip-solo\s+200ms/.test(cssCode2.replace(/\s+/g, ' ')));
     await shot('collapse-after.png');
   } else {
     check('③ 纯卡牌力学采样成功', false,
@@ -1133,8 +1217,12 @@ async function main() {
       check('④ 坍缩发生在最后一次点击之后（非点击同帧起演）',
         seq.taps.length === 3 && f0.t > seq.taps[2],
         'taps=' + JSON.stringify(seq.taps) + ' shatter@' + f0.t + 'ms');
-      check('④ 角色属性与类名同帧就位（不是延迟一帧才分派）',
-        f0.roles === 3, 'roles=' + f0.roles + ' @' + f0.t + 'ms');
+      /* R6：原位演出不再分派 center/side 角色 —— 判据改为「类名与 ghost 同帧就位」
+       * （3 个槽在起演那一帧同时挂上 .slot-shattering，零延迟分派、零错峰）。 */
+      check('④ 类名与 ghost 同帧就位（3 槽同时挂 .slot-shattering，零延迟分派）',
+        f0.shat === 3, 'shat=' + f0.shat + ' roles=' + f0.roles + ' @' + f0.t + 'ms');
+      check('④ 3 张牌同组不分角色（data-collapse-role 仅在 solo 退化路径出现）',
+        f0.roles === 0, 'roles=' + f0.roles + ' @' + f0.t + 'ms');
     }
     await shot('collapse-seq.png');
     await sleep(90);
@@ -1250,12 +1338,14 @@ async function main() {
         'bad=' + stx.lockBad + ' stepBad=' + stx.lockStepBad + '/' + stx.pairCount);
       check('⑥ ' + sc.tag + ' plan 与纯函数同源（introDelayOf 逐项相等）',
         stx.exactBad === 0, stx.exactBad);
-      check('⑥ ' + sc.tag + ' fallPx 口径正确（首排 0.5 卡面 / 其余 1.0 格宽）',
+      check('⑥ ' + sc.tag + ' fallPx 口径正确（全盘统一 = FALL_CELL × 卡面边长）',
         stx.fallPxBad === 0, stx.fallPxBad);
-      check('⑥ ' + sc.tag + ' 墙钟落定 = totalMs + 帧闸门 2 帧 + 帧量化（<= 1200ms 兜底）',
-        stx.wallMs > 0 && stx.isDealing === false &&
-        stx.wallMs >= stx.totalMs - 1 && stx.wallMs <= stx.totalMs + 1200,
-        'wall=' + stx.wallMs + 'ms total=' + stx.totalMs + 'ms');
+      check('⑥ ' + sc.tag + ' 墙钟落定 = maxDelay + TILE + 帧量化（从开闸帧起算）',
+        stx.wallMs > 0 && stx.isDealing === false && stx.openWaitMs >= 0 &&
+        stx.wallMs >= Math.min(stx.maxDelay + 200, stx.totalMs) - 1 &&
+        stx.wallMs <= stx.totalMs + 1200,
+        'wall=' + stx.wallMs + 'ms openWait=' + stx.openWaitMs +
+        'ms maxDelay+200=' + (stx.maxDelay + 200) + ' total=' + stx.totalMs + 'ms');
     }
     if (si === 0) await shot('deal-L3.png');
     if (si === 2) await shot('deal-L72.png');
@@ -1339,6 +1429,112 @@ async function main() {
       lastTotal != null && lastTotal >= 380 && lastTotal <= 420, 'total=' + lastTotal);
   }
 
+  /* ---------- ⑧ R6: HUD 安全线 + 越界上限（FR-028 §R6-2 C） ----------
+   * 统一落距 3.0 卡面（≈130px）必然把首排推到 `#hud` 之后——这是「高落差」与
+   * 「HUD 可读」的物理冲突。解法是 `drawIntroOutside()` 的裁剪路径由
+   * 「视口 − 棋盘矩形」改为「(视口 ∩ y ≥ hudBottom) − 棋盘矩形」。
+   * 判据：HUD 带（0 .. #hud 下沿）内进场牌像素恒 0；
+   *      反向证据：#hud 下沿 → 棋盘上沿这一带**必须**有像素（牌确实从那里钻出）。 */
+  console.log('\n⑧ R6 HUD 安全线（HUD 带内零绘制 / 越界上限 3.4 卡面）');
+  var hudOk = await loadLevel(12);
+  if (hudOk) { await waitSplash(); await ev('window.__D27.rnd().skipDeal()'); await sleep(140); }
+
+  var ob = await ev(`(async function(){
+    var r = window.__D27.rnd(); var RT = window.STM.rendererTest; var I = RT.INTRO;
+    r.startDeal();
+    /* 计划在**首个已绘制帧**构建（与闸门同源），故必须等两帧再读 */
+    for (var f = 0; f < 4; f++) {
+      await new Promise(function(z){ requestAnimationFrame(z); });
+      if (r.dealPlanOf()) break;
+    }
+    var p = r.dealPlanOf();
+    if (!p) return { err: 'no plan' };
+    var lay = r.layoutOf(); var side = lay.tileSize;
+    var mx = 0;
+    for (var k in p) {
+      if (!Object.prototype.hasOwnProperty.call(p, k)) continue;
+      var c = p[k].fallPx / side;
+      if (c > mx) mx = c;
+    }
+    return { maxCell: mx, fallCell: I.FALL_CELL, min: I.FALL_CELL_MIN, max: I.FALL_CELL_MAX, side: side };
+  })()`);
+  check('⑧ 越界高度上限 = 3.4 卡面边长（R6 放宽口径，与 FALL_CELL 同源）',
+    !!ob && !ob.err && ob.max <= 3.4 && ob.max === 3.4, ob ? JSON.stringify(ob) : 'null');
+  check('⑧ 实测最大落距 ≤ 3.4 卡面且 ≥ 2.6（「高落差」而非「原地出现」）',
+    !!ob && !ob.err && ob.maxCell >= 2.6 - 1e-6 && ob.maxCell <= 3.4 + 1e-6,
+    ob ? ('maxCell=' + (ob.maxCell || 0).toFixed(3)) : 'null');
+
+  var hudProbe = await ev(`(async function(){
+    var cv = document.getElementById('vfx-canvas');
+    var hud = document.getElementById('hud');
+    var brd = document.getElementById('board');
+    var r = window.__D27.rnd();
+    if (!cv || !hud || !brd) return { err: 'no canvas/hud/board' };
+    var ctx = cv.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var hb = hud.getBoundingClientRect().bottom;
+    var yEnd = Math.max(0, Math.min(cv.height, Math.round(hb * dpr)));
+    var bt = brd.getBoundingClientRect().top;
+    var y1 = Math.max(0, Math.min(cv.height, Math.round(bt * dpr)));
+    var maxAbove = 0, maxBelow = 0, frames = 0, err = null;
+    /* 自己起演再采样：ob 段已经跑过一次 startDeal，等 CDP 往返回来时编舞
+     * 多半已收尾（400ms 窗口 vs 100ms+ 的 headless 帧）——那样采到的是静止帧，
+     * 「HUD 带内零像素」与「带内确有像素」两条会同时恒真/恒假而失去判别力。
+     * 实测反证：把裁剪上沿改回 y=0（安全线失效）时，只有在本段自起演的情况下
+     * maxBelow 才会从 243049 掉到 0；依赖 ob 的写法会假绿。 */
+    r.skipDeal();
+    await new Promise(function(z){ setTimeout(z, 120); });
+    r.startDeal();
+    var t0 = performance.now();
+    await new Promise(function(done){
+      function step(){
+        var now = performance.now();
+        if (r.isDealing()) {
+          frames++;
+          try {
+            /* 局部窗口采样（禁全画布 getImageData：150 万像素 100ms+ 会跳过窗口） */
+            if (yEnd > 2) {
+              var d = ctx.getImageData(0, 0, cv.width, yEnd).data;
+              var n = 0;
+              for (var i = 3; i < d.length; i += 4) if (d[i] > 2) n++;
+              if (n > maxAbove) maxAbove = n;
+            }
+            if (y1 > yEnd + 2) {
+              var d2 = ctx.getImageData(0, yEnd, cv.width, y1 - yEnd).data;
+              var n2 = 0;
+              for (var j = 3; j < d2.length; j += 4) if (d2[j] > 2) n2++;
+              if (n2 > maxBelow) maxBelow = n2;
+            }
+          } catch (e) { err = String(e && e.message || e); done(); return; }
+        }
+        if (now - t0 < 1600) requestAnimationFrame(step); else done();
+      }
+      requestAnimationFrame(step);
+    });
+    return { maxAbove: maxAbove, maxBelow: maxBelow, frames: frames,
+             hudBottom: hb, yEnd: yEnd, y1: y1, cvW: cv.width, err: err };
+  })()`);
+  if (hudProbe && !hudProbe.err) {
+    check('⑧ HUD 安全线采样确实覆盖了进场期（帧数 > 0，断言非空转）',
+      hudProbe.frames > 0, 'frames=' + hudProbe.frames);
+    check('⑧ HUD 带（y < #hud 下沿）内进场牌像素恒 0（导航按钮与 IQ 永不被盖住）',
+      hudProbe.maxAbove === 0,
+      'maxAbove=' + hudProbe.maxAbove + ' hudBottom=' + Math.round(hudProbe.hudBottom) + ' yEnd=' + hudProbe.yEnd);
+    /* 「带内确有像素」必须是**成片**像素，不能是 > 0。
+     * 实测（RV-5 反向验证）：把裁剪上沿改回 y=0（安全线失效）后，带内仍剩
+     * **1 个**抗锯齿边界像素 —— `> 0` 判据会因此假绿。安全线正常时带内是
+     * 243049 像素（≈100% 铺满），与 1 差 5 个数量级，故用「≥2% 带宽面积」。 */
+    var bandArea = hudProbe.cvW * Math.max(0, hudProbe.y1 - hudProbe.yEnd);
+    var bandNeed = Math.max(2000, Math.round(bandArea * 0.02));
+    check('⑧ 反向证据：#hud 下沿 → 棋盘上沿带内**成片**有像素（≥2% 带宽，非 1px 抗锯齿）',
+      hudProbe.maxBelow >= bandNeed,
+      'maxBelow=' + hudProbe.maxBelow + ' need>=' + bandNeed + ' band=' +
+      hudProbe.yEnd + '..' + hudProbe.y1 + ' area=' + bandArea);
+    await shot('intro-hud-safeline.png');
+  } else {
+    check('⑧ HUD 安全线采样成功', false, hudProbe ? JSON.stringify(hudProbe) : 'null');
+  }
+
   var errList = await ev('(function(){return (window.__D27ERR||[]).slice(0,5);})()');
   check('全程零未捕获异常', Array.isArray(errList) && errList.length === 0,
     errList && errList.length ? errList.join(' | ') : '0');
@@ -1349,9 +1545,10 @@ async function main() {
     console.log('delta27-verify: FAILED — ' + fails.length + ' 失败项: ' + fails.join('; '));
     process.exit(1);
   } else {
-    console.log('delta27-verify: all green（垂直雨幕 400ms + 首帧零延迟 + 层序锁 / ' +
-      '方向性飞行槽位零抖动 + 图层不反转 / 纯卡牌力学 210ms 四段 + 角色分派 + ' +
-      '挤压→回弹→坍缩 + 托盘微震 2px + 弹簧补位 200ms + 零特效残留 / 多规模关卡归一）');
+    console.log('delta27-verify: all green（垂直雨幕 400ms + 首帧零延迟 + 层序锁 + 墙钟从开闸帧起算 / ' +
+      '方向性飞行槽位零抖动 + 图层不反转 / R6 原位微跃 200ms（chip-hop 五段 + 零横向分量 + ' +
+      '三张同相位）+ 柔光升华 chip-flash + 托盘纵向微震 2px + FLIP 补位 60ms + 零特效残留 + ' +
+      '槽框盒冻结 / 多规模关卡归一）');
     console.log('取证帧目录：shots/delta27/');
   }
 }

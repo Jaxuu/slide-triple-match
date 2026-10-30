@@ -4,29 +4,32 @@
   border-radius: 10px;
 }
 
-/* Δ31a / FR-049 §19 ③④⑤: 三消「纯卡牌自身力学」四段演出
+/* R6 / FR-030 §R6-1: 三消「原地微跃欢呼 + 柔光升华消散」
  *
- * 取代 Δ30a 的「三合一磁吸 + 闪白膨胀」单套关键帧——那套让三张牌做**同样**的
- * 动作（都 scale 1.12→1.30），既没有「先被压扁」的受压感，也无法只让中心牌回弹。
- * 本版按角色拆成两套关键帧 + 一条托盘微震：
+ * 取代 Δ31a 的「左右滑行猛撞 + 中心牌挤压回弹」四段演出。旧版给左右两张写
+ * `--suck-dx`（本槽 left → 中间槽 left），把三张牌**物理搬到同一个格子**，
+ * 由此必然引出三个结构问题：跨槽穿越（滑过非本组的槽框与卡面）、槽框裁剪
+ * （`#dock .slot{overflow:hidden}` 全靠临时改 visible）、层叠上下文脆弱
+ * （`dock-seat` 的 transform 让 `.slot` 的 z-index 跨不了槽）。只要 `dx ≠ 0`
+ * 就没有「安全的小幅度」版本 → 本轮彻底删除横向通道（I-9 原位优先）。
  *
- *   chip-rush   （左右两张，0~70ms）  强初速滑行猛撞中心牌 → 到位 1 帧内隐去
- *   chip-impact （中心那张，0~210ms） 静止 → 挤压 → 猛烈回弹 → 峰值保持 → 加速坍缩
- *   chip-solo   （可用槽位不足 3 个） 原位闪白 → 直接缩至 0（退化，不抛错）
- *   dock-hit    （#dock 整体，130~220ms）受击微震，仅纵向 2.0px
+ * 现口径（总长 200ms，三张牌**零错峰**、各自留在本槽）：
+ *   chip-hop    0~20ms    预压 scale(1.03, .94)
+ *               20~44ms   起跳 translateY(-6px) scale(1.06)   ← 位移/缩放峰值
+ *               44~80ms   回落 translateY(-1px) scale(1)
+ *               80~200ms  原地缩小淡出 scale(0) + opacity 0   ← 柔光升华消散
+ *   chip-flash  `.dock-chip::after` 纯白柔光：40% 起亮 → 55% 峰 .70 → 80% .15 → 0
+ *   chip-solo   （可用槽位不足 3 个）原位闪白 → 直接缩至 0（退化，不抛错）
+ *   dock-hit    （#dock 整体，100~190ms）受击微震，仅纵向 2.0px
  *
- * 样式边界（SC-017 ⑤ / SC-021 ③）：
- *   · 位移 / 缩放 / 闪白 / 透明度 **只作用于槽内 `.dock-chip`**；
- *     `.slot` 槽框的 border / padding / background / border-radius 一字未改，
- *     槽框本体也**不位移、不改形**（MUST NOT 把 transform 写在 .slot 上）。
- *   · `#dock .slot { overflow: hidden }` 会把 1.32× 膨胀与横向猛撞裁成
- *     「原地放大」，故 `.slot-shattering` 仍必须把 overflow 覆盖为 visible。
- *   · 选择器特异性 MUST >= 1,3,0
- *     （`#dock .slot.slot-shattering[data-collapse-role=...] .dock-chip`）——
- *     压得住 `.slot.has-tile` 的落座动画 dock-seat（0,2,0）。
+ * 三条硬约束：
+ *   ① `.dock-chip` 的任一 @keyframes 内**零 `translateX` / 零横向 `translate3d`
+ *      分量**——横向位移会让卡牌穿出本槽，这是用户报的「横向穿模」的根因；
+ *   ② 三张牌 `animation-delay` 完全相同（错峰会破坏「同时欢呼」的语义）；
+ *   ③ 位移 / 缩放 / 柔光 / 透明度**只作用于 `.dock-chip`**；`.slot` 槽框的
+ *      border / padding / background / border-radius 一字未改，且零位移零改形。
  *
- * `--suck-dx` 由 main.js 一次性写入 `.dock-chip` 内联样式（实时 rect 差值），
- * MUST NOT 逐帧改样式、MUST NOT 起 rAF 驱动 CSS。
+ * `.slot-shattering` 仍必须把 overflow 覆盖为 visible——跳跃与柔光需要越界可见。
  * ========================================================= */
 #dock .slot.slot-shattering,
 #dock .slot.slot-shattering.has-tile,
@@ -36,52 +39,28 @@
   overflow: visible;
 }
 
-/* ① 左右两张：滑行猛撞
- * 缓动 cubic-bezier(.12,.72,.22,1) = 强初速 + 丝滑收束（前 30% 时长完成 >= 70% 位移）。
- * ⚠ MUST NOT 用 cubic-bezier(.42,0,.9,.6)——先慢后快 = 「被吸过去」，
- * 与「撞过去」语义相反（那是 Δ30 的取值，方向反了）。 */
-#dock .slot.slot-shattering[data-collapse-role="side"] .dock-chip {
-  --suck-dx: 0px;
-  animation: chip-rush 210ms linear forwards;
-  will-change: transform, opacity;
-  transform-origin: 50% 50%;
-}
-@keyframes chip-rush {
-  0% {
-    transform: translate3d(0, 0, 0) scale(1);
-    opacity: 1;
-    animation-timing-function: cubic-bezier(.12, .72, .22, 1);
-  }
-  33.3% {
-    /* 70ms：贴到中心牌（位移全部走完） */
-    transform: translate3d(var(--suck-dx), 0, 0) scale(1);
-    opacity: 1;
-    animation-timing-function: linear;
-  }
-  39% {
-    /* 到位后 1 帧内的压缩回弹（约 2px 等效）并隐去——三张牌合体的视觉完成 */
-    transform: translate3d(var(--suck-dx), 0, 0) scale(.985);
-    opacity: 0;
-  }
-  100% {
-    transform: translate3d(var(--suck-dx), 0, 0) scale(.985);
-    opacity: 0;
-  }
+/* R6: 待消槽在**落定帧**就不再触发 `dock-seat` 落座弹入。
+ * 原因：`renderDock()` 每次落定都重建 7 个 `.slot`，而坍缩恰好在「第 3 张落定」
+ * 那一帧起演——此时槽框仍在 `scale(.72) → 1.08 → 1` 的途中（260ms），
+ * 跳跃的 1.06 峰值会被槽框变换二次放大（实测 1.06 读成 0.94~1.15 抖动），
+ * 三张牌的「同步」也随之破掉。`animation: none` 是「槽框零 animation」的直接
+ * 表达，不是新增动效；MUST NOT 改成取消类名（会连带丢掉 has-tile 的槽框冻结项）。 */
+#dock .slot.slot-pre-collapse {
+  animation: none;
 }
 
-/* ② 中心那张：挤压 → 猛烈回弹 → 峰值保持 → 加速坍缩（整段 210ms）
- * `position: relative` 仅为 `.dock-chip::after` 纯白覆盖层提供定位上下文，
+/* ① 三张牌共用同一套关键帧（零错峰、零横向分量）
+ * `position: relative` 仅为 `.dock-chip::after` 柔光层提供定位上下文，
  * MUST NOT 改本体的 background / border / border-radius / box-shadow。 */
-#dock .slot.slot-shattering[data-collapse-role="center"] .dock-chip {
-  animation: chip-impact 210ms linear forwards;
-  will-change: transform, filter, opacity;
+#dock .slot.slot-shattering .dock-chip {
+  animation: chip-hop 200ms linear forwards;
+  will-change: transform, opacity;
   transform-origin: 50% 50%;
   position: relative;
 }
-/* ④ 纯白覆盖层：MUST 用伪元素 + opacity，MUST NOT 只用 filter: brightness()
- * （brightness 单独顶替闪白会把花色图案一起过曝，峰值对比读不出来）。
- * 与 brightness 同帧达峰（误差 <= 1 帧），130ms 前回落至 <= 0.15。 */
-#dock .slot.slot-shattering[data-collapse-role="center"] .dock-chip::after {
+/* ② 纯白柔光覆盖层：MUST 用伪元素 + opacity，MUST NOT 只用 filter: brightness()
+ * （brightness 单独顶替闪白会把花色图案一起过曝，峰值对比读不出来）。 */
+#dock .slot.slot-shattering .dock-chip::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -89,61 +68,47 @@
   background: #FFFFFF;
   opacity: 0;
   pointer-events: none;
-  animation: chip-flash 210ms linear forwards;
+  animation: chip-flash 200ms linear forwards;
 }
-@keyframes chip-impact {
+@keyframes chip-hop {
   0% {
-    /* 0~70ms 静止等待左右两张撞上来 */
-    transform: translate3d(0, 0, 0) scale(1);
-    filter: brightness(1);
+    /* 起跳前：完全静止，与落定帧逐像素一致（零跳变） */
+    transform: translateY(0) scale(1, 1);
     opacity: 1;
-    animation-timing-function: linear;
+    animation-timing-function: cubic-bezier(.3, 0, .6, 1);
   }
-  33.3% {
-    transform: translate3d(0, 0, 0) scale(1);
-    filter: brightness(1);
+  10% {
+    /* 20ms 预压：纵向压扁 = 「蹲一下再跳」的唯一可读表达（0.94~0.97） */
+    transform: translateY(0) scale(1.03, .94);
     opacity: 1;
-    animation-timing-function: cubic-bezier(.2, .9, .3, 1);
+    animation-timing-function: cubic-bezier(.18, .9, .3, 1);
   }
-  45.2% {
-    /* 70~95ms 挤压：横向压扁 + 纵向拉伸（非等比 —— 「受压」的唯一可读表达） */
-    transform: translate3d(0, 0, 0) scale(.92, 1.08);
-    filter: brightness(2.1);
+  22% {
+    /* 44ms 峰值：位移 4~7px / 缩放 1.04~1.08 */
+    transform: translateY(-6px) scale(1.06, 1.06);
     opacity: 1;
-    animation-timing-function: cubic-bezier(.18, .92, .3, 1);
+    animation-timing-function: cubic-bezier(.4, 0, .55, 1);
   }
-  54.8% {
-    /* 95~115ms 猛烈回弹至峰值（MUST NOT > 1.40） */
-    transform: translate3d(0, 0, 0) scale(1.32);
-    filter: brightness(1.34);
+  40% {
+    /* 80ms 回落：回到 1.00±0.02，尚余 1px 悬空（落地前的最后一帧） */
+    transform: translateY(-1px) scale(1, 1);
     opacity: 1;
-    animation-timing-function: linear;
-  }
-  61.9% {
-    /* 115~130ms 峰值保持，亮度 / 覆盖层开始回落 */
-    transform: translate3d(0, 0, 0) scale(1.32);
-    filter: brightness(1.15);
-    opacity: 1;
-    animation-timing-function: cubic-bezier(.55, 0, .85, .35);
+    animation-timing-function: cubic-bezier(.5, 0, .75, .2);
   }
   100% {
-    /* 130~210ms 加速坍缩（起步慢、末端极快） */
-    transform: translate3d(0, 0, 0) scale(0);
-    filter: brightness(1.05);
+    /* 80~200ms 原地缩小淡出（柔光升华）——MUST NOT 出现横向位移 */
+    transform: translateY(0) scale(0, 0);
     opacity: 0;
   }
 }
 @keyframes chip-flash {
-  0% {
+  0%, 40% {
     opacity: 0;
   }
-  33.3% {
-    opacity: 0;
-  }
-  45.2% {
+  55% {
     opacity: .70;
   }
-  61.9% {
+  80% {
     opacity: .15;
   }
   100% {
@@ -152,9 +117,9 @@
 }
 
 /* ③ 退化（可用槽位不足 3 个 / 并发异常）：原位闪白 + 直接缩至 0。
- * MUST NOT 抛错、MUST NOT 跳过演出——时长仍 210ms。 */
+ * MUST NOT 抛错、MUST NOT 跳过演出——时长仍 200ms。 */
 #dock .slot.slot-shattering[data-collapse-role="solo"] .dock-chip {
-  animation: chip-solo 210ms linear forwards;
+  animation: chip-solo 200ms linear forwards;
   will-change: transform, filter, opacity;
   transform-origin: 50% 50%;
 }
@@ -178,9 +143,9 @@
   }
 }
 
-/* ⑤ 托盘受击微震（130ms 起，<= 90ms，仅纵向）
- * 幅度裁定：只用纵向、设计值 2.0px —— 横向不动 → `--suck-dx` 与飞行终点 X
- * 完全不受影响；纵向 2px 恰好卡在 flight-smoke 的「落定偏差 <= 2px」容差内。
+/* ⑤ 托盘受击微震（100ms 起，<= 90ms，仅纵向）
+ * 幅度裁定：只用纵向、设计值 2.0px —— 横向不动 → 飞行终点 X 完全不受影响；
+ * 纵向 2px 恰好卡在 flight-smoke 的「落定偏差 <= 2px」容差内。
  * MUST NOT 调到 2.5px 以上；MUST NOT 用 margin / top / left 做位移
  * （布局盒必须逐项不变）；MUST NOT 复用 shakeBoard（那是「受阻反弹」语义）。 */
 #dock.dock-hit {
@@ -205,14 +170,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* 降级（§19 ⑩）：零滑行 / 零挤压 / 零回弹 / 零微震，只留原位闪白 + 直接缩至 0。
-   * 总时长**仍为 210ms**——MUST NOT 因降级改变结算节奏（否则与 sfx_shatter 打架）。 */
-  #dock .slot.slot-shattering[data-collapse-role="side"] .dock-chip,
-  #dock .slot.slot-shattering[data-collapse-role="center"] .dock-chip,
+  /* 降级（FR-030 ⑩）：零跳跃 / 零预压 / 零微震，只留原位闪白 + 直接缩至 0。
+   * 总时长**仍为 200ms**——MUST NOT 因降级改变结算节奏（否则与 sfx_shatter 打架）。 */
+  #dock .slot.slot-shattering .dock-chip,
   #dock .slot.slot-shattering[data-collapse-role="solo"] .dock-chip {
-    animation: chip-static 210ms linear forwards;
+    animation: chip-static 200ms linear forwards;
   }
-  #dock .slot.slot-shattering[data-collapse-role="center"] .dock-chip::after {
+  #dock .slot.slot-shattering .dock-chip::after {
     animation: none;
     opacity: 0;
   }
