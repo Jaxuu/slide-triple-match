@@ -2031,7 +2031,10 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
       if (sound) {
         if (sound.playShatter) sound.playShatter(e.playbackRate);
         else sound.playSfx('shatter', { rate: e.playbackRate });
-        if (e.voice) sound.playVoice(e.voice); /* SoundManager 内部固定 120ms 延迟 + 通道去叠放 */
+        /* Δ30/FR-054: 人声双闸门——`e.voice` 已由 GameState 做「跨档单次」过滤
+         * （同一档位持续连击时为 null）；SoundManager 再叠 3.5s 硬冷却 +
+         * 单轨独占，任一处命中即静默跳过。此处 MUST NOT 自行推算档位。 */
+        if (e.voice) sound.playVoice(e.voice);
       }
       if (e.floatText) spawnComboFloat(e.floatText, e.tier);
       return;

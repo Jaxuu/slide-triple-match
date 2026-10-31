@@ -1953,3 +1953,62 @@ R5/R6 把开局进场收敛为「垂直雨幕下落 + 微弹定格」单一模�
 - `shots/delta27/intro-L3-n7-1003ms.png` 复核：卡牌边缘锐利、投影可见、无模糊/接缝。
 - 未触碰 `css/style.css`、`src/ui/lobby.js`、`src/ui/modals.js`、`src/audio/SoundManager.js`
   → 大厅相框 / 设置弹窗标题 / 白瓷麻将音效 / 三消微跃 / 方向性飞行**结构性零风险**。
+
+---
+
+## R9（2026-10-31）连击夸赞人声重复播报修复（FR-054）
+
+### 1. 现象与根因
+
+5 秒滑动窗内连续三消 → `comboCount` 持续 ≥ 5 → `comboFxTier()` 恒归 5 →
+`comboFxVoice()` 每次三消都返回 `unbelievable` → 每消一次播一遍，语音池
+`pool: 2` 还让它**重叠**成噪音。
+
+复现（修复前实测 8 连击）：
+
+```
+count 1..8 → voice: null, null, good, great, unbelievable,
+                    unbelievable, unbelievable, unbelievable
+```
+
+根因不是音量或音效资源，而是**语义缺失**：`comboChanged.voice` 是「档位映射」
+而非「事件」，同一档位被反复触发；同时 `SoundManager.playVoice()` 只有 120ms
+通道去叠放（`cancelChannel('voice')`），对「已播完再播」零防护。
+
+### 2. 三道闸门（分层，任一命中即静默跳过）
+
+| 层 | 闸门 | 位置 | 语义 |
+|---|---|---|---|
+| ① | 跨档单次 | `GameState.bumpCombo()` | `comboVoiceTier` 记录本周期已播最高档；仅 `tier > comboVoiceTier` 时下发 `voice`，否则 `null` |
+| ② | 全局硬冷却 3.5s | `SoundManager.playVoice()` | `now - lastVoiceAt < 3500` → 丢弃（`lastVoiceAt` 只在**真正起播**后写入，被拒请求不消耗冷却） |
+| ③ | 单轨独占 | `SoundManager.isVoicePlaying()` | 任一 `voice_*` 实例 `!paused && !ended` → 丢弃，**严禁截断 / 叠放** |
+
+- 周期复位：5 秒窗口超时（`comboCount` 重置为 1）与 `reset()` 时 `comboVoiceTier = 0`，
+  重新打出高阶连击可再次播报。
+- 起播前二次复核：120ms 延迟窗口内冷却 / 独占状态可能已变，`fireVoice()` 再检一次。
+- 不受影响：`comboCount` 计数、`playbackRate` 升调、`floatText` 飘字、`score` 结算、
+  碎裂 / 点击 / 通关等非人声 SFX 全部走原路径（闸门只作用于 Voiceover）。
+
+### 3. 新增门禁 `tools/voice-cooldown-smoke.js`（60 项，exit 0）
+
+时钟为可控桩（`performance.now` → `CLOCK`），冷却断言不依赖真实等待：
+
+- 静态契约：`AUDIO_CONFIG.voiceCooldownMs === 3500` / 三道闸门代码段 / `main.js` 单点调用
+- 冷却期内 5 次请求全拒、零发声、时间戳不被改写；恰好 3.5s 后可播
+- 独占：在播语音 `_playCount` 不变（未截断）、任一时刻 ≤ 1 条语音在播
+- 隔离：冷却期内碎裂 ×3 / 点击 / 通关音全部正常
+- 真实 GameState 驱动 8 连击：计数 1..8 连续、`voice` 仅 `[null,null,good,great,unbelievable,null,null,null]`、
+  飘字仍累加至 ×8、积分单调不减
+- 窗口复位：+6s 后连击重置为 1，再打 3 次 → `good` 再次下发；`reset()` 后 `comboVoiceTier = 0`
+
+反向验证（TEMP 干净副本，补丁未命中即 `exit 3`）：
+
+- 还原 `voice: voiceOut → voice` → **2 项失败**（`unbelievable ×4` 复读被捕获）
+- 冷却置 0 + 独占恒 false → **6 项失败**
+
+### 4. 回归
+
+`render-selftest` / `delta27-verify` / `deal-smoke` / `audio-smoke`(120) / `flight-smoke` /
+`lobby-smoke`(83) / `icon-bbox-audit`(7) / `solver`(72-72) / `perf-probe` 全绿；
+`tools/solver-report.json` 已 `git checkout --` 还原。
+

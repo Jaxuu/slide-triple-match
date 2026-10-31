@@ -47,6 +47,12 @@
     /* Δ22b/T108: 表现层连击态（5.0 秒滑动窗——驱动碎裂升调 / 语音 / 飘字） */
     var comboCount = 0;
     var lastMatchAt = 0;
+    /* Δ30/FR-054: 连击周期内人声单次播报闸门——
+     * 记录**本次连击周期内已播报的最高语音档位**（0 = 本周期尚未播报）。
+     * 5 秒窗口超时 / reset() 时归零，允许下一轮重新播报高阶夸赞。
+     * MUST NOT 与 comboCount / lastMatchAt 合并语义（前者是计数权威，
+     * 本变量只服务于「同一档位不重复出声」）。 */
+    var comboVoiceTier = 0;
     var railIndex = 0;           /* onRail 基准：已匹配 solutionMoves 前缀长度 */
     var onRail = true;
 
@@ -186,22 +192,34 @@
       return null; /* tier 1/2 MUST NOT 播语音 */
     }
 
-    /* 每次三消结算后广播 comboChanged（唯一计数权威——消费方 MUST NOT 自建副本） */
+    /* 每次三消结算后广播 comboChanged（唯一计数权威——消费方 MUST NOT 自建副本）
+     * Δ30/FR-054: `voice` 字段改为**跨档单次**语义——
+     *   · 连击计数（count）/ 碎裂升调（playbackRate）/ 飘字（floatText）不受影响；
+     *   · 仅当本次跨入**比本周期已播档位更高**的档位时才下发 voice，
+     *     持续停留在同一高阶档位时 voice = null（计数与积分照常累加）。
+     * 5 秒窗口超时（连击重置）→ comboVoiceTier 归零 → 重新打出高阶可再播。 */
     function bumpCombo() {
       var now = comboFxNow();
       if (lastMatchAt > 0 && (now - lastMatchAt) <= COMBO_FX_WINDOW_MS) {
         comboCount += 1;
       } else {
         comboCount = 1; /* 首次消除或间隔超 5 秒 */
+        comboVoiceTier = 0; /* 新连击周期 → 人声闸门复位 */
       }
       lastMatchAt = now;
       var tier = comboFxTier(comboCount);
+      var voice = comboFxVoice(tier);
+      var voiceOut = null;
+      if (voice && tier > comboVoiceTier) {
+        voiceOut = voice;
+        comboVoiceTier = tier; /* 本周期该档位（及更低档）不再重复播报 */
+      }
       emit({
         e: 'comboChanged',
         count: comboCount,
         tier: tier,
         playbackRate: comboFxRate(comboCount),
-        voice: comboFxVoice(tier),
+        voice: voiceOut,
         floatText: comboFxText(comboCount, tier)
       });
     }
@@ -292,6 +310,7 @@
         score: engine.score,
         combo: engine.combo,
         comboCount: comboCount, /* Δ22b/T108: 表现层连击（5s 滑动窗）——只读观测位 */
+        comboVoiceTier: comboVoiceTier, /* Δ30/FR-054: 本周期已播语音档位（只读观测位） */
         lives: engine.lives,
         items: engine.items,
         dock: engine.dock.map(function (t) { return { id: t.id, s: t.s }; }),
@@ -315,6 +334,7 @@
       /* Δ22b/T108 ⑥: 重置本关 MUST 归零表现层连击 */
       comboCount = 0;
       lastMatchAt = 0;
+      comboVoiceTier = 0; /* Δ30/FR-054: 人声闸门随连击一并复位 */
       emit({ e: 'reset' });
       emitPhase();
     }

@@ -55,6 +55,19 @@
   var DEAL_TICK_MIN_MS = 45;/* 落牌涟漪最小触发间隔（Δ23：22→45ms，满载只余 8~12 声） */
 
   /* =========================================================
+   * Δ30/FR-054 人声（Voiceover SFX）节流参数
+   * 症状：5 秒滑动窗内连续三消 → 连击持续停留在最高档 → 每消一次
+   *       就播一遍 "Unbelievable"，多声道池让它**重叠**成噪音。
+   * 三道闸门（全部在 playVoice 内收口，调用方无需知情）：
+   *   ① 跨档单次——由 GameState.comboVoiceTier 保证（同档位只出声一次）
+   *   ② 全局硬冷却 VOICE_COOLDOWN_MS——距上次人声不足 3.5s 坚决不触发
+   *   ③ 单轨独占——已有夸赞人声在播时自动跳过，**严禁截断 / 叠放**
+   * ========================================================= */
+  var VOICE_COOLDOWN_MS = 3500; /* 全局人声硬性冷却（硬性下限，MUST NOT 下调） */
+  var VOICE_LEAD_MS = 120;      /* 错开碎裂瞬态的固定起播延迟 */
+  var VOICE_KEYS = ['voice_good', 'voice_great', 'voice_unbelievable'];
+
+  /* =========================================================
    * Δ26 交互音声学参数（白瓷/竹木麻将物理碰撞口径）
    * 《Tile Explorer》《Vita Mahjong》式：极短瞬态 + 温润短共鸣，零滑音。
    * 全部为「物理量」而非「旋律量」——刻意不做大幅度扫频。
@@ -101,6 +114,8 @@
     fadeMs: FADE_MS,
     duckVolume: DUCK_VOL,
     dealTickMinMs: DEAL_TICK_MIN_MS,
+    voiceCooldownMs: VOICE_COOLDOWN_MS,
+    voiceLeadMs: VOICE_LEAD_MS,
     tap: TAP,
     knock: KNOCK,
     bgmVolume: { lobby: ASSETS.bgm_lobby.volume, game: ASSETS.bgm_game.volume },
@@ -137,6 +152,17 @@
     var bgmPlayingKey = null; /* 'bgm_lobby' | 'bgm_game' | 'procedural' */
     var pendingTimers = [];   /* 已排定的延迟触发（静音 MUST 一并取消） */
     var pendingChannels = {}; /* Δ22b/T109: 具名延迟通道（语音档位升级时只播最终档） */
+
+    /* ---------- Δ30/FR-054 人声节流态 ---------- */
+    var lastVoiceAt = -1e9;   /* 上一次人声**实际起播**时刻（performance.now） */
+    var voiceStats = {        /* 只读观测位（tools/voice-cooldown-smoke.js 消费） */
+      requests: 0,
+      played: 0,
+      skippedCooldown: 0,
+      skippedBusy: 0,
+      skippedMuted: 0,
+      skippedUnknown: 0
+    };
 
     /* ---------- 合成轨（程序化治愈系 BGM 兜底）---------- */
     var bgmGain = null;
@@ -443,20 +469,89 @@
     /* 对外：playVoice(tier) —— tier 1/2/3 = good/great/unbelievable（T109 ②）
      * 也接受契约字符串 'good' | 'great' | 'unbelievable'。
      * 内部固定延迟 120ms（错开碎裂瞬态），并占用 'voice' 通道：
-     * 120ms 内连击再次升级时上一档未播语音被取消（只播最终档）。 */
+     * 120ms 内连击再次升级时上一档未播语音被取消（只播最终档）。
+     *
+     * Δ30/FR-054 三道闸门（顺序固定，任一命中即跳过且不占用冷却）：
+     *   ① 全局硬冷却 3.5s —— now - lastVoiceAt < VOICE_COOLDOWN_MS → 静默丢弃
+     *   ② 单轨独占 —— 任一 voice_* 实例仍在播 → 静默丢弃（不截断、不叠放）
+     *   ③ 起播前二次复核（120ms 延迟窗口内状态可能已变）
+     * 冷却时间戳只在**真正起播成功**后写入，被跳过/被取消的请求不消耗冷却。
+     * 注：`play()` 返回的 Promise 若被 autoplay 策略 reject，本层不再回滚冷却
+     *     —— 与「宁可少播、绝不叠播」的取舍一致（voice_* 无合成兜底）。 */
     var VOICE_BY_TIER = { 1: 'voice_good', 2: 'voice_great', 3: 'voice_unbelievable' };
     var VOICE_BY_NAME = { good: 'voice_good', great: 'voice_great', unbelievable: 'voice_unbelievable' };
+
+    /* 单轨独占判定：任一语音实例处于「非暂停且未结束」即视为占用 */
+    function isVoicePlaying() {
+      for (var i = 0; i < VOICE_KEYS.length; i++) {
+        var st = ext[VOICE_KEYS[i]];
+        if (!st || !st.pool) continue;
+        for (var j = 0; j < st.pool.length; j++) {
+          var el = st.pool[j];
+          if (el && !el.paused && !el.ended) return true;
+        }
+      }
+      return false;
+    }
+
+    /* 实际起播（含冷却 / 独占的二次复核；成功后写 lastVoiceAt） */
+    function fireVoice(name, payload) {
+      if (nowMs() - lastVoiceAt < VOICE_COOLDOWN_MS) {
+        voiceStats.skippedCooldown++;
+        return false;
+      }
+      if (isVoicePlaying()) {
+        voiceStats.skippedBusy++;
+        return false;
+      }
+      var played = fireSfx(name, payload);
+      if (played) {
+        lastVoiceAt = nowMs();
+        voiceStats.played++;
+      }
+      return played;
+    }
+
     function playVoice(tier, o) {
       o = o || {};
       var name = VOICE_BY_TIER[tier] || VOICE_BY_NAME[tier];
-      if (!name) return false;
-      var opts = {
-        delay: o.delay != null ? o.delay : 120,
-        rate: o.rate,
-        volume: o.volume,
-        channel: 'voice'
-      };
-      return playSfx(name, opts);
+      if (!name) {
+        voiceStats.skippedUnknown++;
+        return false;
+      }
+      voiceStats.requests++;
+      if (sfxMuted) {
+        voiceStats.skippedMuted++;
+        return false;
+      }
+      /* ① 全局硬冷却 */
+      if (nowMs() - lastVoiceAt < VOICE_COOLDOWN_MS) {
+        voiceStats.skippedCooldown++;
+        return false;
+      }
+      /* ② 单轨独占 */
+      if (isVoicePlaying()) {
+        voiceStats.skippedBusy++;
+        return false;
+      }
+
+      var delay = o.delay != null ? o.delay : VOICE_LEAD_MS;
+      var payload = { rate: o.rate, volume: o.volume };
+
+      if (delay > 0) {
+        /* 同一通道再次排定 → 取消上一条（只播最终档位，避免叠放成噪音） */
+        cancelChannel('voice');
+        var id = global.setTimeout(function () {
+          removePending(id);
+          if (pendingChannels['voice'] === id) delete pendingChannels['voice'];
+          if (sfxMuted) { voiceStats.skippedMuted++; return; } /* 静音后漏音防线 */
+          fireVoice(name, payload); /* ③ 起播前二次复核 */
+        }, delay);
+        pendingTimers.push(id);
+        pendingChannels['voice'] = id;
+        return true;
+      }
+      return fireVoice(name, payload);
     }
 
     /* =========================================================
@@ -1161,6 +1256,24 @@
           ducked: bgmDucked,
           unlocked: unlocked,
           muted: bgmMuted
+        };
+      },
+      /* Δ30/FR-054: 人声节流可观测态（只读快照，MUST NOT 回写） */
+      getVoiceState: function () {
+        return {
+          cooldownMs: VOICE_COOLDOWN_MS,
+          leadMs: VOICE_LEAD_MS,
+          lastVoiceAt: lastVoiceAt,
+          sinceLastVoiceMs: nowMs() - lastVoiceAt,
+          playing: isVoicePlaying(),
+          stats: {
+            requests: voiceStats.requests,
+            played: voiceStats.played,
+            skippedCooldown: voiceStats.skippedCooldown,
+            skippedBusy: voiceStats.skippedBusy,
+            skippedMuted: voiceStats.skippedMuted,
+            skippedUnknown: voiceStats.skippedUnknown
+          }
         };
       }
     };
