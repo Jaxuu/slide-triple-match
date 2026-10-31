@@ -2012,3 +2012,77 @@ count 1..8 → voice: null, null, good, great, unbelievable,
 `lobby-smoke`(83) / `icon-bbox-audit`(7) / `solver`(72-72) / `perf-probe` 全绿；
 `tools/solver-report.json` 已 `git checkout --` 还原。
 
+---
+
+## R10（2026-10-31）连击语音阶梯重定标：晋升必响 + 同档防复读（FR-055）
+
+### 1. 根因（R9 的过度修正）
+
+R9 为治「最高档复读」加了 **3.5s 全局硬冷却**，副作用是**吞掉晋升**：
+1~2 秒节奏的连击里，第 3 档 `Great` 落在冷却窗内被丢弃；等冷却期满，
+连击早已到最高档 → 只听得到 `Good → Unbelievable`，听感即「跳阶」。
+
+实测（反向验证，把 `ready` 改回 `elapsedSinceLast >= 3500`）：
+
+```
+起播顺序 good → unbelievable   （Great / Excellent 全部被吞）
+```
+
+### 2. 阶梯重定标（一档一词，与 comboCount 严格对齐）
+
+| Combo | 旧（R9） | 新（R10） |
+|---|---|---|
+| 1 | 无 | 无 |
+| 2 | **无** | `good` |
+| 3 | `good` | `great` |
+| 4 | `great` | `excellent`（复用 `sfx_voice_great` + `rate 1.14`） |
+| ≥5 | `unbelievable` | `unbelievable` |
+
+`assets/audio/` 只有 3 条人声（0.67 / 0.74 / 1.06s），无 excellent 独立资产 →
+以 `VOICE_KEY_OF.excellent = 'voice_great'` + `VOICE_RATE_OF.excellent = 1.14` 代偿
+（提亮变体，与第 3 档可盲听区分）；真实 mp3 落地后只改这张表，其余代码零改动。
+**飘字文案保持逐字锁定不动**（T109 ④）——因此 Combo 3/4 的飘字（`Good! ×3` / `Great! ×4`）
+与人声（`Great` / `Excellent`）存在一词错位，属已知取舍，见 §5。
+
+### 3. 冷却模型替换：从「硬冷却」到「晋升等待槽」
+
+| 维度 | R9 | R10 |
+|---|---|---|
+| 跨档 | 3.5s 硬冷却，命中即丢弃 | **不冷却**：晋升一定播出 |
+| 上一句仍在播 | 直接丢弃 | 进 `voiceQueue` 等待，播完立即起播 |
+| 等待上限 | — | `VOICE_ASCENT_GAP_MS 800`（到点强发）/ `VOICE_WAIT_MAX_MS 2000`（兜底） |
+| 排队策略 | — | 升档顶替，**只保留最高档**（绝不排成一串） |
+| 同档 | 冷却偶然兜住 | `voiceQueue.tier >= tier` 显式丢弃 + `GameState.comboVoiceTier` 权威防复读 |
+
+`lastVoiceAt` 只在**真正起播**后写入；`cancelPending()` 同步清空等待槽（静音零漏音）。
+`main.js` 改为 `playVoice(e.voice, { tier: e.tier })`，档位由 GameState 下发，音频层不自行推断。
+
+### 4. 门禁 `tools/voice-ladder-smoke.js`（62 项，exit 0，取代 `voice-cooldown-smoke.js`）
+
+- 静态：`voiceAscentGapMs 800` / `voiceWaitMaxMs 2000` / 源码**零 `VOICE_COOLDOWN_MS`、零 `3500` 残留** / 四档映射 / 飘字仍锁定
+- 真实 GameState 8 连击：`voice` 序列 `null, good, great, excellent, unbelievable, null, null, null`
+- **1.2s 节奏**四档各播 1 次、零同档丢弃、起播顺序 `good → great → great(1.14) → unbelievable`
+- **晋升必响**：上一句在播 → 进等待槽 → 标记播完后立即起播（零吞音）
+- **极快连击**（<0.8s）：两次升档顶替、等待槽只剩最高档、800ms 到点强发
+- 同档 3 连请求 → 1 受理 2 丢弃；5 秒复位后阶梯可再次完整触发
+- 隔离：等待期碎裂 ×3 / 点击 / 通关音全部正常；静音清空等待槽且零漏声
+
+反向验证（TEMP 干净副本，补丁未命中即 `exit 3`）：
+还原旧映射 → **9 项失败**；`ready` 改回 3.5s → **4 项失败**（`good → unbelievable` 跳阶被捕获）。
+
+### 5. 已知取舍与未做
+
+- **Combo 3/4 飘字与人声一词错位**：飘字是 T109 ④ 逐字锁定的产品文案，本次未获授权改写，
+  故 `Good! ×3` 配 `Great` 人声。若需对齐，只改 `comboFxText()` 两行即可（需产品确认）。
+- **极快连击（<0.6s/次）合并中段档**：物理上 0.8s 内无法说完 3 句，队列按「最高档优先」合并，
+  中间档不追播。1.2s 及以上节奏零合并。
+- **未新增音频资产**：不引 npm、不生成 TTS，避免污染 `assets/audio/` 白名单与 14 实例断言。
+
+### 6. 回归
+
+`voice-ladder-smoke`(62) / `audio-smoke`(120) / `render-selftest` / `delta27-verify` /
+`deal-smoke` / `flight-smoke` / `lobby-smoke`(83) / `icon-bbox-audit`(7) / `solver`(72-72) /
+`perf-probe` 全绿；`tools/solver-report.json` 已 `git checkout --` 还原。
+`spec.md` FR-037 分级表已同步（语音列 + 晋升必响 / 同档防复读两条约束）。
+
+

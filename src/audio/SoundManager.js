@@ -55,16 +55,21 @@
   var DEAL_TICK_MIN_MS = 45;/* 落牌涟漪最小触发间隔（Δ23：22→45ms，满载只余 8~12 声） */
 
   /* =========================================================
-   * Δ30/FR-054 人声（Voiceover SFX）节流参数
-   * 症状：5 秒滑动窗内连续三消 → 连击持续停留在最高档 → 每消一次
-   *       就播一遍 "Unbelievable"，多声道池让它**重叠**成噪音。
-   * 三道闸门（全部在 playVoice 内收口，调用方无需知情）：
-   *   ① 跨档单次——由 GameState.comboVoiceTier 保证（同档位只出声一次）
-   *   ② 全局硬冷却 VOICE_COOLDOWN_MS——距上次人声不足 3.5s 坚决不触发
-   *   ③ 单轨独占——已有夸赞人声在播时自动跳过，**严禁截断 / 叠放**
+   * Δ31/FR-055 人声（Voiceover SFX）阶梯语义
+   * 上一版（Δ30）用固定 3.5s 全局硬冷却，副作用是**吞掉晋升**：
+   *   1~2 秒内快速连击时，第 3 档 Great 落在冷却窗内被丢弃；
+   *   等冷却期满，连击早已在最高档 → 只听得到 Unbelievable，形成「跳阶」。
+   * 本版改为「晋升必响 + 同档防复读」：
+   *   ① 晋升（档位严格上升）**不得**被任何冷却丢弃；
+   *      若上一句仍在播，最多等 VOICE_ASCENT_GAP_MS（800ms），
+   *      播完则立即起播（实测单句 0.67~1.06s，1.2s 节奏天然不撞）。
+   *   ② 等待期只保留**最高档**一条（升档顶替，绝不排队成一串）。
+   *   ③ 同档防复读由 GameState.comboVoiceTier 权威保证（连击周期内一次）。
    * ========================================================= */
-  var VOICE_COOLDOWN_MS = 3500; /* 全局人声硬性冷却（硬性下限，MUST NOT 下调） */
-  var VOICE_LEAD_MS = 120;      /* 错开碎裂瞬态的固定起播延迟 */
+  var VOICE_LEAD_MS = 120;       /* 错开碎裂瞬态的固定起播延迟 */
+  var VOICE_ASCENT_GAP_MS = 800; /* 晋升时若上一句仍在播，最多等它 800ms */
+  var VOICE_WAIT_MAX_MS = 2000;  /* 晋升排队硬上限（超时强发，绝不吞音） */
+  var VOICE_POLL_MS = 50;        /* 排队轮询粒度 */
   var VOICE_KEYS = ['voice_good', 'voice_great', 'voice_unbelievable'];
 
   /* =========================================================
@@ -114,7 +119,8 @@
     fadeMs: FADE_MS,
     duckVolume: DUCK_VOL,
     dealTickMinMs: DEAL_TICK_MIN_MS,
-    voiceCooldownMs: VOICE_COOLDOWN_MS,
+    voiceAscentGapMs: VOICE_ASCENT_GAP_MS,
+    voiceWaitMaxMs: VOICE_WAIT_MAX_MS,
     voiceLeadMs: VOICE_LEAD_MS,
     tap: TAP,
     knock: KNOCK,
@@ -153,15 +159,18 @@
     var pendingTimers = [];   /* 已排定的延迟触发（静音 MUST 一并取消） */
     var pendingChannels = {}; /* Δ22b/T109: 具名延迟通道（语音档位升级时只播最终档） */
 
-    /* ---------- Δ30/FR-054 人声节流态 ---------- */
+    /* ---------- Δ31/FR-055 人声阶梯态 ---------- */
     var lastVoiceAt = -1e9;   /* 上一次人声**实际起播**时刻（performance.now） */
+    var lastVoiceName = '';   /* 上一次实际起播的词（只读观测位） */
+    var voiceQueue = null;    /* 等待起播的晋升槽：同一时刻只保留**最高档**一条 */
     var voiceStats = {        /* 只读观测位（tools/voice-cooldown-smoke.js 消费） */
       requests: 0,
       played: 0,
-      skippedCooldown: 0,
-      skippedBusy: 0,
+      upgraded: 0,        /* 排队中被更高档顶替的次数 */
+      skippedDup: 0,      /* 同档 / 更低档重复请求 */
       skippedMuted: 0,
-      skippedUnknown: 0
+      skippedUnknown: 0,
+      failed: 0           /* 起播失败（文件未就绪 / 实例池空） */
     };
 
     /* ---------- 合成轨（程序化治愈系 BGM 兜底）---------- */
@@ -424,6 +433,13 @@
       }
       pendingTimers = [];
       pendingChannels = {};
+      /* Δ31/FR-055: 人声等待槽同样必须清空（否则静音后仍会漏播一条） */
+      if (voiceQueue) {
+        if (voiceQueue.timer != null) {
+          try { global.clearTimeout(voiceQueue.timer); } catch (e2) { /* 忽略 */ }
+        }
+        voiceQueue = null;
+      }
     }
 
     /* 取消某个具名通道上尚未播放的延迟触发（T109 ③ 语音升级去叠放） */
@@ -466,20 +482,35 @@
       return playSfx('shatter', { rate: rate });
     }
 
-    /* 对外：playVoice(tier) —— tier 1/2/3 = good/great/unbelievable（T109 ②）
-     * 也接受契约字符串 'good' | 'great' | 'unbelievable'。
-     * 内部固定延迟 120ms（错开碎裂瞬态），并占用 'voice' 通道：
-     * 120ms 内连击再次升级时上一档未播语音被取消（只播最终档）。
+    /* =========================================================
+     * 对外：playVoice(name, { tier, rate, volume, delay })
      *
-     * Δ30/FR-054 三道闸门（顺序固定，任一命中即跳过且不占用冷却）：
-     *   ① 全局硬冷却 3.5s —— now - lastVoiceAt < VOICE_COOLDOWN_MS → 静默丢弃
-     *   ② 单轨独占 —— 任一 voice_* 实例仍在播 → 静默丢弃（不截断、不叠放）
-     *   ③ 起播前二次复核（120ms 延迟窗口内状态可能已变）
-     * 冷却时间戳只在**真正起播成功**后写入，被跳过/被取消的请求不消耗冷却。
-     * 注：`play()` 返回的 Promise 若被 autoplay 策略 reject，本层不再回滚冷却
-     *     —— 与「宁可少播、绝不叠播」的取舍一致（voice_* 无合成兜底）。 */
-    var VOICE_BY_TIER = { 1: 'voice_good', 2: 'voice_great', 3: 'voice_unbelievable' };
-    var VOICE_BY_NAME = { good: 'voice_good', great: 'voice_great', unbelievable: 'voice_unbelievable' };
+     * 契约（FR-055 §1）：Combo 2 → good / 3 → great / 4 → excellent / 5+ → unbelievable
+     * name 也接受旧式数字 tier（1/2/3），仅为兼容保留。
+     *
+     * 【与 Δ30 的关键差异：冷却不再拦晋升】
+     *   旧版任何请求都要过 3.5s 全局冷却 → 快速连击时第 3 档被吞，
+     *   冷却期满时已到最高档 → 「跳阶」。本版**不做**跨档冷却：
+     *     · 档位上升（晋升）→ 一定播出：上一句已播完则立即起播；
+     *       仍在播则进 voiceQueue 等它，最多 VOICE_ASCENT_GAP_MS（800ms）后强发；
+     *     · 排队期再来更高档 → 顶替（只保留最高档，绝不排成一串）；
+     *     · 同档 / 更低档重复请求 → 丢弃（防复读的兜底，权威口径在
+     *       GameState.comboVoiceTier）。
+     *   等待上限 VOICE_WAIT_MAX_MS（2s）兜底：无论如何**绝不吞掉晋升**。
+     * ========================================================= */
+    var VOICE_NAME_BY_TIER = { 1: 'good', 2: 'good', 3: 'great', 4: 'excellent', 5: 'unbelievable' };
+    var VOICE_TIER_OF = { good: 2, great: 3, excellent: 4, unbelievable: 5 };
+    /* name → 资产键。'excellent' 暂无独立 mp3，复用 great 的升降调变体
+     * （rate 1.14 提亮，听感上与第 3 档的 great 明显区分）；
+     * 真实 assets/audio/sfx_voice_excellent.mp3 落地后，只需在此表与
+     * ASSETS 各加一行、并把 VOICE_RATE.excellent 置 1，其余代码零改动。 */
+    var VOICE_KEY_OF = {
+      good: 'voice_good',
+      great: 'voice_great',
+      excellent: 'voice_great',
+      unbelievable: 'voice_unbelievable'
+    };
+    var VOICE_RATE_OF = { excellent: 1.14 };
 
     /* 单轨独占判定：任一语音实例处于「非暂停且未结束」即视为占用 */
     function isVoicePlaying() {
@@ -494,28 +525,57 @@
       return false;
     }
 
-    /* 实际起播（含冷却 / 独占的二次复核；成功后写 lastVoiceAt） */
-    function fireVoice(name, payload) {
-      if (nowMs() - lastVoiceAt < VOICE_COOLDOWN_MS) {
-        voiceStats.skippedCooldown++;
-        return false;
+    /* 清空等待槽（被更高档顶替 / 静音 / 取消排程时调用） */
+    function dropVoiceQueue(reason) {
+      if (!voiceQueue) return false;
+      if (voiceQueue.timer != null) {
+        try { global.clearTimeout(voiceQueue.timer); } catch (e) { /* 忽略 */ }
+        removePending(voiceQueue.timer);
       }
-      if (isVoicePlaying()) {
-        voiceStats.skippedBusy++;
-        return false;
-      }
-      var played = fireSfx(name, payload);
-      if (played) {
-        lastVoiceAt = nowMs();
-        voiceStats.played++;
-      }
-      return played;
+      if (reason === 'upgraded') voiceStats.upgraded++;
+      voiceQueue = null;
+      return true;
     }
 
-    function playVoice(tier, o) {
+    /* 等待槽的轮询：上一句播完（或已等满 800ms / 总时长超限）即起播 */
+    function tickVoiceQueue(entry, delay) {
+      entry.timer = global.setTimeout(function () {
+        entry.timer = null;
+        removePending(entry.id);
+        if (voiceQueue !== entry) return;          /* 已被更高档顶替 */
+        if (sfxMuted) { voiceStats.skippedMuted++; voiceQueue = null; return; }
+
+        var elapsedSinceLast = nowMs() - lastVoiceAt;
+        var waited = nowMs() - entry.since;
+        var free = !isVoicePlaying();
+        /* 晋升必响：上一句已播完 → 立即；仍在播 → 最多等 800ms；
+         * 兜底 waited >= VOICE_WAIT_MAX_MS 强发（任何路径都不吞音） */
+        var ready = free || elapsedSinceLast >= VOICE_ASCENT_GAP_MS || waited >= VOICE_WAIT_MAX_MS;
+        if (!ready) {
+          entry.id = null;
+          tickVoiceQueue(entry, VOICE_POLL_MS);
+          return;
+        }
+
+        voiceQueue = null;
+        var played = fireSfx(entry.key, { rate: entry.rate, volume: entry.volume });
+        if (played) {
+          lastVoiceAt = nowMs();
+          lastVoiceName = entry.name;
+          voiceStats.played++;
+        } else {
+          voiceStats.failed++; /* 文件未就绪 / 池空 —— 静默降级（voice_* 无合成兜底） */
+        }
+      }, delay);
+      entry.id = entry.timer;
+      pendingTimers.push(entry.timer);
+    }
+
+    function playVoice(v, o) {
       o = o || {};
-      var name = VOICE_BY_TIER[tier] || VOICE_BY_NAME[tier];
-      if (!name) {
+      var name = (typeof v === 'number') ? VOICE_NAME_BY_TIER[v] : v;
+      var key = VOICE_KEY_OF[name];
+      if (!key) {
         voiceStats.skippedUnknown++;
         return false;
       }
@@ -524,34 +584,30 @@
         voiceStats.skippedMuted++;
         return false;
       }
-      /* ① 全局硬冷却 */
-      if (nowMs() - lastVoiceAt < VOICE_COOLDOWN_MS) {
-        voiceStats.skippedCooldown++;
-        return false;
-      }
-      /* ② 单轨独占 */
-      if (isVoicePlaying()) {
-        voiceStats.skippedBusy++;
-        return false;
+
+      var tier = o.tier != null ? o.tier : (VOICE_TIER_OF[name] || 0);
+      /* ① 同档 / 更低档重复 → 丢弃（防复读兜底；不降级覆盖正在等的更高档） */
+      if (voiceQueue) {
+        if (voiceQueue.tier >= tier) {
+          voiceStats.skippedDup++;
+          return false;
+        }
+        dropVoiceQueue('upgraded'); /* ② 升档顶替：只保留最高档 */
       }
 
-      var delay = o.delay != null ? o.delay : VOICE_LEAD_MS;
-      var payload = { rate: o.rate, volume: o.volume };
-
-      if (delay > 0) {
-        /* 同一通道再次排定 → 取消上一条（只播最终档位，避免叠放成噪音） */
-        cancelChannel('voice');
-        var id = global.setTimeout(function () {
-          removePending(id);
-          if (pendingChannels['voice'] === id) delete pendingChannels['voice'];
-          if (sfxMuted) { voiceStats.skippedMuted++; return; } /* 静音后漏音防线 */
-          fireVoice(name, payload); /* ③ 起播前二次复核 */
-        }, delay);
-        pendingTimers.push(id);
-        pendingChannels['voice'] = id;
-        return true;
-      }
-      return fireVoice(name, payload);
+      var entry = {
+        name: name,
+        key: key,
+        tier: tier,
+        rate: o.rate != null ? o.rate : (VOICE_RATE_OF[name] != null ? VOICE_RATE_OF[name] : 1),
+        volume: o.volume,
+        since: nowMs(),
+        timer: null,
+        id: null
+      };
+      voiceQueue = entry;
+      tickVoiceQueue(entry, o.delay != null ? o.delay : VOICE_LEAD_MS);
+      return true;
     }
 
     /* =========================================================
@@ -1258,21 +1314,25 @@
           muted: bgmMuted
         };
       },
-      /* Δ30/FR-054: 人声节流可观测态（只读快照，MUST NOT 回写） */
+      /* Δ31/FR-055: 人声阶梯可观测态（只读快照，MUST NOT 回写） */
       getVoiceState: function () {
         return {
-          cooldownMs: VOICE_COOLDOWN_MS,
+          ascentGapMs: VOICE_ASCENT_GAP_MS,
+          waitMaxMs: VOICE_WAIT_MAX_MS,
           leadMs: VOICE_LEAD_MS,
           lastVoiceAt: lastVoiceAt,
+          lastVoiceName: lastVoiceName,
           sinceLastVoiceMs: nowMs() - lastVoiceAt,
           playing: isVoicePlaying(),
+          queued: voiceQueue ? { name: voiceQueue.name, tier: voiceQueue.tier } : null,
           stats: {
             requests: voiceStats.requests,
             played: voiceStats.played,
-            skippedCooldown: voiceStats.skippedCooldown,
-            skippedBusy: voiceStats.skippedBusy,
+            upgraded: voiceStats.upgraded,
+            skippedDup: voiceStats.skippedDup,
             skippedMuted: voiceStats.skippedMuted,
-            skippedUnknown: voiceStats.skippedUnknown
+            skippedUnknown: voiceStats.skippedUnknown,
+            failed: voiceStats.failed
           }
         };
       }

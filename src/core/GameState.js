@@ -185,11 +185,16 @@
       return 'Unbelievable! ×' + count;
     }
 
+    /* Δ31/FR-055: 阶梯口径与 comboCount 严格对齐（一档一词，晋升必响）
+     *   Combo 2 → good / Combo 3 → great / Combo 4 → excellent / Combo 5+ → unbelievable
+     * 上一版把 good 挂在 tier 3、great 挂在 tier 4 —— Combo 2 无语音、
+     * 且第 3 档人声与飘字「Good! ×3」错位，听感上像跳阶。 */
     function comboFxVoice(tier) {
-      if (tier === 3) return 'good';
-      if (tier === 4) return 'great';
+      if (tier === 2) return 'good';
+      if (tier === 3) return 'great';
+      if (tier === 4) return 'excellent';
       if (tier >= 5) return 'unbelievable';
-      return null; /* tier 1/2 MUST NOT 播语音 */
+      return null; /* tier 1（首次三消）MUST NOT 播语音 */
     }
 
     /* 每次三消结算后广播 comboChanged（唯一计数权威——消费方 MUST NOT 自建副本）

@@ -307,11 +307,13 @@
   | Combo | `sfx_shatter` 速率 | 语音（延迟 120ms） | 飘字 |
   |---|---|---|---|
   | 1 | 1.00 | 无 | 无 |
-  | 2 | 1.06 | 无 | `Combo ×2` |
-  | 3 | 1.12 | `sfx_voice_good` | `Good! ×3` |
-  | 4 | 1.18 | `sfx_voice_great` | `Great! ×4` |
+  | 2 | 1.06 | `sfx_voice_good` | `Combo ×2` |
+  | 3 | 1.12 | `sfx_voice_great` | `Good! ×3` |
+  | 4 | 1.18 | `voice_excellent`（暂无独立资产 → 复用 `sfx_voice_great` 变调 `1.14`） | `Great! ×4` |
   | ≥5 | 1.25 | `sfx_voice_unbelievable` | `Unbelievable! ×N` |
 
+  - **阶梯晋级必响（Δ31 修订）**：档位严格上升时语音 MUST NOT 被任何冷却丢弃。上一句已播完则立即起播；仍在播则最多等 `800ms` 后强发，等待上限 `2000ms` 兜底。MUST NOT 使用跨档的固定长冷却（旧 `3.5s` 硬冷却会吞掉中段档位，导致 `Good → Unbelievable` 跳阶）。
+  - **同档防复读**：同一档位在一次连击周期（5 秒滑动窗未中断）内 MUST 只播报一次；`Combo 6/7/8…` 持续处于最高档时 MUST NOT 重复播报 `sfx_voice_unbelievable`，但连击计数、升调与飘字 MUST 正常累加。仅当窗口超时连击归零后，重新打出高连击才允许再次播报。
   - 升调 MUST 用 `preservesPitch = false` + `playbackRate`；`Combo 1` MUST NOT 播语音、MUST NOT 飘字；计时 MUST 以时间戳差值判定（MUST NOT 依赖帧计数，切后台 10 秒返回不误判）。
   - **口径分离**：本条 `comboCount` 为纯表现层（5 秒窗口）；FR-033 的 IQ 乘区为受阻断连（无时间窗）。二者 MUST NOT 互相覆盖或隐式同步。
   - 连击仅驱动音效与飘字，MUST NOT 改写 FR-005 计分、MUST NOT 进入 `RulesEngine` 或 Solver 动作集。
