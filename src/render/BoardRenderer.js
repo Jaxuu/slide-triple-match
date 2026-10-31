@@ -66,17 +66,33 @@
   function setSuitLevel(level) {
     currentLevelId = level ? level.id : null;
     currentMapping = (Bestiary && level) ? Bestiary.mappingForLevel(level) : {};
+    /* R8：花色映射变了 → 视觉解析缓存必须作废（否则换关后沿用上一关的配色） */
+    suitVisualCache = {};
   }
+
+  /* R8 / 性能修复⑧：`suitVisual` **记忆化**。
+   * 原实现每次调用都新建一个 `{fill,deep,entry,bid}` 对象，并且（映射命中时）
+   * 还要跑一遍 `shade()` 的字符串管线（replace + 3×parseInt + 3×toString）。
+   * 该函数在 drawTileBody 里**每帧每张牌调用一次** —— L72（135 张牌）实测
+   * 8100 个对象/秒 + 8100 次颜色换算/秒，是 GC 停顿的主要来源之一。
+   * 结果只依赖 currentMapping / SUITS，二者只在换关时变 → 按花色号缓存即可。 */
+  var suitVisualCache = {};
 
   /* suit → {fill,deep,entry} 视觉解析（图案主色 + 图鉴条目） */
   function suitVisual(suit) {
+    var hit = suitVisualCache[suit];
+    if (hit) return hit;
+    var out;
     var bid = currentMapping[suit];
     if (bid != null && Bestiary) {
       var e = Bestiary.entry(bid);
-      return { fill: e.theme, deep: shade(e.theme, -60), entry: e, bid: bid };
+      out = { fill: e.theme, deep: shade(e.theme, -60), entry: e, bid: bid };
+    } else {
+      var s = SUITS[suit] || SUITS[suit % SUITS.length];
+      out = { fill: s.fill, deep: s.deep, entry: null, bid: null };
     }
-    var s = SUITS[suit] || SUITS[suit % SUITS.length];
-    return { fill: s.fill, deep: s.deep, entry: null, bid: null };
+    suitVisualCache[suit] = out;
+    return out;
   }
 
   /* 颜色明度调节（hex ±amount——底晕/徽章深色派生） */
@@ -718,11 +734,19 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     var x = px - w / 2;
     var y = py - h / 2;
     ctx.globalAlpha = alpha;
-    /* 1. 底部 4px 立体厚度层 */
+    /* 1. 底部 4px 立体厚度层 + 硬投影
+     *
+     * R8 / 性能修复②：**清零 ctx.shadowBlur / shadowColor / shadowOffsetY**。
+     * 原实现给每张牌设 `shadowOffsetY = 3` + 半透明 shadowColor，虽然 blur=0，
+     * 但每次 fill/stroke 仍要走一遍「阴影图层合成」路径；实测 63 张牌 × 每帧
+     * 2 次操作 × 60FPS = 7560 次阴影合成/秒，是填充率的主要消耗。
+     * 现改为**固定偏移的纯色硬投影**（3px 下沉的 rgba 硬边圆角块）——
+     * 视觉等价、零阴影合成、零 filter。
+     * 铁律：本函数内 MUST NOT 再出现 shadowBlur / shadowColor / filter 赋值。 */
     ctx.save();
-    ctx.shadowColor = 'rgba(15, 23, 42, 0.25)';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 3;
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.25)';
+    roundRect(ctx, x, y + 7, w, h, r);
+    ctx.fill();
     roundRect(ctx, x, y + 4, w, h, r);
     ctx.fillStyle = '#CBD5E1';
     ctx.fill();
@@ -730,12 +754,13 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     ctx.lineWidth = 1;
     ctx.stroke();
     ctx.restore();
-    /* 2. 温润奶油白牌面 */
-    var fg = ctx.createLinearGradient(x, y, x, y + h);
-    fg.addColorStop(0, '#FFFFFF');
-    fg.addColorStop(1, '#FFFFFF');
+    /* 2. 温润奶油白牌面
+     * R8 / 性能修复③：原实现每帧为每张牌 `createLinearGradient(x,y,x,y+h)` 再
+     * 加两个**完全相同**的色标 `#FFFFFF → #FFFFFF` —— 视觉上就是纯白，却每帧
+     * 新建 63 个 CanvasGradient 对象（≈3800 个/秒），是 GC 抖动的主要来源之一。
+     * 改为直接 `fillStyle = '#FFFFFF'`：像素级等价，零对象分配。 */
     roundRect(ctx, x, y, w, h, r);
-    ctx.fillStyle = fg;
+    ctx.fillStyle = '#FFFFFF';
     ctx.fill();
     /* 顶部内侧 1px 纯白高光边 */
     ctx.strokeStyle = '#FFFFFF';
@@ -1247,6 +1272,15 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     var dirty = true;
     var running = false;
     var rafId = 0;
+    /* R8 / 性能修复①：渲染器生命周期锁。
+     * `main.js:loadLevel()` 每次换关/重置都会 `createBoardRenderer()` 新建实例，
+     * 而旧实例的 rAF 链从未被取消 → 旧闭包持续以 60FPS 全量重绘**同一张画布**
+     * （实测重置一次后 `clearRect(#board)` = 2 次/帧、`createLinearGradient` = 2×牌数，
+     * 重置 4 次后彻底错乱）。destroyed 是**唯一**的关停开关：
+     *   · `start()` 不再排程新帧；`frame()` 首行直接返回（已排程的那一帧自毁）；
+     *   · `markDirty()` / `refresh()` / `handleEvent()` 全部空转 —— 死实例不得再改画布。
+     * MUST NOT 依赖「把 running 置 false」关停：那只会让下一帧继续排程。 */
+    var destroyed = false;
     var anims = [];        /* {kind:'block'|'reveal'|'gear'|'unlock'|'ice'|'prism', tileId, ...} */
     /* Δ31b / SC-027 ⑫: 三消反馈 100% 交给 `#dock` 内 3 张真实卡牌的位移/形变/亮度。
      * 坍缩光环池、四角星芒、重力粒子池**整段下线**——`#vfx-canvas`
@@ -1260,6 +1294,8 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     var vfxWasLive = false;
     var lastTickTime = null;     /* Δ20/T093: 全屏 #vfx-canvas 白瓷碎片瀑布池 */
     var vfxCanvas = null, vfxCtx = null;
+    /* R8：视口尺寸缓存（`resize()` 刷新；w/h 为 0 表示未初始化 → 首帧回读一次） */
+    var vfxView = { w: 0, h: 0 };
     try {
       if (typeof document !== 'undefined') {
         vfxCanvas = document.getElementById('vfx-canvas');
@@ -1324,6 +1360,15 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     /* Δ27a/FR-053 §5：本帧静态层的实际绘制序（tileId 序列）——仅供门禁断言
      * 「飞行牌与静止牌共用同一 (z,r,c) 升序」，不参与运行时逻辑。 */
     var lastDrawOrder = [];
+    /* R8 / 性能修复⑥：绘制列表缓存（见 draw() 内注释）。
+     * renderSeq 是**数据版本号**：tiles/flights 集合每次变化必须自增，
+     * 否则列表会停在旧快照（漏牌 / 重影）。 */
+    var renderList = [];
+    var inList = {};
+    var renderSeq = 0;
+    var renderListSeq = -1;
+    /* R8：受阻微震位移表「是否非空」标记——无 block 动画时零分配、零遍历 */
+    var blockDxLive = false;
     var dockSlotGeo = null;
     var dockSlotGeoLen = 0;
 
@@ -1436,6 +1481,10 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       /* Δ27a/FR-053 §3: 棋盘矩形 / 缩放比变化 → 待消槽几何缓存必须作废
        * （窗口缩放、方向切换后飞行终点重新取实时 getBoundingClientRect） */
       invalidateDockGeometry();
+      introRectDirty = true;   /* R8：接缝几何缓存同步作废 */
+      /* R8：视口尺寸缓存同步刷新（0 = 未初始化 → drawVfx 会回读一次） */
+      vfxView.w = (typeof global !== 'undefined' && global.innerWidth) ? global.innerWidth : 0;
+      vfxView.h = (typeof global !== 'undefined' && global.innerHeight) ? global.innerHeight : 0;
       markDirty();
     }
 
@@ -1467,16 +1516,19 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       if (typeof ctx.setTransform === 'function') ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
-    function markDirty() { dirty = true; start(); }
+    function markDirty() { if (destroyed) return; dirty = true; start(); }
 
     function start() {
-      if (running) return;
+      if (destroyed || running) return;
       running = true;
       rafId = global.requestAnimationFrame(frame);
     }
 
     function frame(now) {
       running = false;
+      /* R8：已销毁的实例 MUST 在**任何**工作之前退出——包括 tick()。
+       * 旧实例如仍留在 rAF 队列里，这一帧就是它最后一次执行（下方不再排程）。 */
+      if (destroyed) return;
       /* M4 T055: 高亮 ttl 到期 → markDirty 重绘并清状态 */
       if (highlight >= 0 && tickHighlight(now)) dirty = true;
       var needMore = tick(now);
@@ -1521,6 +1573,47 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         }
       }
       if (needMore) start();
+    }
+
+    /* R8 / 性能修复①：彻底关停本实例（换关 / 重置 / 返回大厅时由 main.js 调用）。
+     *
+     * 关停清单（漏一项 = 泄漏一个 60FPS 循环）：
+     *   ① `cancelAnimationFrame(rafId)` —— 撤掉**已排程**的那一帧；
+     *   ② `destroyed = true` —— 之后任何 `start()` 都不再排程（单轨 RAF 锁）；
+     *   ③ `clearIntroWatchdog()` —— 否则 1200ms 后死实例还会对已结束的编舞补开闸；
+     *   ④ 清空 anims / flights / introAnim / revealAt —— 释放闭包与 tile 引用，
+     *      并让 `tick()` 对死实例恒返回 false（双保险）；
+     *   ⑤ `dirty = false` —— 死实例不得因残留脏标记再画一帧。
+     *
+     * 注意：`IconAssets.onSpritesReady(markDirty)` 的订阅**不在这里注销**——
+     * `markDirty` 已被 destroyed 守卫拦下，注销反而会在多实例场景误删活实例的回调。
+     * 返回是否关停成功（幂等：重复调用恒返回 true）。 */
+    function destroy() {
+      if (destroyed) return true;
+      destroyed = true;
+      running = false;
+      if (rafId) {
+        try { global.cancelAnimationFrame(rafId); } catch (eCa) { /* 无 rAF 环境 */ }
+        rafId = 0;
+      }
+      clearIntroWatchdog();
+      anims.length = 0;
+      flights.length = 0;
+      pendingDock = {};
+      revealAt = {};
+      blockDx = {};
+      blockDxLive = false;
+      renderList.length = 0;
+      inList = {};
+      renderListSeq = -1;
+      introAnim = null;
+      introPlan = null;
+      introTicked = {};
+      introGateFrames = 0;
+      vfxWasLive = false;
+      dirty = false;
+      lastProbe = null;
+      return true;
     }
 
     /* =========================================================
@@ -1575,6 +1668,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       introTicked = {};
       introGateFrames = 0;
       introWatchdogRearms = 0;
+      introRectDirty = true;   /* R8：每次开局重读一次接缝几何（兜住布局位移） */
       armIntroWatchdog();
       markDirty();
       return m;
@@ -1664,6 +1758,14 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
      *   ② p >= 1 返回 null → 落定帧与静态帧逐像素一致（零残留偏移）；
      *   ③ 未起跑（el <= 0）返回 alpha 0 = 「底图留白期」，这是 180ms LEAD 的表现。
      * 闸门未开时按 el <= 0 处理（绝不让 `now - null` 把整盘判成已落定）。 */
+    /* R8 / 性能修复④：进场姿态的**复用输出对象**。
+     * 原实现每帧每张牌 `return {p,dx,dy,sx,sy,alpha}` → 63 个临时对象/帧
+     * （≈3800 个/秒，纯垃圾）。调用方（drawBoardTile / drawIntroOutside）都是
+     * **立即消费**、绝不保留引用，故共用一个 scratch 安全。
+     * ⚠ 对外钩子 `dealTransformAt` MUST 拷贝后再返回（门禁会跨调用比对，
+     *   直接返回 scratch 会让所有取样都变成最后一张牌的值）。 */
+    var ITR_OUT = { p: 0, dx: 0, dy: 0, sx: 1, sy: 1, alpha: 1 };
+
     function introTransformOf(t, now) {
       if (!introAnim || !introAnim.active) return null;
       if (!introPlan) introPlan = buildIntroPlan();
@@ -1677,26 +1779,30 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       var oyPx = rec.oy + rec.oyc * cell;
       if (el <= 0) {
         /* 尚未开始：完全隐形（0~180ms 纯底图留白期的唯一表现） */
-        return { p: 0, dx: oxPx, dy: oyPx, sx: rec.sx, sy: rec.sy, alpha: 0 };
+        ITR_OUT.p = 0; ITR_OUT.dx = oxPx; ITR_OUT.dy = oyPx;
+        ITR_OUT.sx = rec.sx; ITR_OUT.sy = rec.sy; ITR_OUT.alpha = 0;
+        return ITR_OUT;
       }
       var p = el / INTRO_TILE_MS;
       if (p >= 1) return null; /* 定格 → 静态路径 */
       if (reducedMotion) {
         /* prefers-reduced-motion: reduce → 无位移/无旋转/无缩放，仅一次性淡入 */
         var ar = p < 0 ? 0 : p;
-        return { p: p, dx: 0, dy: 0, sx: 1, sy: 1, alpha: rec.a0 + (1 - rec.a0) * ar };
+        ITR_OUT.p = p; ITR_OUT.dx = 0; ITR_OUT.dy = 0;
+        ITR_OUT.sx = 1; ITR_OUT.sy = 1;
+        ITR_OUT.alpha = rec.a0 + (1 - rec.a0) * ar;
+        return ITR_OUT;
       }
       var e = introEase(rec.ease, p);
       var k = 1 - e;
       var ae = e < 0 ? 0 : (e > 1 ? 1 : e);
-      return {
-        p: p,
-        dx: oxPx * k,
-        dy: oyPx * k,
-        sx: 1 + (rec.sx - 1) * k,
-        sy: 1 + (rec.sy - 1) * k,
-        alpha: rec.a0 + (1 - rec.a0) * Math.min(1, ae * 1.6)
-      };
+      ITR_OUT.p = p;
+      ITR_OUT.dx = oxPx * k;
+      ITR_OUT.dy = oyPx * k;
+      ITR_OUT.sx = 1 + (rec.sx - 1) * k;
+      ITR_OUT.sy = 1 + (rec.sy - 1) * k;
+      ITR_OUT.alpha = rec.a0 + (1 - rec.a0) * Math.min(1, ae * 1.6);
+      return ITR_OUT;
     }
 
     /* 逐帧推进：跨越 p>=0.85 首次落定 → 一声落牌涟漪（>=22ms 节流在 SoundManager 内） */
@@ -1872,6 +1978,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       }
 
       flights.push(f);
+      renderSeq++;   /* R8：飞行集合变化 → 绘制列表重建 */
       markDirty();
       return f;
     }
@@ -1888,6 +1995,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       var n = flights.length;
       flights.length = 0;
       pendingDock = {};
+      renderSeq++;   /* R8：飞行集合变化 → 绘制列表重建 */
       dirty = true;
       markDirty();
       return n;
@@ -1922,6 +2030,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         var fel = now - fl.t0;
         if (fel >= fl.dur || fel > fl.dur + 400) {
           flights.splice(i, 1);
+          renderSeq++;   /* R8：飞行集合变化 → 绘制列表重建 */
           landFlight(fl);
           dirty = true;
         } else {
@@ -1956,8 +2065,15 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     function drawVfx(atMs) {
       if (!vfxCtx || !vfxCanvas) return;
       var dpr = Math.max(1, (typeof global !== 'undefined' && global.devicePixelRatio) || 1);
-      var w = (typeof global !== 'undefined' && global.innerWidth) ? global.innerWidth : (vfxCanvas.clientWidth || 360);
-      var h = (typeof global !== 'undefined' && global.innerHeight) ? global.innerHeight : (vfxCanvas.clientHeight || 640);
+      /* R8：视口尺寸走缓存（`resize()` 时刷新）——原实现每帧读
+       * `global.innerWidth/innerHeight`，与同帧 DOM 写入叠加会触发同步重排。 */
+      var w = vfxView.w;
+      var h = vfxView.h;
+      if (!w || !h) {
+        w = (typeof global !== 'undefined' && global.innerWidth) ? global.innerWidth : (vfxCanvas.clientWidth || 360);
+        h = (typeof global !== 'undefined' && global.innerHeight) ? global.innerHeight : (vfxCanvas.clientHeight || 640);
+        vfxView.w = w; vfxView.h = h;
+      }
       if (!w || !h) { w = 360; h = 640; }
       var pxW = Math.max(1, Math.round(w * dpr));
       var pxH = Math.max(1, Math.round(h * dpr));
@@ -1994,26 +2110,59 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
      *
      * 视口硬裁剪是结构性的：`#vfx-canvas` 为 `position: fixed; inset: 0`，
      * 画布本身画不出视口外 → spec 的「MUST NOT 画出视口外」自动成立。 */
-    function drawIntroOutside(v, viewW, viewH, now) {
-      if (!v || !introAnim || !introAnim.active) return;
-      if (reducedMotion) return;                     /* 降级：零位移，无需接缝 */
-      if (!introPlan) return;
-      if (typeof canvas.getBoundingClientRect !== 'function') return;
-      var br = canvas.getBoundingClientRect();
-      if (!br || !(br.width > 0) || !(cssSize > 0)) return;
-      var k = br.width / cssSize;
-      /* HUD 安全线（视口 CSS px）。取不到节点时退化为 0 → 与 R5 完全一致，
-       * Node 桩 / 无 HUD 的嵌入场景零影响。 */
-      var hudBottom = 0;
+    /* R8 / 性能修复⑦：接缝几何缓存（**严禁逐帧读 DOM**）。
+     *
+     * 原实现每帧在 drawIntroOutside 里读 `canvas.getBoundingClientRect()` +
+     * `document.getElementById('hud')` + `hud.getBoundingClientRect()`——
+     * 实测 `getBoundingClientRect` 2 次/帧。只要同帧内有过任何 DOM 写入
+     * （`renderDock` 改 class / style 就是），这两次读取都会触发**强制同步重排**
+     * （Layout Thrashing），单帧代价可达 5~15ms。
+     *
+     * 现改为：只在 `introRectDirty` 时读一次并缓存。失效点：
+     *   · `resize()`（窗口尺寸 / 布局变化）——refresh() 会调它；
+     *   · `startDeal()`（每次开局重读一次，兜住滚动 / 软键盘等布局位移）。
+     * 棋盘画布位于 `#app` 全屏固定布局内（`#vfx-canvas` 为 `position:fixed`），
+     * 滚动在游戏内不可达，故上述失效点足够。 */
+    var introRectDirty = true;
+    var introRectCache = { left: 0, top: 0, width: 0, hudBottom: 0, ok: false };
+
+    function readIntroRect() {
+      if (!introRectDirty && introRectCache.ok) return introRectCache;
+      /* ⚠ 只有**成功取到**才清 dirty：首帧布局未就绪（width=0）时必须保持
+       * dirty，否则会把「不可用」永久缓存下来（接缝从此永不绘制）。 */
+      introRectCache.ok = false;
+      if (typeof canvas.getBoundingClientRect !== 'function') return introRectCache;
+      var br = null;
+      try { br = canvas.getBoundingClientRect(); } catch (eBr2) { br = null; }
+      if (!br || !(br.width > 0)) return introRectCache;
+      introRectCache.left = br.left;
+      introRectCache.top = br.top;
+      introRectCache.width = br.width;
+      introRectCache.hudBottom = 0;
       if (typeof document !== 'undefined' && document.getElementById) {
         var hudEl = document.getElementById('hud');
         if (hudEl && typeof hudEl.getBoundingClientRect === 'function') {
           try {
             var hr = hudEl.getBoundingClientRect();
-            if (hr && isFinite(hr.bottom)) hudBottom = hr.bottom;
-          } catch (eHud) { hudBottom = 0; }
+            if (hr && isFinite(hr.bottom)) introRectCache.hudBottom = hr.bottom;
+          } catch (eHud2) { introRectCache.hudBottom = 0; }
         }
       }
+      introRectCache.ok = true;
+      introRectDirty = false;   /* 成功取到才允许后续帧复用 */
+      return introRectCache;
+    }
+
+    function drawIntroOutside(v, viewW, viewH, now) {
+      if (!v || !introAnim || !introAnim.active) return;
+      if (reducedMotion) return;                     /* 降级：零位移，无需接缝 */
+      if (!introPlan) return;
+      var br = readIntroRect();
+      if (!br.ok || !(cssSize > 0)) return;
+      var k = br.width / cssSize;
+      /* HUD 安全线（视口 CSS px）。取不到节点时退化为 0 → 与 R5 完全一致，
+       * Node 桩 / 无 HUD 的嵌入场景零影响。 */
+      var hudBottom = br.hudBottom;
       var hudY = (hudBottom - br.top) / k;            /* 换算到棋盘画布坐标系 */
       var tiles = (lastProbe && lastProbe.tiles) ? lastProbe.tiles : [];
       var tileSide = layout.tileSize > 0 ? layout.tileSize : Math.max(1, cell - 1);
@@ -2022,9 +2171,12 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         if (t.removed) continue;
         var itr = introTransformOf(t, now);
         if (!itr) continue;
-        var rect = getTileCssRect(t, layout);
-        var px = rect.x + rect.w / 2 + itr.dx;
-        var py = rect.y + rect.h / 2 + itr.dy;
+        /* R8：几何内联（同 drawBoardTile，零对象分配） */
+        var tz = t.z || 0;
+        var trr = (t.rr != null ? t.rr : (tz % 2 === 1 ? t.r + 0.5 : t.r));
+        var tcc = (t.cc != null ? t.cc : (tz % 2 === 1 ? t.c + 0.5 : t.c));
+        var px = layout.originX + tcc * layout.cellStep + layout.tileSize * 0.5 + itr.dx;
+        var py = layout.originY + trr * layout.cellStep + layout.tileSize * 0.5 + itr.dy;
         var hh = tileSide * 0.5 * itr.sy;
         if (py - hh >= 0) continue;                  /* 完全在棋盘矩形内 → 本层不画 */
         v.save();
@@ -2046,9 +2198,10 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
      * 按 z 序画过）。seg === 'offboard'（完全越出）时整张牌都在本层。 */
     function drawFlightsOutside(v, viewW, viewH, now) {
       if (!flights.length) return;
-      if (!v || typeof canvas.getBoundingClientRect !== 'function') return;
-      var br = canvas.getBoundingClientRect();
-      if (!br || !(br.width > 0) || !(cssSize > 0)) return;
+      if (!v) return;
+      /* R8：与 drawIntroOutside 共用同一份缓存几何（零逐帧 getBoundingClientRect） */
+      var br = readIntroRect();
+      if (!br.ok || !(cssSize > 0)) return;
       var k = br.width / cssSize;
       for (var i = 0; i < flights.length; i++) {
         var f = flights[i];
@@ -2112,13 +2265,25 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       /* 受阻微震：位移在静态层施加（不再由动画层重绘卡体）——
        * 这样抖动卡牌仍处在自己的 z 位置，绝不会盖到更高层的牌上。 */
       var i;
-      blockDx = {};
+      /* R8：受阻微震位移表——仅在存在 block 动画时重建。
+       * 原实现每帧无条件 `blockDx = {}`（一次分配）+ 遍历 anims，
+       * 即使全场没有一张牌在抖。 */
+      var hasBlock = false;
       for (i = 0; i < anims.length; i++) {
-        var ab = anims[i];
-        if (ab.kind !== 'block') continue;
-        var bp = Math.min(1, (now - ab.t0) / ab.dur);
-        blockDx[ab.tileId] = Math.sin(bp * Math.PI * 6) * 3 * (1 - bp);
+        if (anims[i].kind === 'block') { hasBlock = true; break; }
       }
+      if (hasBlock) {
+        blockDx = {};
+        for (i = 0; i < anims.length; i++) {
+          var ab = anims[i];
+          if (ab.kind !== 'block') continue;
+          var bp = Math.min(1, (now - ab.t0) / ab.dur);
+          blockDx[ab.tileId] = Math.sin(bp * Math.PI * 6) * 3 * (1 - bp);
+        }
+      } else if (blockDxLive) {
+        blockDx = {};
+      }
+      blockDxLive = hasBlock;
       var tiles = lastProbe.tiles;
       /* Δ27a/FR-053 §5（图层遮挡红线）：飞行牌**不再**从 renderList 剔除。
        * 旧实现把全部飞行牌从列表里滤掉、再在静态层之后统一叠画一遍，
@@ -2127,23 +2292,31 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
        * 现改为：飞行牌以 tileInfo 缓存的原格位（r/c/z 不变）合成进同一份
        * renderList，共用下方**未改动**的 (z,r,c) 升序比较器；位移/缩放/透明度
        * 由 drawBoardTile 内 flightOf() 施加（与 blockDx / introTransformOf 同构）。
-       * 只有「完全越出棋盘矩形」的离场段才退出该序（见 drawVfx 缝合绘制）。 */
-      var renderList = [];
-      var inList = {};
-      for (i = 0; i < tiles.length; i++) {
-        if (tiles[i].removed) continue;
-        renderList.push(tiles[i]);
-        inList[tiles[i].id] = true;
+       * 只有「完全越出棋盘矩形」的离场段才退出该序（见 drawVfx 缝合绘制）。
+       *
+       * R8 / 性能修复⑥：**绘制列表按数据版本缓存**。
+       * 原实现每帧重建数组 + 重建 `inList` 哈希 + 重排 63 张牌（O(n log n)），
+       * 而列表内容只在「tiles/flights 集合变化」时才可能变——编舞期间 60 帧
+       * 全部白排。现由 `renderSeq`（refresh / 飞行增删时自增）驱动重建。 */
+      if (renderListSeq !== renderSeq) {
+        renderList.length = 0;
+        inList = {};
+        for (i = 0; i < tiles.length; i++) {
+          if (tiles[i].removed) continue;
+          renderList.push(tiles[i]);
+          inList[tiles[i].id] = true;
+        }
+        for (i = 0; i < flights.length; i++) {
+          var fid = flights[i].tileId;
+          if (inList[fid]) continue;
+          var ftile = tileInfo[fid];
+          if (ftile) { renderList.push(ftile); inList[fid] = true; }
+        }
+        renderList.sort(function (a, b) {
+          return a.z - b.z || a.r - b.r || a.c - b.c;
+        });
+        renderListSeq = renderSeq;
       }
-      for (i = 0; i < flights.length; i++) {
-        var fid = flights[i].tileId;
-        if (inList[fid]) continue;
-        var ftile = tileInfo[fid];
-        if (ftile) { renderList.push(ftile); inList[fid] = true; }
-      }
-      renderList.sort(function (a, b) {
-        return a.z - b.z || a.r - b.r || a.c - b.c;
-      });
       lastDrawOrder.length = 0;
       for (i = 0; i < renderList.length; i++) {
         /* ingame-hud-render-defects（Bug 2）: 已删除「上层投射环境阴影」——
@@ -2213,10 +2386,15 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
      * 奇偶层 +0.5 半格错位本身已构成层次；被压变暗遮罩与层间灰影块
      * 一并删除，卡牌保持干净明亮本色。仅保留 Δ7 reveal 上浮。 */
     function drawBoardTile(t, now) {
-      var rect = getTileCssRect(t, layout);
-      /* 受阻微震：±3px 水平位移由本层施加（见 draw() 内 blockDx 计算） */
-      var px = rect.x + rect.w / 2 + (blockDx[t.id] || 0);
-      var py = rect.y + rect.h / 2;
+      /* R8 / 性能修复⑤：几何**内联**计算，不再调 getTileCssRect。
+       * 该函数每帧每张牌返回一个新对象（63 个/帧），而这里只用得到中心点；
+       * 内联后与 getTileCssRect 逐值等价（同一 (rr,cc) 归一 + origin/cellStep 口径），
+       * 命中测试仍走原函数，两处口径不漂移。 */
+      var z0 = t.z || 0;
+      var rr = (t.rr != null ? t.rr : (z0 % 2 === 1 ? t.r + 0.5 : t.r));
+      var cc = (t.cc != null ? t.cc : (z0 % 2 === 1 ? t.c + 0.5 : t.c));
+      var px = layout.originX + cc * layout.cellStep + layout.tileSize * 0.5 + (blockDx[t.id] || 0);
+      var py = layout.originY + rr * layout.cellStep + layout.tileSize * 0.5;
       var lift = 0;
       var rv = revealAt[t.id];
       if (rv != null) {
@@ -2356,6 +2534,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     /* ---------- 事件接入（session onEvent → 渲染动效） ---------- */
     var lastDockSlot = 0; /* 兼容兜底：仅在 pendingDock 缺项时使用（正常路径不依赖） */
     function handleEvent(e) {
+      if (destroyed) return;   /* R8：死实例不得再改画布状态 */
       var now = nowMs();
       if (e.e === 'dock' && e.slotIndex != null) {
         var si = Math.max(0, Math.min(6, e.slotIndex | 0));
@@ -2412,6 +2591,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
 
     /* ---------- 数据刷新（脏检查入口） ---------- */
     function refresh() {
+      if (destroyed) return;   /* R8：死实例不再重建 probe / 不再标脏 */
       if (session) lastProbe = RE.renderProbe(session.engineState());
       /* Δ14: 渲染层花色映射刷新——跳关/Undo 均以当前关 id 实时重算阶段
        *（currentLevel 切换由 main.js 经 setSuitLevel 通知；此处兜底幂等） */
@@ -2460,6 +2640,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         }
       }
       resize();
+      renderSeq++;   /* R8：盘面数据变了 → 绘制列表必须重建 */
       markDirty();
     }
 
@@ -2536,6 +2717,10 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
     lastRendererApi = {
       refresh: refresh,
       handleEvent: handleEvent,
+      /* R8 / 性能修复①：销毁入口（main.js 换关前必须调用）——
+       * 单轨 RAF 锁的唯一开关，见 destroy() 注释。 */
+      destroy: destroy,
+      isDestroyed: function () { return destroyed; },
       hitTest: hitTest,
       setHighlight: setHighlight,
       setHighlights: setHighlights,
@@ -2567,7 +2752,11 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
         var want = (typeof tileId === 'string') ? Number(tileId) : tileId;
         var tiles = lastProbe.tiles || [];
         for (var i = 0; i < tiles.length; i++) {
-          if (tiles[i].id === want) return introTransformOf(tiles[i], atMs);
+          if (tiles[i].id !== want) continue;
+          var r = introTransformOf(tiles[i], atMs);
+          /* R8：MUST 拷贝——introTransformOf 返回的是复用 scratch，
+           * 直接返回会让「连续取样多张牌」全部指向最后一次的值（假绿）。 */
+          return r ? { p: r.p, dx: r.dx, dy: r.dy, sx: r.sx, sy: r.sy, alpha: r.alpha } : null;
         }
         return null;
       },
@@ -2611,6 +2800,7 @@ var FLIGHT_REDUCED_MS = 90;         /* prefers-reduced-motion：零位移直接�
       clearVfx: function () {
         flights.length = 0;
         vfxWasLive = false;
+        renderSeq++;   /* R8：飞行集合变化 → 绘制列表重建 */
         markDirty();
       },
       /* Δ30a 取证钩子（只读渲染，不改任何状态）：

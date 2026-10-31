@@ -1892,3 +1892,64 @@ R5/R6 把开局进场收敛为「垂直雨幕下落 + 微弹定格」单一模�
 | ② | `totalMs` 若仍按 400ms 断言会整段假绿 | 全部改为 `totalMs === maxDelay + TILE`（同源精确值），窗口 [440,1000] |
 | ③ | 退役常量只删实现不删导出 = 门禁读旧值 | `STM.rendererTest.INTRO` 同步替换；`introFallEase/introSquashOf/introPoseOf/introStepsOf/introDelayOf/introDealTotalMs` 全部不导出，并由 `deal-smoke` 断言 `undefined` |
 | ④ | `dealTransformAt(tileId)` 收到 `Object.keys(plan)` 的**字符串 id** | 入口做 `Number()` 归一（否则全部返回 null，断言恒红/恒绿） |
+
+## R8（2026-10-31）开局编舞掉帧根治：渲染循环性能修复
+
+### 1. 根因（实测，非推测）
+
+用 `tools/perf-probe.js`（CDP + 页面内注入计数器）逐帧取证，定位到 **5 个叠加缺陷**：
+
+| # | 根因 | 实测证据（L3 / 63 张牌） |
+|---|---|---|
+| ① | **渲染器泄漏 → 多重并发 RAF 循环**。`main.js:loadLevel()` 每次换关/重玩都 `createBoardRenderer()` 新建实例，旧实例的 rAF 链**从未取消**，继续以 60FPS 全量重绘同一张 `#board` | 重置 1 次后 `clearRect(#board)` = **2 次/帧**、`createLinearGradient` = **2×牌数**、`getBoundingClientRect` = 4 次/帧；重置 4 次后 `createdSinceWrap=4` 且画面停摆 |
+| ② | **每帧每牌新建无效渐变**。`drawTileBody` 里 `createLinearGradient` 的两个色标**完全相同**（`#FFFFFF → #FFFFFF`），纯白填充却每帧新建 63 个 `CanvasGradient` | `createLinearGradient` = **63/帧**（≈3800 个/秒） |
+| ③ | **每帧强制同步布局**。`drawIntroOutside` 每帧读 `canvas.getBoundingClientRect()` + `getElementById('hud')` + `hud.getBoundingClientRect()` | `getBoundingClientRect` = **2 次/帧**（双循环时 4 次） |
+| ④ | **高频内存分配**。`introTransformOf` / `getTileCssRect` / `tileGridOf` 每帧每牌各返回一个新对象；`suitVisual` 每帧每牌新建 `{fill,deep,entry,bid}` 并跑 `shade()` 字符串管线；`draw()` 每帧重建 `renderList` + `inList` + 重排 63 张牌 | 每帧约 **250+ 临时对象**（L72 达 500+，≈3 万/秒） |
+| ⑤ | **阴影合成**。`drawTileBody` 给每张牌设 `shadowOffsetY=3` + `shadowColor`（blur 已为 0），每次 fill/stroke 仍走阴影图层合成 | 63 牌 × 2 操作 × 60FPS = **7560 次阴影合成/秒** |
+
+### 2. 修复（小步 Edit，逐项复测）
+
+| # | 措施 | 落点 |
+|---|---|---|
+| ① | **单轨 RAF 锁**：新增 `destroy()`（`cancelAnimationFrame` + `destroyed` 闸门 + 清 watchdog/anims/flights/plan），`loadLevel()` 换关前必调；`start/frame/markDirty/refresh/handleEvent` 全部加 destroyed 守卫 | `BoardRenderer.js` / `main.js` |
+| ② | **清零阴影**：改为**固定偏移纯色硬投影**（3px 下沉的 `rgba(15,23,42,0.25)` 硬边圆角块），与旧 shadow（blur=0、offsetY=3、25% alpha）**像素等价**；本函数内禁止再出现 shadowBlur/shadowColor/filter | `drawTileBody` |
+| ③ | **消除无效渐变**：`fillStyle = '#FFFFFF'`（两端色标相同 → 像素级等价） | `drawTileBody` |
+| ④ | **参数预计算 / 零分配**：`introTransformOf` 复用 `ITR_OUT` scratch（对外钩子 `dealTransformAt` 强制拷贝）；卡牌几何内联；`suitVisual` 按花色记忆化；`renderList` 按 `renderSeq` 版本号缓存；`blockDx` 仅在存在 block 动画时重建 | 多处 |
+| ⑤ | **DOM 读取缓存**：`readIntroRect()` 缓存 `left/top/width/hudBottom`，失效点 = `resize()` / `startDeal()`；`#vfx-canvas` 视口尺寸同样缓存（`vfxView`） | `drawIntroOutside` / `drawFlightsOutside` / `drawVfx` |
+
+### 3. 优化后实测（`node tools/perf-probe.js`，L3，GPU 光栅）
+
+| 指标 | 修复前 | 修复后 |
+|---|---|---|
+| `clearRect(#board)` / 帧（重置后） | **2**（旧实例仍在画） | **1** |
+| `createLinearGradient` / 帧 | **63** | **0** |
+| `getBoundingClientRect` / 帧 | **2~4** | **0** |
+| 编舞窗口帧间隔 p95 / max | 33.4 / 66.7ms | **16.9 / 17.5ms** |
+| 编舞窗口掉帧率（>20ms） | 2.8~6.2% | **0%**（连续 3 次复测） |
+| 单帧脚本耗时 avg / p95 / max | — | **2.7 / 4.8 / 8.2ms**（红线 16.7ms） |
+| 空闲期 `clearRect` / 帧 | 0 | 0（rAF 正确停帧，不空转） |
+
+### 4. 新增门禁 `tools/perf-probe.js`
+
+页面内注入计数器（`Page.addScriptToEvaluateOnNewDocument`，早于所有页面脚本），逐帧记录
+`dt / cbMs / clearRect(#board,#vfx) / createLinearGradient / fill / stroke / drawImage / save / clip / getBoundingClientRect`，
+并挂 `PerformanceObserver('longtask')` 做长任务归因。断言（exit 1 即失败）：
+
+- 单轨 RAF：重置后 / 稳态 / 连续重置 3 次后 `clearRect(#board)` 均 ≤ 1.02/帧
+- 零渐变分配：`createLinearGradient` ≤ 0.05/帧
+- 零逐帧布局：`getBoundingClientRect` ≤ 0.25/帧
+- 帧预算：编舞窗口 p95 ≤ 20ms、掉帧率 ≤ 5%
+- **脚本耗时硬红线**：p95 < 16ms、max < 16.7ms（与光栅无关，是代码侧可控量）
+- 空闲停帧：无操作 2.5s 后 `clearRect(#board)` ≤ 0.02/帧
+
+**口径说明**：`--disable-gpu`（SwiftShader 软件光栅）下帧间隔 p95 会在 16.8~33.3ms 抖动，
+而脚本耗时恒定 2.6~2.9ms —— 软件光栅的填充率噪声会淹没真实回归信号。故默认走 GPU 光栅
+（真机口径），`--no-gpu` 保留为保守档。
+
+### 5. 视觉零回归
+
+- 卡面投影改为硬投影后与旧 shadow **像素等价**（同为 25% alpha / 3px 下沉）；
+  `render-selftest` 的「Bug B: 滑块改由深色投影承载对比度」断言原样通过。
+- `shots/delta27/intro-L3-n7-1003ms.png` 复核：卡牌边缘锐利、投影可见、无模糊/接缝。
+- 未触碰 `css/style.css`、`src/ui/lobby.js`、`src/ui/modals.js`、`src/audio/SoundManager.js`
+  → 大厅相框 / 设置弹窗标题 / 白瓷麻将音效 / 三消微跃 / 方向性飞行**结构性零风险**。

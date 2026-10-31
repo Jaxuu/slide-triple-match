@@ -907,6 +907,16 @@ var groupEndAt = {};        /* groupId → 演出结束时间戳（冻结窗以*
       return;
     }
 
+    /* R8 / 性能修复①：**换关前必须先销毁旧渲染器**。
+     * 原实现每次 loadLevel 直接 new 一个 renderer，旧实例的 rAF 链从未取消：
+     * 它继续以 60FPS 全量重绘同一张 #board（实测重置一次 → clearRect(#board)
+     * 2 次/帧、createLinearGradient 2×牌数；重置 4 次后画面彻底错乱）。
+     * 这是「重置关卡后严重掉帧」的直接根因——单轨 RAF 锁由 destroy() 保证。 */
+    if (renderer && renderer.destroy) {
+      try { renderer.destroy(); } catch (eRd) { /* 关停异常不得阻断换关 */ }
+    }
+    renderer = null;
+
     session = STM.GameState.createSession(currentLevel, {
       onEvent: handleSessionEvent,
       onTerminal: handleTerminal
