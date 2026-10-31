@@ -1846,3 +1846,49 @@ MUST NOT 用跨槽位移表达。
 重挂有代价——闸门若因异常永不满足，`isDealing()` 会永久为真、棋盘长期停在起始态。
 所以保留 `8000ms` 总预算做最终兜底：`armedAt` 起累计超预算 → `skipDeal()`。
 `8000ms` 的取值依据是 splash 实测 4.6s 的两倍余量——**够慢机器走完预加载，又不至于让玩家盯着空盘**。
+
+---
+
+## R7（2026-10-31）开局进场编舞回归最初实现（15 种编舞）
+
+### 1. 决策与依据
+
+R5/R6 把开局进场收敛为「垂直雨幕下落 + 微弹定格」单一模式（TILE 200 / FALL_CELL 3.0 / TARGET 400）。
+实机观感反馈该版「整盘像一堵牌墙平移下来」，缺少最初的叙事层次。本轮按 Git 考古结论
+**回退到 Δ22c 最初实现（提交 `6aab674`）**，并把 R5/R6 期间与编舞无关的时序安全网原样保留。
+
+| 项 | 最初实现（6aab674，本轮恢复） | R5/R6 垂直雨幕（本轮退役） |
+|---|---|---|
+| 模式 | 15 种空间编舞随机抽取，相邻不重复 | 唯一模式 |
+| 时序 | `delay = LEAD 180 + ord×SPREAD 340 + z×55` | `r×ROW + c×COL + z×Z_STEP`（预算反算 ROW） |
+| 单卡 | `TILE 260`，`TICK_AT 0.85` | `TILE 200`，`IMPACT_AT 0.78` |
+| 位移 | 每模式 0~120px 方向性偏移 + 格内偏移 | 纯垂直 `FALL_CELL 3.0` 卡面 |
+| 形变 | 等比/非等比缩放（0.05~1.14）+ 淡入 `a0` | 零缩放弹入 + 触底纵向挤压 |
+| 总时长 | `maxDelay + TILE`（440~1000ms） | 恒 400ms（四档极差 0） |
+
+### 2. 保留项（MUST NOT 回退）
+
+- **帧闸门 + 看门狗**：`startDeal()` 只置 `armed`，`t0` 由 `frame()` 在「可见 + 真实画完 2 帧」后写入；
+  看门狗 1200ms 复查、遮挡期**重挂**、8000ms 总预算才 `skipDeal()`。深链 `?level=N` 的 splash 实测
+  4.6s 才撤，闸门是「整段动画被遮罩吞掉」的唯一结构性防线，与编舞选型无关。
+- **越界接缝**：`drawIntroOutside()` + `#vfx-canvas` even-odd 互补裁剪 + HUD 安全线（零新增画布）。
+- **今日四项修复**：大厅相框等比缩小 / 设置弹窗标题居中（纯 CSS，零改动）、
+  目标角标白瓷麻将音效（`audio-smoke` 120 + `browser-bugtest` SC-024 ④）、
+  三消原地微跃（`chip-hop` 五段 200ms）、方向性飞行（`flight-smoke` 62 + `delta27` ②）。
+
+### 3. 门禁口径重定（全部 exit 0）
+
+`render-selftest` 356 / `deal-smoke` 103 / `delta27-verify` 129 / `flight-smoke` 62 /
+`audio-smoke` 120 / `lobby-smoke` 83 / `icon-bbox-audit` 7 / `solver` 72-72。
+`render-selftest` 由 377 → 356 是**口径替换**：删掉 31 条垂直雨幕专属断言
+（TILE/IMPACT_AT/FALL_CELL/ROW_STEP/曲线形状/首排收缩），新增 48 条 15 种编舞断言
+（规格表窗口 / 两两不同 / 同源 / 层序锁 / 起点隐形 / 收敛 / 模式锁定）。
+
+### 4. 反假绿要点
+
+| # | 陷阱 | 处置 |
+|---|---|---|
+| ① | 只断言「帧体积有变化」无法区分「位移/缩放」与「纯 alpha 淡入」 | `delta27-verify` 新增 ①b：拨时间轴读 `dealTransformAt`，断言模式 0 的 `\|dy\|≥20px`、模式 1 的 `sx<0.9`、模式 4 的 `\|dx\|≥60px` |
+| ② | `totalMs` 若仍按 400ms 断言会整段假绿 | 全部改为 `totalMs === maxDelay + TILE`（同源精确值），窗口 [440,1000] |
+| ③ | 退役常量只删实现不删导出 = 门禁读旧值 | `STM.rendererTest.INTRO` 同步替换；`introFallEase/introSquashOf/introPoseOf/introStepsOf/introDelayOf/introDealTotalMs` 全部不导出，并由 `deal-smoke` 断言 `undefined` |
+| ④ | `dealTransformAt(tileId)` 收到 `Object.keys(plan)` 的**字符串 id** | 入口做 `Number()` 归一（否则全部返回 null，断言恒红/恒绿） |

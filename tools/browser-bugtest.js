@@ -422,7 +422,7 @@ module.exports = { main: main };
  *   ① 遮罩仍可见的每一帧：`startTime ≡ null`、`armed ≡ true`、`gateFrames ≡ 0`
  *   ② 遮挡期确实发生过看门狗重挂（`watchdogRearms >= 1`）——防「静置假绿」
  *   ③ 开闸首帧：`startTime === 该帧 rAF ts`（相位 = 0，≤1%）且遮罩已撤
- *   ④ `totalMs ∈ [380,420]`；实测帧跨度 ∈ [totalMs, totalMs+40]（帧粒度上界）
+ *   ④ `totalMs === maxDelay + TILE 260`（440~1000ms）；实测帧跨度 ∈ [终点, 终点+一个帧间隔]
  *   ⑤ 帧间隔 p95 ≤20ms / max ≤34ms（headless 软件渲染下仅报告；`--strict-fps` 硬断言）
  *   ⑥ 穿模帧 = 0（逐帧断言绘制序恒 `(z,r,c)` 升序）+ 反向证据（有序帧数 > 0）
  *   ⑦ 三消窗口内 `#vfx-canvas` alpha>2 像素数恒 0
@@ -544,17 +544,15 @@ async function deepLinkDriver() {
         !!first && Math.abs(first.ts - first.st) < 0.5 && phase <= 0.01,
         first ? 'ts-start=' + (first.ts - first.st).toFixed(2) + 'ms phase=' + (phase * 100).toFixed(2) + '%' : 'n/a');
       /* ④ 总时长 */
-      check('④ totalMs ∈ [380,420]（预算值 —— dealRemainingMs 的权威口径）',
-        !!first && first.tot >= 380 && first.tot <= 420, first ? 'total=' + first.tot : 'n/a');
+      /* 15 种编舞的权威口径：totalMs = maxDelay + TILE 260（LEAD 180 + SPREAD 340 + z·55 决定 maxDelay）。
+       * 下界 = LEAD + TILE 440ms，上界 = 180+340+4×55+260 = 1000ms。 */
+      check('④ totalMs ∈ [440,1000]（maxDelay + TILE 的真实窗口）',
+        !!first && first.tot >= 440 && first.tot <= 1000, first ? 'total=' + first.tot : 'n/a');
       var span = (first && endFrame) ? (endFrame.ts - first.st) : -1;
-      /* 实际编舞终点 = 计划里最后一排起跑（`maxDelay`）+ 单牌时长 `TILE_MS`。
-       * MUST NOT 拿 `totalMs` 当终点：`totalMs = max(maxDelay + TILE, 公式值)`，
-       * 而公式按「底排满排 + 右下角取到 zMax」估算。真机实测（R6）：
-       *   L3 363.7 / L33 361.7 / L72 375.0 —— 均 < 公式 400，差 25~38ms，
-       *   根因是底排未占满（实测 maxDelay 恒为 `6 × ROW_STEP`，c/z 项没吃满）。
-       * 这是**保守高估**（`dealRemainingMs()` 只会偏长，不会提前放行），
-       * 视觉上 362ms 与 400ms 同为「约 0.4s」。 */
-      var TILE_MS = 200; /* 与 STM.rendererTest.INTRO.TILE_MS 同源（render-selftest 断言） */
+      /* 实际编舞终点 = 计划里最晚起跑（`maxDelay`）+ 单牌时长 `TILE_MS`。
+       * 15 种编舞里 `totalMs` 就定义为 `maxDelay + TILE`（无公式高估项），
+       * 故此处两条断言互为交叉验证：`totalMs === endTheo`（±1ms 帧量化）。 */
+      var TILE_MS = 260; /* 与 STM.rendererTest.INTRO.TILE_MS 同源（deal-smoke / render-selftest 断言） */
       var endTheo = first ? (first.md || 0) + TILE_MS : -1;
       /* 帧间隔（动画窗口内） */
       var iv = [];
@@ -567,11 +565,11 @@ async function deepLinkDriver() {
       var p95 = pct(iv, 0.95), mx = iv.length ? Math.max.apply(null, iv) : 0;
       console.log('  帧间隔: n=' + iv.length + ' p50=' + pct(iv, 0.5).toFixed(1) +
         'ms p95=' + p95.toFixed(1) + 'ms max=' + mx.toFixed(1) + 'ms');
-      check('④ 实际编舞终点（maxDelay + TILE）∈ [360,420]（与预算的差值见下条）',
-        !!first && endTheo >= 360 && endTheo <= 420,
+      check('④ 实际编舞终点（maxDelay + TILE）∈ [440,1000]',
+        !!first && endTheo >= 440 && endTheo <= 1000,
         'endTheo=' + endTheo.toFixed(1) + ' maxDelay=' + (first ? first.md : '-'));
-      check('④ 预算对实际终点的高估 ≤40ms（计划未被改坏的真护栏）',
-        !!first && (first.tot - endTheo) >= 0 && (first.tot - endTheo) <= 40,
+      check('④ totalMs === maxDelay + TILE（同源精确值，零高估）',
+        !!first && Math.abs(first.tot - endTheo) <= 1,
         'total=' + (first ? first.tot : '-') + ' endTheo=' + endTheo.toFixed(1) +
         ' 差=' + (first ? (first.tot - endTheo).toFixed(1) : '-'));
       check('④ 实测帧跨度 ∈ [终点, 终点 + 一个帧间隔]（结束帧即第一个 active=false 帧）',
@@ -657,7 +655,7 @@ async function deepLinkDriver() {
     ctx.c.close(); ctx.proc.kill();
     process.exit(1);
   }
-  console.log('browser-bugtest(--deep-link): all green（深链首帧零偷跑 + 三档 400ms + 零穿模 + 零 vfx 残留 + 槽框零改形）');
+  console.log('browser-bugtest(--deep-link): all green（深链首帧零偷跑 + 三档 totalMs = maxDelay + TILE + 零穿模 + 零 vfx 残留 + 槽框零改形）');
   ctx.c.close();
   ctx.proc.kill();
   process.exit(0);
